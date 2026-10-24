@@ -1,0 +1,250 @@
+from __future__ import annotations
+
+import asyncio
+import contextlib
+import json
+import os
+import signal
+import tempfile
+from pathlib import Path
+
+SENSITIVE = {".env", "api-token", "settings.json", "credentials.json", "secrets.json"}
+
+
+class Workspace:
+    def __init__(self, roots: list[str]):
+        self.roots = [Path(p).expanduser().resolve() for p in roots]
+
+    def resolve(self, value: str, *, directory=False) -> tuple[Path, Path]:
+        path = Path(value).expanduser()
+        if not path.is_absolute():
+            if not self.roots:
+                raise ValueError("Nessun workspace configurato.")
+            path = self.roots[0] / path
+        absolute = Path(os.path.abspath(path))
+        for root in self.roots:
+            if absolute.is_relative_to(root):
+                rel = absolute.relative_to(root)
+                if any(
+                    part in {".git", ".runtime", ".ssh", ".aws", ".venv", "node_modules"}
+                    for part in rel.parts
+                ):
+                    raise PermissionError("Percorso riservato o dipendenza esclusa.")
+                if any(
+                    part in SENSITIVE
+                    or part.startswith(".env.")
+                    or part.endswith((".pem", ".key", ".p12"))
+                    for part in rel.parts
+                ):
+                    raise PermissionError("File riservato: il tool non legge segreti.")
+                if not absolute.resolve().is_relative_to(root):
+                    raise PermissionError("Il symlink esce dal workspace.")
+                if directory and not absolute.is_dir():
+                    raise ValueError("Directory inesistente.")
+                return root, rel
+        raise PermissionError("Il percorso non appartiene ai workspace abilitati.")
+
+    @contextlib.contextmanager
+    def parent_fd(self, root: Path, relative: Path):
+        fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            for part in relative.parts[:-1]:
+                child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+                os.close(fd)
+                fd = child
+            yield fd
+        finally:
+            os.close(fd)
+
+    def read(self, path: str) -> str:
+        root, relative = self.resolve(path)
+        if not relative.parts:
+            raise ValueError("Indica un file.")
+        with self.parent_fd(root, relative) as parent:
+            fd = os.open(relative.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+            try:
+                import stat
+
+                info = os.fstat(fd)
+                if not stat.S_ISREG(info.st_mode) or info.st_size > 256_000:
+                    raise ValueError("Serve un file di testo regolare entro 256 KB.")
+                with os.fdopen(fd, "r", encoding="utf-8") as file:
+                    fd = -1
+                    return file.read(256_001)
+            finally:
+                if fd != -1:
+                    os.close(fd)
+
+    def write(self, path: str, content: str, expected_sha256: str | None = None) -> dict:
+        import difflib
+        import hashlib
+        import stat
+
+        if len(content.encode()) > 256_000:
+            raise ValueError("Contenuto oltre 256 KB.")
+        root, relative = self.resolve(path)
+        target = root / relative
+        old = self.read(path) if target.exists() else ""
+        old_hash = hashlib.sha256(old.encode()).hexdigest()
+        if target.exists() and expected_sha256 != old_hash:
+            raise ValueError(
+                "Il file esiste: leggi la revisione corrente e fornisci expected_sha256."
+            )
+        with self.parent_fd(root, relative) as parent:
+            mode = (
+                stat.S_IMODE(os.stat(relative.name, dir_fd=parent, follow_symlinks=False).st_mode)
+                if target.exists()
+                else 0o600
+            )
+            name = ".jarvis-write-" + os.urandom(8).hex()
+            fd = os.open(
+                name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=parent
+            )
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as file:
+                    os.fchmod(file.fileno(), mode & 0o777)
+                    file.write(content)
+                    file.flush()
+                    os.fsync(file.fileno())
+                os.replace(name, relative.name, src_dir_fd=parent, dst_dir_fd=parent)
+            finally:
+                with contextlib.suppress(FileNotFoundError):
+                    os.unlink(name, dir_fd=parent)
+        return {
+            "path": str(target),
+            "sha256": hashlib.sha256(content.encode()).hexdigest(),
+            "previous_sha256": old_hash,
+            "diff": "".join(
+                difflib.unified_diff(
+                    old.splitlines(keepends=True),
+                    content.splitlines(keepends=True),
+                    fromfile=str(target),
+                    tofile=str(target),
+                )
+            )[:16000],
+        }
+
+    def mkdir(self, path: str):
+        root, relative = self.resolve(path)
+        fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+        try:
+            for part in relative.parts:
+                try:
+                    os.mkdir(part, 0o700, dir_fd=fd)
+                except FileExistsError:
+                    pass
+                child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+                os.close(fd)
+                fd = child
+        finally:
+            os.close(fd)
+        return {"path": str(root / relative), "state": "created"}
+
+    def list(self, path: str = ".", limit=100) -> list[dict]:
+        root, relative = self.resolve(path, directory=True)
+        rows = []
+        for entry in sorted((root / relative).iterdir()):
+            try:
+                self.resolve(str(entry))
+            except PermissionError:
+                continue
+            rows.append(
+                {"name": entry.name, "directory": entry.is_dir(), "symlink": entry.is_symlink()}
+            )
+            if len(rows) >= limit:
+                break
+        return rows
+
+    def search(self, query: str, path=".", limit=50) -> list[dict]:
+        root, relative = self.resolve(path, directory=True)
+        rows = []
+        examined = 0
+        for base, directories, files in os.walk(root / relative, followlinks=False):
+            directories[:] = [
+                d
+                for d in directories
+                if not d.startswith(".")
+                and d not in {"node_modules", "dist", "build", "vendor"}
+                and not (Path(base) / d).is_symlink()
+            ]
+            for name in files:
+                examined += 1
+                if examined > 3000:
+                    return rows
+                file = Path(base) / name
+                try:
+                    content = self.read(str(file))
+                except (ValueError, PermissionError, OSError, UnicodeError):
+                    continue
+                for line_number, line in enumerate(content.splitlines(), 1):
+                    if query.casefold() in line.casefold():
+                        rows.append({"path": str(file), "line": line_number, "text": line[:500]})
+                        if len(rows) >= limit:
+                            return rows
+        return rows
+
+    async def command(self, command: str, cwd: str, mode: str, timeout: int) -> dict:
+        root, relative = self.resolve(cwd, directory=True)
+        if mode == "disabled":
+            raise PermissionError("Esecuzione comandi disabilitata.")
+        with tempfile.TemporaryDirectory(prefix="jarvis-worker-") as scratch:
+            env = {
+                "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+                "JARVIS_WORKER_DIR": scratch,
+                "TMPDIR": scratch,
+                "LANG": "en_US.UTF-8",
+                "PYTHONNOUSERSITE": "1",
+            }
+            args = ["/bin/zsh", "-f", "-c", command]
+            if mode == "sandbox":
+                if not await asyncio.to_thread(Path("/usr/bin/sandbox-exec").exists):
+                    raise PermissionError(
+                        "Sandbox macOS non disponibile; nessun fallback sull'host."
+                    )
+
+                def quoted(value):
+                    return json.dumps(str(value))
+
+                reads = " ".join(
+                    f"(subpath {quoted(p)})"
+                    for p in [
+                        "/System",
+                        "/usr",
+                        "/bin",
+                        "/sbin",
+                        "/opt/homebrew",
+                        "/Library/Developer",
+                        root,
+                        scratch,
+                    ]
+                )
+                profile = f'(version 1)(deny default)(allow process-exec)(allow process-fork)(allow sysctl-read)(allow file-read* (literal "/"))(allow file-read-metadata)(allow file-read* {reads})(allow file-write* (subpath {quoted(root)}) (subpath {quoted(scratch)}))(allow file-read* file-write* (literal "/dev/null"))(deny network*)'
+                args = ["/usr/bin/sandbox-exec", "-p", profile, *args]
+            process = await asyncio.create_subprocess_exec(
+                *args,
+                cwd=root / relative,
+                env=env,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+                start_new_session=True,
+            )
+            output = bytearray()
+            try:
+                async with asyncio.timeout(timeout):
+                    assert process.stdout
+                    while chunk := await process.stdout.read(8192):
+                        output.extend(chunk)
+                        if len(output) > 65536:
+                            raise ValueError("Output oltre 64 KB: comando interrotto.")
+                    await process.wait()
+            finally:
+                if process.returncode is None:
+                    with contextlib.suppress(ProcessLookupError):
+                        os.killpg(process.pid, signal.SIGKILL)
+                    await process.wait()
+            return {
+                "exit_code": process.returncode,
+                "output": output.decode(errors="replace"),
+                "cwd": str(root / relative),
+                "isolation": mode,
+            }

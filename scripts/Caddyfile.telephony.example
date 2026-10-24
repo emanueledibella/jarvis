@@ -1,0 +1,11 @@
+# Esempio per Caddy installato separatamente. Sostituisci il dominio con il tuo.
+# Non pubblicare /api, /assets o la dashboard.
+phone.example.com {
+    @phone path /telephony/voice /telephony/status /telephony/media
+    handle @phone {
+        reverse_proxy 127.0.0.1:8765
+    }
+    handle {
+        respond "Not found" 404
+    }
+}
