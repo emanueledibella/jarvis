@@ -114,10 +114,10 @@ def main():
         environment = {
             key: value
             for key, value in os.environ.items()
-            if key
+            if key.upper()
             in {
                 "PATH",
-                "SystemRoot",
+                "SYSTEMROOT",
                 "WINDIR",
                 "PATHEXT",
                 "HOME",
