@@ -11,6 +11,7 @@ from fastmcp.client.auth import OAuth
 from fastmcp.client.transports import StdioTransport
 
 from .config import ConfigStore
+from .platforms import process_environment
 
 
 def oauth_store(directory):
@@ -79,7 +80,7 @@ class MCPHub:
         self.allowed(spec, profile)
         if spec.get("command"):
             minimal = {
-                "PATH": os.getenv("PATH", "/usr/bin:/bin"),
+                **process_environment(),
                 "JARVIS_MCP_DIR": str(self.config.data_dir / "mcp" / name),
             }
             Path(minimal["JARVIS_MCP_DIR"]).mkdir(parents=True, exist_ok=True, mode=0o700)

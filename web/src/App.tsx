@@ -253,6 +253,7 @@ export default function App() {
       ])
     : messages;
   const voiceState = status.native?.voice_state || "unavailable";
+  const portableText = status.platform?.native_voice === false;
   const orbState =
     voiceState === "muted" && activeTasks.some((t) => t.state === "running")
       ? "processing"
@@ -297,6 +298,12 @@ export default function App() {
     }
   }
   async function native(action: string) {
+    if (portableText) {
+      notify(
+        "Desktop voice requires the native macOS app. Use text on this platform.",
+      );
+      return;
+    }
     if (!status.native?.connected) {
       openSettings("voice");
       notify(
@@ -397,7 +404,7 @@ export default function App() {
             <button
               className="icon-btn"
               aria-label="Talk to Jarvis"
-              disabled={!privacyReady}
+              disabled={!privacyReady || portableText}
               onClick={() => native("listen")}
             >
               <Mic size={17} />
@@ -616,7 +623,7 @@ export default function App() {
             </span>
             <div>
               <strong>Your workspace</strong>
-              <small>Personal Mac</small>
+              <small>{portableText ? "Local computer" : "Personal Mac"}</small>
             </div>
             <ShieldCheck size={14} />
           </div>
@@ -706,24 +713,40 @@ export default function App() {
               className={
                 "mic-status " + (status.native?.muted ? "muted-mic" : "")
               }
-              onClick={() => native(status.native?.muted ? "unmute" : "mute")}
+              onClick={() =>
+                portableText
+                  ? newChat()
+                  : native(status.native?.muted ? "unmute" : "mute")
+              }
               aria-label={
-                status.native?.muted ? "Unmute microphone" : "Mute microphone"
+                portableText
+                  ? "Open text conversation"
+                  : status.native?.muted
+                    ? "Unmute microphone"
+                    : "Mute microphone"
               }
             >
-              {status.native?.muted ? <MicOff size={14} /> : <Mic size={14} />}
+              {portableText ? (
+                <MessageSquare size={14} />
+              ) : status.native?.muted ? (
+                <MicOff size={14} />
+              ) : (
+                <Mic size={14} />
+              )}
               <span>
-                {status.native?.connected
-                  ? status.native?.muted
-                    ? "Microphone off"
-                    : ["unavailable", "permission_required"].includes(
-                          voiceState,
-                        )
-                      ? "Voice unavailable"
-                      : voiceState === "recovering"
-                        ? "Recovering voice…"
-                        : "Voice active"
-                  : "Voice needs activation"}
+                {portableText
+                  ? "Text mode"
+                  : status.native?.connected
+                    ? status.native?.muted
+                      ? "Microphone off"
+                      : ["unavailable", "permission_required"].includes(
+                            voiceState,
+                          )
+                        ? "Voice unavailable"
+                        : voiceState === "recovering"
+                          ? "Recovering voice…"
+                          : "Voice active"
+                    : "Voice needs activation"}
               </span>
             </button>
           </div>
@@ -887,6 +910,7 @@ export default function App() {
           )}{" "}
           {page === "settings" && (
             <Settings
+              platform={status.platform}
               key={settingsSection}
               initial={settingsSection}
               notify={notify}

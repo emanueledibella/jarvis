@@ -23,11 +23,13 @@ import {
 } from "./components";
 
 type Props = {
+  platform?: Json;
   notify: (text: string, error?: boolean) => void;
   onSaved: () => void;
   initial?: string;
 };
 export default function Settings({
+  platform,
   notify,
   onSaved,
   initial = "models",
@@ -406,6 +408,13 @@ export default function Settings({
                 </p>
               </div>
             </div>
+            {platform?.native_voice === false && (
+              <p className="info-line">
+                This portable build supports text conversations. Native wake
+                detection and desktop audio are available in the macOS app.
+                Telephony is configured separately.
+              </p>
+            )}
             {toggle("voice_enabled", "Enable voice")}
             {toggle("wake_enabled", "Voice activation")}
             {field(

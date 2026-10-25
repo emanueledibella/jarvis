@@ -5,8 +5,11 @@ import contextlib
 import json
 import os
 import signal
+import sys
 import tempfile
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
+
+from .platforms import process_environment
 
 SENSITIVE = {".env", "api-token", "settings.json", "credentials.json", "secrets.json"}
 
@@ -25,15 +28,22 @@ class Workspace:
         for root in self.roots:
             if absolute.is_relative_to(root):
                 rel = absolute.relative_to(root)
+                if os.name == "nt" and any(
+                    ":" in part or part.rstrip(" .") != part or PureWindowsPath(part).is_reserved()
+                    for part in rel.parts
+                ):
+                    raise PermissionError(
+                        "Windows device names, alternate streams and ambiguous paths are not allowed."
+                    )
                 if any(
-                    part in {".git", ".runtime", ".ssh", ".aws", ".venv", "node_modules"}
+                    part.casefold() in {".git", ".runtime", ".ssh", ".aws", ".venv", "node_modules"}
                     for part in rel.parts
                 ):
                     raise PermissionError("Restricted path or excluded dependency.")
                 if any(
-                    part in SENSITIVE
-                    or part.startswith(".env.")
-                    or part.endswith((".pem", ".key", ".p12"))
+                    part.casefold() in SENSITIVE
+                    or part.casefold().startswith(".env.")
+                    or part.casefold().endswith((".pem", ".key", ".p12"))
                     for part in rel.parts
                 ):
                     raise PermissionError("Restricted file: the tool does not read secrets.")
@@ -60,6 +70,10 @@ class Workspace:
         root, relative = self.resolve(path)
         if not relative.parts:
             raise ValueError("Specify a file.")
+        if os.name == "nt":
+            from .windows import read_text
+
+            return read_text(root / relative)
         with self.parent_fd(root, relative) as parent:
             fd = os.open(relative.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
             try:
@@ -76,7 +90,6 @@ class Workspace:
                     os.close(fd)
 
     def write(self, path: str, content: str, expected_sha256: str | None = None) -> dict:
-        import difflib
         import hashlib
         import stat
 
@@ -90,6 +103,21 @@ class Workspace:
             raise ValueError(
                 "The file exists: read its current revision and supply expected_sha256."
             )
+        if os.name == "nt":
+            from .windows import locked_directory, replace_file
+
+            with locked_directory(target.parent):
+                fd, name = tempfile.mkstemp(prefix=".jarvis-write-", dir=target.parent)
+                try:
+                    with os.fdopen(fd, "w", encoding="utf-8") as file:
+                        file.write(content)
+                        file.flush()
+                        os.fsync(file.fileno())
+                    replace_file(Path(name), target)
+                finally:
+                    with contextlib.suppress(FileNotFoundError):
+                        os.unlink(name)
+            return self.write_result(target, old, content, old_hash)
         with self.parent_fd(root, relative) as parent:
             mode = (
                 stat.S_IMODE(os.stat(relative.name, dir_fd=parent, follow_symlinks=False).st_mode)
@@ -110,6 +138,13 @@ class Workspace:
             finally:
                 with contextlib.suppress(FileNotFoundError):
                     os.unlink(name, dir_fd=parent)
+        return self.write_result(target, old, content, old_hash)
+
+    @staticmethod
+    def write_result(target, old, content, old_hash):
+        import difflib
+        import hashlib
+
         return {
             "path": str(target),
             "sha256": hashlib.sha256(content.encode()).hexdigest(),
@@ -126,6 +161,17 @@ class Workspace:
 
     def mkdir(self, path: str):
         root, relative = self.resolve(path)
+        if os.name == "nt":
+            from .windows import locked_directory
+
+            with contextlib.ExitStack() as locks:
+                locks.enter_context(locked_directory(root))
+                current = root
+                for part in relative.parts:
+                    current = current / part
+                    current.mkdir(exist_ok=True)
+                    locks.enter_context(locked_directory(current))
+            return {"path": str(root / relative), "state": "created"}
         fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         try:
             for part in relative.parts:
@@ -166,6 +212,7 @@ class Workspace:
                 if not d.startswith(".")
                 and d not in {"node_modules", "dist", "build", "vendor"}
                 and not (Path(base) / d).is_symlink()
+                and not (os.name == "nt" and (Path(base) / d).is_junction())
             ]
             for name in files:
                 examined += 1
@@ -189,15 +236,27 @@ class Workspace:
             raise PermissionError("Command execution is disabled.")
         with tempfile.TemporaryDirectory(prefix="jarvis-worker-") as scratch:
             env = {
-                "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
+                **process_environment(),
                 "JARVIS_WORKER_DIR": scratch,
                 "TMPDIR": scratch,
                 "LANG": "en_US.UTF-8",
                 "PYTHONNOUSERSITE": "1",
             }
-            args = ["/bin/zsh", "-f", "-c", command]
+            env["TEMP"] = env["TMP"] = scratch
+            if os.name == "nt":
+                from .windows import system_executable
+
+                args = [system_executable("cmd.exe"), "/d", "/s", "/c", command]
+            else:
+                args = (
+                    ["/bin/zsh", "-f", "-c", command]
+                    if sys.platform == "darwin"
+                    else ["/bin/sh", "-c", command]
+                )
             if mode == "sandbox":
-                if not await asyncio.to_thread(Path("/usr/bin/sandbox-exec").exists):
+                if sys.platform != "darwin" or not await asyncio.to_thread(
+                    Path("/usr/bin/sandbox-exec").exists
+                ):
                     raise PermissionError(
                         "The macOS sandbox is unavailable; there is no host fallback."
                     )
@@ -214,19 +273,23 @@ class Workspace:
                         "/sbin",
                         "/opt/homebrew",
                         "/Library/Developer",
+                        sys.base_prefix,
                         root,
                         scratch,
                     ]
                 )
                 profile = f'(version 1)(deny default)(allow process-exec)(allow process-fork)(allow sysctl-read)(allow file-read* (literal "/"))(allow file-read-metadata)(allow file-read* {reads})(allow file-write* (subpath {quoted(root)}) (subpath {quoted(scratch)}))(allow file-read* file-write* (literal "/dev/null"))(deny network*)'
                 args = ["/usr/bin/sandbox-exec", "-p", profile, *args]
+            process_options = (
+                {"creationflags": 0x200} if os.name == "nt" else {"start_new_session": True}
+            )
             process = await asyncio.create_subprocess_exec(
                 *args,
                 cwd=root / relative,
                 env=env,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
-                start_new_session=True,
+                **process_options,
             )
             output = bytearray()
             try:
@@ -240,7 +303,21 @@ class Workspace:
             finally:
                 if process.returncode is None:
                     with contextlib.suppress(ProcessLookupError):
-                        os.killpg(process.pid, signal.SIGKILL)
+                        if os.name == "nt":
+                            killer = await asyncio.create_subprocess_exec(
+                                system_executable("taskkill.exe"),
+                                "/PID",
+                                str(process.pid),
+                                "/T",
+                                "/F",
+                                stdout=asyncio.subprocess.DEVNULL,
+                                stderr=asyncio.subprocess.DEVNULL,
+                            )
+                            await asyncio.wait_for(killer.wait(), 5)
+                            if process.returncode is None:
+                                process.kill()
+                        else:
+                            os.killpg(process.pid, signal.SIGKILL)
                     await process.wait()
             return {
                 "exit_code": process.returncode,

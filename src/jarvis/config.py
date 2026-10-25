@@ -4,6 +4,7 @@ import json
 import os
 import secrets
 import subprocess
+import sys
 from pathlib import Path
 from typing import Annotated, Literal
 from zoneinfo import ZoneInfo
@@ -11,9 +12,17 @@ from zoneinfo import ZoneInfo
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
+from .platforms import (
+    SOURCE_ROOT,
+    data_directory,
+    default_env_file,
+    frozen,
+    protect_path,
+    ui_directory,
+)
 from .voice_style import ITALIAN_COMPANION
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = SOURCE_ROOT
 Profile = Literal["local_strict", "local_connected", "cloud", "hybrid"]
 
 
@@ -21,9 +30,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="JARVIS_", extra="ignore", env_file_encoding="utf-8"
     )
-    data_dir: Path = Field(
-        default_factory=lambda: Path.home() / "Library/Application Support/Jarvis"
-    )
+    data_dir: Path = Field(default_factory=data_directory)
     api_host: str = "127.0.0.1"
     api_port: int = Field(default=8765, ge=1024, le=65535)
     timezone: str = "Europe/Rome"
@@ -50,7 +57,9 @@ class Settings(BaseSettings):
     max_parallel_tasks: int = Field(default=2, ge=1, le=8)
     task_timeout_seconds: int = Field(default=1800, ge=30, le=14400)
     tool_timeout_seconds: int = Field(default=30, ge=1, le=600)
-    workspace_roots: Annotated[list[str], NoDecode] = Field(default_factory=lambda: [str(ROOT)])
+    workspace_roots: Annotated[list[str], NoDecode] = Field(
+        default_factory=lambda: [] if frozen() else [str(ROOT)]
+    )
     command_execution: Literal["disabled", "approval", "sandbox"] = "approval"
     command_timeout_seconds: int = Field(default=120, ge=1, le=600)
     mcp_config_path: Path | None = None
@@ -115,7 +124,7 @@ class Settings(BaseSettings):
     phone_tts_voice: str = "onyx"
     phone_local_tts_voice: str = ""
     phone_local_stt_model: str = "small"
-    ui_dir: Path = ROOT / "web/dist"
+    ui_dir: Path = Field(default_factory=ui_directory)
 
     @field_validator("data_dir", "ui_dir", "mcp_config_path", mode="before")
     @classmethod
@@ -194,6 +203,10 @@ class Settings(BaseSettings):
         value = getattr(self, field)
         raw = value.get_secret_value() if isinstance(value, SecretStr) else str(value)
         if raw.startswith("keychain:"):
+            if sys.platform != "darwin":
+                raise ValueError(
+                    "macOS Keychain references are unavailable on this OS. Configure a key locally in Settings or the environment."
+                )
             result = subprocess.run(
                 ["/usr/bin/security", "find-generic-password", "-s", "Jarvis", "-a", raw[9:], "-w"],
                 capture_output=True,
@@ -219,12 +232,14 @@ class Settings(BaseSettings):
 
 class ConfigStore:
     def __init__(self, env_file: str | Path | None = None, data_dir: Path | None = None):
-        self.env_file = Path(env_file or os.getenv("JARVIS_ENV_FILE", ROOT / ".env"))
+        self.env_file = Path(env_file or os.getenv("JARVIS_ENV_FILE", default_env_file()))
         base = Settings(_env_file=self.env_file)
         self.data_dir = (data_dir or base.data_dir).expanduser().resolve()
         self.data_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-        self.data_dir.chmod(0o700)
+        protect_path(self.data_dir, directory=True)
         self.path = self.data_dir / "settings.json"
+        if self.path.exists():
+            protect_path(self.path)
         self.settings = self.load()
         self.token_path = self.data_dir / "api-token"
         try:
@@ -233,7 +248,7 @@ class ConfigStore:
                 file.write(secrets.token_urlsafe(48))
         except FileExistsError:
             pass
-        self.token_path.chmod(0o600)
+        protect_path(self.token_path)
         self.token = self.token_path.read_text().strip()
         if len(self.token) < 32:
             raise ValueError("Invalid local API token; remove its file to regenerate it.")
@@ -263,6 +278,7 @@ class ConfigStore:
             file.flush()
             os.fsync(file.fileno())
         temp.replace(self.path)
+        protect_path(self.path)
         self.settings = self.load()
         return self.settings
 

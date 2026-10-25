@@ -19,7 +19,14 @@ def main():
     os.environ["LANGCHAIN_TRACING_V2"] = "false"
     parser = argparse.ArgumentParser(prog="jarvis", description="Jarvis personal assistant")
     parser.add_argument("--env-file")
-    sub = parser.add_subparsers(dest="command", required=True)
+    parser.add_argument("--version", action="version", version="Jarvis 0.1.0")
+    sub = parser.add_subparsers(dest="command")
+    desktop = sub.add_parser(
+        "desktop", help="Start the portable service and open its dashboard (default)"
+    )
+    desktop.add_argument(
+        "--no-browser", action="store_true", help="Start without opening a browser"
+    )
     sub.add_parser("serve", help="Start the local service")
     sub.add_parser("status", help="Service status")
     sub.add_parser("doctor", help="Diagnostics and configuration without secrets")
@@ -37,11 +44,21 @@ def main():
     config_parser.add_argument("key", nargs="?")
     config_parser.add_argument("value", nargs="?")
     args = parser.parse_args()
+    args.command = args.command or "desktop"
     config = ConfigStore(args.env_file)
     url = f"http://127.0.0.1:{config.settings.api_port}"
     if args.command == "desktop-info":
         # Private IPC with the native launcher, never used by a public HTTP endpoint.
         print(json.dumps({"url": url, "token": config.token, "data_dir": str(config.data_dir)}))
+        return
+    if args.command == "desktop":
+        from .desktop import launch
+
+        try:
+            launch(config, browser=not getattr(args, "no_browser", False))
+        except (ValueError, RuntimeError, httpx.HTTPError) as error:
+            print(str(error), file=sys.stderr)
+            raise SystemExit(1) from None
         return
     if args.command == "serve":
         import uvicorn

@@ -116,7 +116,6 @@ async def test_retention_removes_task_content_and_checkpoints(runtime, monkeypat
 
 
 async def test_calendar_rotation_survives_restart_with_env_seed(config, monkeypatch):
-    import os
 
     import httpx
 
@@ -153,4 +152,6 @@ async def test_calendar_rotation_survives_restart_with_env_seed(config, monkeypa
     assert await Productivity(config, None).calendar_token() == "access-2"
     assert seen == ["original-env-token", "rotated-1"]
     assert config.settings.secret("calendar_refresh_token") == "original-env-token"
-    assert os.stat(config.data_dir / "calendar-oauth.json").st_mode & 0o777 == 0o600
+    from test_platforms import assert_private_file
+
+    assert_private_file(config.data_dir / "calendar-oauth.json")

@@ -12,6 +12,7 @@ import {
   Code2,
   Computer,
   Layers3,
+  MessageSquare,
   Mic,
   Search,
   ShieldCheck,
@@ -142,6 +143,7 @@ export default function CommandCenter({
   const activeTasks = tasks.filter((t) =>
     ["queued", "running", "waiting_user"].includes(t.state),
   );
+  const portableText = status.platform?.native_voice === false;
   const routines = schedules.filter((s) => s.enabled);
   const memoryConnected = status.memory?.connection === "connected";
   const mcp = Object.values(status.mcp || {}) as Json[];
@@ -193,7 +195,8 @@ export default function CommandCenter({
         >
           <header className="hud-heading">
             <span>
-              <AudioLines size={14} /> VOICE & PRESENCE
+              <AudioLines size={14} />{" "}
+              {portableText ? "ASSISTANT CORE" : "VOICE & PRESENCE"}
             </span>
             <span className="panel-index">01 / CORE</span>
           </header>
@@ -201,7 +204,11 @@ export default function CommandCenter({
             <div className="core-copy">
               <span className="core-kicker">
                 <span className={"tiny-dot " + (!voiceReady ? "off" : "")} />
-                {voiceReady ? "A VOICE WITHIN REACH" : "READY TO CONNECT"}
+                {portableText
+                  ? "TEXT CONVERSATION"
+                  : voiceReady
+                    ? "A VOICE WITHIN REACH"
+                    : "READY TO CONNECT"}
               </span>
               <h2>
                 A little more
@@ -211,15 +218,29 @@ export default function CommandCenter({
                 Your ideas, the right context,
                 <br className="desktop-break" /> and a way forward.
               </p>
-              <button className="btn primary talk-button" onClick={onListen}>
-                <Mic size={15} /> Talk to Jarvis <span>⌘ ⇧ J</span>
+              <button
+                className="btn primary talk-button"
+                onClick={portableText ? onNewChat : onListen}
+              >
+                {portableText ? <MessageSquare size={15} /> : <Mic size={15} />}{" "}
+                {portableText ? "Start a conversation" : "Talk to Jarvis"}{" "}
+                {!portableText && <span>⌘ ⇧ J</span>}
               </button>
               <button className="text-btn core-chat" onClick={onNewChat}>
                 Or start with a message <ArrowUpRight size={13} />
               </button>
             </div>
             <div className="core-visual">
-              <Orb state={orbState} level={level} />
+              <Orb
+                state={
+                  portableText
+                    ? activeTasks.some((t) => t.state === "running")
+                      ? "processing"
+                      : "text_ready"
+                    : orbState
+                }
+                level={level}
+              />
             </div>
           </div>
           <div className="core-footnote">
@@ -230,8 +251,11 @@ export default function CommandCenter({
                 : "Voice settings under your control"}
             </span>
             <VoiceSignal level={level} />
-            <button onClick={() => onSettings("voice")}>
-              Voice settings <ChevronRight size={11} />
+            <button
+              onClick={() => onSettings(portableText ? "models" : "voice")}
+            >
+              {portableText ? "Model settings" : "Voice settings"}{" "}
+              <ChevronRight size={11} />
             </button>
           </div>
         </section>
@@ -548,7 +572,10 @@ export default function CommandCenter({
           {selectedModel(status)}
         </span>
         <span>
-          <ShieldCheck size={11} /> Your Mac. Your controls.
+          <ShieldCheck size={11} />{" "}
+          {portableText
+            ? "Your computer. Your controls."
+            : "Your Mac. Your controls."}
         </span>
       </footer>
     </div>

@@ -9,6 +9,7 @@ import json
 import math
 import re
 import secrets
+import sys
 import tempfile
 import time
 import wave
@@ -338,6 +339,10 @@ class Telephony:
                 .astype("<i2")
             )
             return encode_mulaw(pcm)
+        if sys.platform != "darwin":
+            raise ValueError(
+                "Local Apple phone synthesis requires macOS. Configure an OpenAI phone API key on Windows or Linux."
+            )
         with tempfile.TemporaryDirectory(prefix="jarvis-tts-") as directory:
             aiff, wav = Path(directory) / "voice.aiff", Path(directory) / "voice.wav"
             args = ["/usr/bin/say", "-o", str(aiff)]

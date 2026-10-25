@@ -12,6 +12,7 @@ from .db import Database, now
 from .integrations import MCPHub, NativeBridge
 from .live_voice import LiveVoice
 from .memory import Memory
+from .platforms import ServiceLock, capabilities
 from .policy import Gateway
 from .productivity import Productivity
 from .scheduler import Scheduler
@@ -43,16 +44,9 @@ class Runtime:
 
     async def start(self, *, scheduler=True, process_lock=True):
         if process_lock:
-            import fcntl
-
             self.lock_file = await asyncio.to_thread(
-                open, self.config.data_dir / "service.lock", "a+"
+                ServiceLock, self.config.data_dir / "service.lock"
             )
-            try:
-                fcntl.flock(self.lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except OSError:
-                self.lock_file.close()
-                raise RuntimeError("Another Jarvis instance owns this data directory.") from None
         await self.db.open()
         voice = await self.db.fetchone("SELECT value FROM controls WHERE name='voice_session'")
         self.voice_session = (
@@ -102,6 +96,7 @@ class Runtime:
         ready, missing = self.telephony.ready()
         return {
             "version": "0.1.0",
+            "platform": capabilities(),
             "emergency_stop": self.gateway.blocked,
             "state": "ready",
             "uptime_seconds": int(time.monotonic() - self.started_at),
@@ -127,7 +122,7 @@ class Runtime:
             },
             "mcp": self.mcp.statuses,
             "timezone": settings.timezone,
-            "availability": "The service requires an awake Mac and an active user session.",
+            "availability": "The service requires an awake computer and a running Jarvis process.",
         }
 
     async def set_voice_session(self, private: bool, scope: str):

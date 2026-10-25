@@ -99,7 +99,7 @@ async def test_approval_interrupt_resume_and_no_duplicate_command(runtime, tmp_p
     monkeypatch.setattr(
         runtime.tasks,
         "model",
-        model_factory("workspace_command", {"command": "printf approved", "cwd": "."}),
+        model_factory("workspace_command", {"command": "echo approved", "cwd": "."}),
     )
     task = await runtime.tasks.create("Esegui il comando")
     await runtime.tasks.running[task["id"]]
@@ -217,9 +217,9 @@ async def test_checkpoint_approval_survives_service_restart(config, tmp_path, mo
     monkeypatch.setattr(
         before.tasks,
         "model",
-        model_factory("workspace_command", {"command": "printf resumed", "cwd": "."}),
+        model_factory("workspace_command", {"command": "echo resumed", "cwd": "."}),
     )
-    task = await before.tasks.create("Esegui printf resumed")
+    task = await before.tasks.create("Esegui echo resumed")
     await before.tasks.running[task["id"]]
     approval = await before.db.fetchone("SELECT * FROM approvals")
     assert (await before.db.fetchone("SELECT state FROM tasks"))["state"] == "waiting_user"
@@ -229,7 +229,7 @@ async def test_checkpoint_approval_survives_service_restart(config, tmp_path, mo
     monkeypatch.setattr(
         after.tasks,
         "model",
-        model_factory("workspace_command", {"command": "printf resumed", "cwd": "."}),
+        model_factory("workspace_command", {"command": "echo resumed", "cwd": "."}),
     )
     try:
         await after.gateway.decide(approval["id"], True)
@@ -254,12 +254,12 @@ async def test_submission_retry_reuses_task_and_executes_effect_once(
     monkeypatch.setattr(
         runtime.tasks,
         "model",
-        model_factory("workspace_command", {"command": "printf once", "cwd": "."}),
+        model_factory("workspace_command", {"command": "echo once", "cwd": "."}),
     )
     key = uid()
     replies = await asyncio.gather(
         *(
-            runtime.tasks.create("Esegui printf once", request_id=key, external_authorized=True)
+            runtime.tasks.create("Esegui echo once", request_id=key, external_authorized=True)
             for _ in range(5)
         )
     )
@@ -269,9 +269,7 @@ async def test_submission_retry_reuses_task_and_executes_effect_once(
     assert len(await runtime.db.fetchall("SELECT * FROM tasks")) == 1
     assert len(await runtime.db.fetchall("SELECT * FROM messages WHERE role='user'")) == 1
     assert len(await runtime.db.fetchall("SELECT * FROM effects WHERE state='succeeded'")) == 1
-    retry = await runtime.tasks.create(
-        "Esegui printf once", request_id=key, external_authorized=True
-    )
+    retry = await runtime.tasks.create("Esegui echo once", request_id=key, external_authorized=True)
     assert retry["state"] == "succeeded" and key not in runtime.tasks.running
 
 

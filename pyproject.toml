@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "jarvis-personal"
 version = "0.1.0"
-description = "Personal macOS assistant with agents, voice, MCP tools, and verifiable memory."
+description = "Personal assistant with agents, MCP tools and a portable dashboard, plus native macOS voice."
 requires-python = ">=3.12,<3.14"
 dependencies = [
   "fastapi==0.162.0",
@@ -30,11 +30,13 @@ dependencies = [
   "numpy>=2,<3",
   "icalendar>=6,<8",
   "recurring-ical-events==3.8.2",
+  "tzdata==2026.5",
 ]
 
 [project.optional-dependencies]
 voice = ["faster-whisper==1.2.1"]
 dev = ["pytest==9.1.1", "pytest-asyncio==1.4.0", "ruff==0.17.2"]
+build = ["pyinstaller==6.22.3", "Pillow>=11,<13"]
 
 [project.scripts]
 jarvis = "jarvis.cli:main"

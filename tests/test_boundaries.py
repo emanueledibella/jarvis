@@ -157,8 +157,14 @@ def test_config_precedence_and_secret_redaction(tmp_path, monkeypatch):
     assert c.load().local_model == "from-process"
     assert c.settings.public()["cloud_api_key"] == ""
     assert c.settings.public()["cloud_api_key_configured"] is True
-    assert os.stat(c.path).st_mode & 0o777 == 0o600
-    assert os.stat(c.token_path).st_mode & 0o777 == 0o600
+    if os.name == "nt":
+        import subprocess
+
+        permissions = subprocess.check_output(["icacls", str(c.token_path)], text=True)
+        assert "Everyone" not in permissions and "BUILTIN\\Users" not in permissions
+    else:
+        assert os.stat(c.path).st_mode & 0o777 == 0o600
+        assert os.stat(c.token_path).st_mode & 0o777 == 0o600
     assert "local_model" in c.locked_fields()
 
 
@@ -242,14 +248,20 @@ def test_workspace_secrets_symlinks_and_optimistic_write(tmp_path):
 
 async def test_commands_do_not_inherit_provider_secrets(tmp_path, monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "never-inherit-this")
-    result = await Workspace([str(tmp_path)]).command("env", ".", "approval", 5)
+    result = await Workspace([str(tmp_path)]).command(
+        "set" if os.name == "nt" else "env", ".", "approval", 5
+    )
     assert "never-inherit-this" not in result["output"]
     assert "OPENAI_API_KEY" not in result["output"]
 
 
 async def test_command_timeout_kills_worker(tmp_path):
     with pytest.raises(TimeoutError):
-        await Workspace([str(tmp_path)]).command("sleep 10", ".", "approval", 1)
+        from test_platforms import python_command
+
+        await Workspace([str(tmp_path)]).command(
+            python_command("import time; time.sleep(10)"), ".", "approval", 1
+        )
 
 
 async def test_macos_sandbox_runs_python_and_denies_external_file_and_network(tmp_path):

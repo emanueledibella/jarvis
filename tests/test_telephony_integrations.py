@@ -242,7 +242,7 @@ async def test_phone_dtmf_approves_only_the_proposal_read_back(runtime, tmp_path
     monkeypatch.setattr(
         runtime.tasks,
         "model",
-        model_factory("workspace_command", {"command": "printf approved", "cwd": "."}),
+        model_factory("workspace_command", {"command": "echo approved", "cwd": "."}),
     )
     utterances = []
 
@@ -251,7 +251,7 @@ async def test_phone_dtmf_approves_only_the_proposal_read_back(runtime, tmp_path
         return b""
 
     async def stt(samples):
-        return "Esegui il comando printf approved"
+        return "Esegui il comando echo approved"
 
     monkeypatch.setattr(runtime.telephony, "tts", tts)
     monkeypatch.setattr(runtime.telephony, "stt", stt)
@@ -306,7 +306,7 @@ async def test_phone_dtmf_approves_only_the_proposal_read_back(runtime, tmp_path
                 if row and any("Press one" in text for text in utterances):
                     break
                 await asyncio.sleep(0.01)
-            assert row and "printf approved" in next(
+            assert row and "echo approved" in next(
                 text for text in utterances if "Press one" in text
             )
             assert not await runtime.db.fetchall("SELECT * FROM effects")

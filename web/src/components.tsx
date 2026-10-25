@@ -222,6 +222,7 @@ export function Orb({
   small?: boolean;
 }) {
   const descriptions: Record<string, [string, string]> = {
+    text_ready: ["Ready to help.", "Write a request to begin."],
     armed: ["I am here.", "Say “Jarvis” to begin."],
     listening: [
       "I am listening.",

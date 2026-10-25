@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import hmac
 import json
+import re
 import time
 from contextlib import asynccontextmanager
 from typing import Literal
@@ -135,8 +136,15 @@ def create_app(
         return JSONResponse({"detail": str(error)[:1000]}, status_code=403)
 
     @app.get("/health")
-    async def health():
-        return {"status": "ok", "service": "jarvis", "version": "0.1.0"}
+    async def health(challenge: str = ""):
+        result = {"status": "ok", "service": "jarvis", "version": "0.1.0"}
+        if challenge:
+            from .desktop import health_proof
+
+            if not re.fullmatch(r"[A-Za-z0-9_-]{16,128}", challenge):
+                raise ValueError("Invalid health challenge.")
+            result["proof"] = health_proof(config.token, config.settings.api_port, challenge)
+        return result
 
     @app.get("/api/status")
     async def status():
