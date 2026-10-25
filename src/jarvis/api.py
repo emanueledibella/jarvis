@@ -9,7 +9,7 @@ from typing import Literal
 from urllib.parse import urlsplit
 from uuid import UUID
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, WebSocket
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -50,6 +50,9 @@ class NativeStatus(BaseModel):
     error: str | None = None
     muted: bool = True
     locked: bool = False
+    input_buffers: int = Field(default=0, ge=0)
+    recognition_callbacks: int = Field(default=0, ge=0)
+    wake_matches: int = Field(default=0, ge=0)
 
 
 def create_app(
@@ -160,6 +163,18 @@ def create_app(
             )
         }
         config.update(changes)
+        if any(
+            key in changes
+            for key in (
+                "profile",
+                "voice_enabled",
+                "desktop_voice_provider",
+                "desktop_voice_model",
+                "desktop_voice_name",
+                "desktop_voice_duplex",
+            )
+        ):
+            runtime.live_voice.stop_all()
         if changes.get("profile") == "local_strict":
             for key in list(runtime.tasks.running):
                 context = runtime.tasks.contexts.get(key)
@@ -533,10 +548,10 @@ def create_app(
         return await runtime.integrations()
 
     @app.post("/api/integrations/{name}/connect")
-    async def connect_integration(name: str):
+    async def connect_integration(name: str, interactive: bool = True):
         if name not in runtime.mcp.specs():
             raise ValueError("Server non configurato.")
-        return await runtime.connect(name)
+        return await runtime.connect(name, interactive=interactive)
 
     @app.put("/api/integrations/mcp/config")
     async def mcp_configuration(data: dict):
@@ -587,6 +602,10 @@ def create_app(
             raise ValueError("Azione nativa non ammessa.")
         if runtime.gateway.blocked and operation in {"enable", "unmute", "listen"}:
             raise PermissionError("Arresto di emergenza attivo: riabilita prima il servizio.")
+        if not config.settings.voice_enabled and operation in {"enable", "unmute", "listen"}:
+            raise PermissionError(
+                "Il percorso vocale è disattivato. Abilitalo nelle impostazioni Voce."
+            )
         arguments = (
             {k: runtime.voice_session[k] for k in ("private", "scope")}
             if operation == "listen" and runtime.voice_session["private"] is not None
@@ -614,6 +633,10 @@ def create_app(
     @app.get("/api/voice/session")
     async def current_voice_session():
         return runtime.voice_session
+
+    @app.websocket("/api/voice/live")
+    async def live_voice(websocket: WebSocket):
+        await runtime.live_voice.endpoint(websocket)
 
     @app.post("/api/voice/session")
     async def voice_session(data: dict):
@@ -668,6 +691,12 @@ def create_app(
                 "listen_timeout_seconds": config.settings.listen_timeout_seconds,
                 "tts_voice": config.settings.tts_voice,
                 "voice_on_lock_screen": config.settings.voice_on_lock_screen,
+                "privacy_revision": runtime.voice_session["revision"],
+                "desktop_voice_provider": config.settings.desktop_voice_provider,
+                "desktop_voice_model": config.settings.desktop_voice_model,
+                "desktop_voice_name": config.settings.desktop_voice_name,
+                "desktop_voice_duplex": config.settings.desktop_voice_duplex,
+                "desktop_voice_max_session_seconds": config.settings.desktop_voice_max_session_seconds,
             },
         }
 

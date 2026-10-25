@@ -234,6 +234,11 @@ export function Orb({
     ],
     followup: ["Dimmi pure.", "Puoi continuare senza ripetere «Jarvis»."],
     muted: ["In ascolto, quando vuoi.", "Il microfono è disattivato."],
+    recovering: [
+      "Riattivo l’ascolto.",
+      "Il riconoscimento locale riprende tra pochi secondi.",
+    ],
+    connecting: ["Tra un istante.", "Sto preparando la conversazione vocale."],
     unavailable: [
       "Pronto per il primo passo.",
       "Configura la voce o scrivimi qui sotto.",

@@ -31,6 +31,20 @@ Gli orari relativi vanno verificati con current_time. Non promettere disponibili
 """
 
 
+def visible_text(content) -> str:
+    """Public assistant text from either legacy strings or Responses content blocks."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(visible_text(part) for part in content)
+    if isinstance(content, dict):
+        if content.get("type") in {"text", "output_text"}:
+            return content.get("text", "") if isinstance(content.get("text", ""), str) else ""
+        if content.get("type") == "refusal":
+            return content.get("refusal", "") if isinstance(content.get("refusal", ""), str) else ""
+    return ""
+
+
 class TokenEvents(AsyncCallbackHandler):
     raise_error = True
 
@@ -43,8 +57,8 @@ class TokenEvents(AsyncCallbackHandler):
         self.buffer = ""
         self.usage = {"input_tokens": 0, "output_tokens": 0}
 
-    async def on_llm_new_token(self, token: str, **kwargs):
-        self.buffer += token
+    async def on_llm_new_token(self, token, **kwargs):
+        self.buffer += visible_text(token)
 
     async def on_chat_model_start(self, serialized, messages, *, run_id, **kwargs):
         if self.cloud and self.budget:
@@ -182,6 +196,7 @@ class TaskManager:
                 "Scegli un modello nelle impostazioni. I modelli locali disponibili sono elencati automaticamente."
             )
         spec.setdefault("max_output_tokens", settings.max_output_tokens)
+        spec.setdefault("reasoning_effort", settings.cloud_reasoning_effort)
         if profile.startswith("local_") and spec["kind"] == "cloud":
             raise PermissionError("Il profilo locale non può utilizzare il cloud.")
         kwargs = {
@@ -232,10 +247,17 @@ class TaskManager:
 
             if not settings.secret("cloud_api_key"):
                 raise ValueError("Configura la chiave del provider cloud.")
+            reasoning = (
+                {"reasoning": {"effort": spec["reasoning_effort"]}}
+                if spec["provider"] == "openai" and spec["model"].startswith(("gpt-5", "gpt-6"))
+                else {}
+            )
             model = ChatOpenAI(
                 **kwargs,
+                **reasoning,
                 api_key=settings.secret("cloud_api_key"),
-                base_url=spec["base_url"] or None,
+                base_url=spec["base_url"]
+                or ("https://api.openai.com/v1" if spec["provider"] == "openai" else None),
                 streaming=True,
                 use_responses_api=spec["provider"] == "openai",
                 store=False,
@@ -473,14 +495,11 @@ class TaskManager:
                 )
                 if final is None:
                     raise ValueError("Il modello non ha prodotto una risposta finale.")
-                content = final.content
-                if isinstance(content, list):
-                    content = "\n".join(
-                        block.get("text", "")
-                        for block in content
-                        if isinstance(block, dict) and block.get("type") == "text"
+                content = visible_text(final.content)
+                if not content.strip():
+                    raise ValueError(
+                        "Il modello non ha prodotto una risposta visibile. Verifica il limite dei token di output."
                     )
-                content = str(content)
                 if any(
                     marker in content for marker in ("<tool_call", "<function_call", "<|tool_call")
                 ):
@@ -532,7 +551,7 @@ class TaskManager:
                                 f"delivery:{key}",
                                 key,
                             )
-                elif row["channel"] in {"text", "phone"}:
+                elif row["channel"] in {"text", "phone", "live"}:
                     await self.db.notification(
                         "Lavoro completato",
                         "Sessione privata" if ctx.private else row["title"],

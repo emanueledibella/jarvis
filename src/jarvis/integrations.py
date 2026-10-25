@@ -170,6 +170,7 @@ class MCPHub:
                 result = await client.call_tool(
                     tool, arguments, timeout=self.config.settings.tool_timeout_seconds
                 )
+        self.statuses[server] = {**self.statuses.get(server, {}), "state": "connected"}
         data = getattr(result, "structured_content", None) or getattr(
             result, "structuredContent", None
         )

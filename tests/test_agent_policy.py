@@ -43,6 +43,33 @@ def model_factory(operation="current_time", arguments=None):
     )
 
 
+async def test_responses_stream_accepts_content_blocks_without_streaming_reasoning_or_tool_args(
+    runtime,
+):
+    from jarvis.agent import TokenEvents, visible_text
+
+    handler = TokenEvents(runtime.db, TaskContext("stream-test", "Saluta", "cloud", "personal"))
+    await handler.on_llm_new_token(
+        [
+            {"type": "reasoning", "text": "private-reasoning-must-not-be-shown"},
+            {"type": "text", "text": "Ciao"},
+            {"type": "tool_call_chunk", "args": "private-tool-argument"},
+        ]
+    )
+    await handler.on_llm_new_token("!")
+    await handler.flush()
+    event = await runtime.db.fetchone("SELECT data FROM events WHERE type='assistant.delta'")
+    assert json.loads(event["data"]) == {"text": "Ciao!"}
+    assert (
+        visible_text([{"type": "refusal", "refusal": "Richiesta rifiutata."}])
+        == "Richiesta rifiutata."
+    )
+    assert (
+        visible_text([{"type": "output_text", "text": "Risultato pubblico."}])
+        == "Risultato pubblico."
+    )
+
+
 async def test_actual_deep_agent_executes_a_tool(runtime, monkeypatch):
     monkeypatch.setattr(runtime.tasks, "model", model_factory())
     task = await runtime.tasks.create("Che ore sono?")

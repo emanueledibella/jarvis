@@ -726,7 +726,9 @@ export default function App() {
                           voiceState,
                         )
                       ? "Voce indisponibile"
-                      : "Voce attiva"
+                      : voiceState === "recovering"
+                        ? "Ripristino voce…"
+                        : "Voce attiva"
                   : "Voce da attivare"}
               </span>
             </button>

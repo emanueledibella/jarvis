@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 from datetime import UTC, datetime
 
 from .db import now
@@ -64,6 +65,32 @@ class ModelBudget:
             "UPDATE model_usage SET state='complete',actual_usd=?,input_tokens=?,output_tokens=? WHERE id=?",
             (actual, usage["input_tokens"], usage["output_tokens"], run_id),
         )
+
+    async def reserve_voice(self, run_id: str, seconds: float, rate: float):
+        reservation = seconds * rate / 60
+        month = datetime.now(UTC).strftime("%Y-%m")
+        async with self.lock:
+            row = await self.db.fetchone(
+                "SELECT COALESCE(SUM(CASE WHEN state='complete' THEN actual_usd ELSE reservation_usd END),0) AS total FROM model_usage WHERE month=?",
+                (month,),
+            )
+            if row["total"] + reservation > self.config.settings.monthly_budget_usd:
+                raise ValueError(
+                    "Budget mensile insufficiente per aprire la sessione vocale OpenAI."
+                )
+            await self.db.execute(
+                "INSERT INTO model_usage(id,task_id,month,state,reservation_usd,created_at) VALUES(?,?,?,'reserved',?,?)",
+                (run_id, "voice:" + run_id, month, reservation, now()),
+            )
+
+    async def finish_voice(self, run_id: str, seconds: float | None, rate: float):
+        if seconds is None or not math.isfinite(seconds) or seconds < 0:
+            await self.db.execute("UPDATE model_usage SET state='unknown' WHERE id=?", (run_id,))
+        else:
+            await self.db.execute(
+                "UPDATE model_usage SET state='complete',actual_usd=? WHERE id=?",
+                (seconds * rate / 60, run_id),
+            )
 
     async def status(self):
         month = datetime.now(UTC).strftime("%Y-%m")

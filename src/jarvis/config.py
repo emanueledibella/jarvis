@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     cloud_model: str = ""
     cloud_base_url: str = ""
     cloud_api_key: SecretStr = SecretStr("")
+    cloud_reasoning_effort: Literal["low", "medium", "high", "xhigh", "max"] = "low"
     local_provider: Literal["ollama", "openai_compatible"] = "ollama"
     local_base_url: str = "http://127.0.0.1:11434"
     local_model: str = ""
@@ -55,6 +56,14 @@ class Settings(BaseSettings):
     memory_capture: Literal["explicit_only", "explicit_facts", "off"] = "explicit_only"
     memory_recall_token_budget: int = Field(default=2000, ge=256, le=10000)
     voice_enabled: bool = True
+    desktop_voice_provider: Literal["apple", "openai_live"] = "apple"
+    desktop_voice_model: str = "gpt-live-1"
+    desktop_voice_name: str = "cedar"
+    desktop_voice_duplex: Literal["gated", "full"] = "gated"
+    desktop_voice_api_key: SecretStr = SecretStr("")
+    desktop_voice_max_session_seconds: int = Field(default=120, ge=15, le=900)
+    desktop_voice_idle_seconds: int = Field(default=30, ge=5, le=120)
+    desktop_voice_rate_usd_per_minute: float = Field(default=0.05, gt=0, le=5)
     wake_enabled: bool = True
     wake_phrase: str = Field(default="Jarvis", min_length=2, max_length=40)
     followup_seconds: int = Field(default=8, ge=0, le=60)

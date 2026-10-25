@@ -38,6 +38,27 @@ async def test_api_auth_origin_host_and_size(config):
         assert (await client.get("/api/missing", headers=headers)).status_code == 404
 
 
+async def test_disabled_voice_cannot_be_reactivated_through_native_actions(config, monkeypatch):
+    config.update({"voice_enabled": False})
+    app = create_app(config, start_scheduler=False, process_lock=False)
+
+    async def forbidden(*args, **kwargs):
+        raise AssertionError("A disabled voice path must never reach the microphone")
+
+    monkeypatch.setattr(app.state.runtime.native, "invoke", forbidden)
+    async with (
+        app.router.lifespan_context(app),
+        httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app),
+            base_url="http://testserver",
+            headers={"Authorization": "Bearer " + config.token},
+        ) as client,
+    ):
+        for action in ("enable", "unmute", "listen"):
+            response = await client.post("/api/voice/control", json={"action": action})
+            assert response.status_code == 403
+
+
 async def test_voice_session_privacy_and_scope_are_forwarded_without_transcript(
     config, monkeypatch
 ):

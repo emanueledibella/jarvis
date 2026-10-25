@@ -373,6 +373,19 @@ export default function Settings({
             </div>
             <div className="form-grid">
               {field("max_output_tokens", "Limite token di risposta", "number")}
+              {field(
+                "cloud_reasoning_effort",
+                "Ragionamento OpenAI",
+                "text",
+                "Low privilegia i tempi di risposta; il parametro si applica ai modelli GPT-5 e GPT-6.",
+                [
+                  { value: "low", label: "Low" },
+                  { value: "medium", label: "Medium" },
+                  { value: "high", label: "High" },
+                  { value: "xhigh", label: "Extra high" },
+                  { value: "max", label: "Max" },
+                ],
+              )}
               {field("max_agent_steps", "Limite passi dell’agente", "number")}
               {field(
                 "task_timeout_seconds",
@@ -418,6 +431,53 @@ export default function Settings({
               "text",
               "Lascia vuoto per la voce italiana di sistema.",
             )}
+            {field(
+              "desktop_voice_provider",
+              "Conversazione vocale",
+              "text",
+              undefined,
+              [
+                {
+                  value: "apple",
+                  label: "Apple · riconoscimento e sintesi sul Mac",
+                },
+                {
+                  value: "openai_live",
+                  label: "OpenAI Live · ascolto e voce naturale",
+                },
+              ],
+            )}
+            {field("desktop_voice_model", "Modello vocale OpenAI")}
+            {field(
+              "desktop_voice_duplex",
+              "Microfono durante la risposta",
+              "text",
+              "Con gli altoparlanti l'audio in ingresso è sospeso mentre parla, per evitare comandi generati dall'eco. La scorciatoia ⌘⇧J permette di riprendere la parola.",
+              [
+                { value: "gated", label: "Altoparlanti · protezione dall’eco" },
+                { value: "full", label: "Cuffie · ascolto mentre parla" },
+              ],
+            )}
+            {field("desktop_voice_name", "Voce OpenAI", "text", undefined, [
+              { value: "cedar", label: "Cedar" },
+              { value: "marin", label: "Marin" },
+              { value: "ash", label: "Ash" },
+              { value: "verse", label: "Verse" },
+              { value: "coral", label: "Coral" },
+            ])}
+            {field(
+              "desktop_voice_api_key",
+              "Chiave OpenAI per la voce, opzionale",
+              "password",
+              "Se vuota usa la chiave del provider OpenAI configurato nei Modelli.",
+            )}
+            <small className="hint">
+              La voce è generata da un modello AI. Con OpenAI Live la parola di
+              attivazione resta locale; dopo l’attivazione il comando e la
+              conversazione audio passano a OpenAI, con un breve buffer iniziale
+              in RAM. Usa il microfono integrato con il coperchio aperto oppure
+              scegli un ingresso esterno.
+            </small>
             <div className="button-row">
               <button className="btn primary" onClick={() => native("enable")}>
                 <Headphones size={15} />
@@ -430,6 +490,21 @@ export default function Settings({
           </section>
           <section className="settings-card">
             <h2>Ritmo della conversazione</h2>
+            {field(
+              "desktop_voice_max_session_seconds",
+              "Durata massima di una sessione OpenAI, secondi",
+              "number",
+            )}
+            {field(
+              "desktop_voice_idle_seconds",
+              "Chiusura OpenAI dopo inattività, secondi",
+              "number",
+            )}
+            {field(
+              "desktop_voice_rate_usd_per_minute",
+              "Tariffa vocale USD/minuto per il budget",
+              "number",
+            )}
             {field(
               "followup_seconds",
               "Finestra per continuare, secondi",

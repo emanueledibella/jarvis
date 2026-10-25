@@ -1,457 +1,881 @@
+@preconcurrency import AVFoundation
 import Accelerate
 import AppKit
-@preconcurrency import AVFoundation
+import OSLog
 import Speech
 
 @MainActor
 final class VoiceEngine: NSObject {
-    private let client: ServiceClient
-    private var capture: AVAudioEngine?
-    private var recognition: SFSpeechRecognitionTask?
-    private var recognizer: SFSpeechRecognizer?
-    private let requestLock = NSLock()
-    private var speechRequest: SFSpeechAudioBufferRecognitionRequest?
-    private let output = AVAudioEngine()
-    private let player = AVAudioPlayerNode()
-    private let synth = AVSpeechSynthesizer()
-    private let playbackFormat = AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 1)!
-    private var timer: Timer?
-    private var state = "muted"
-    private var enabled = false
-    private var muted = true
-    private var locked = false
-    private var settings: [String: Any] = [:]
-    private var command = ""
-    private var lastTranscript = ""
-    private var prefix = ""
-    private var lastTextAt = Date.distantPast
-    private var lastSoundAt = Date.distantPast
-    private var turnStartedAt = Date.distantPast
-    private var recognitionStartedAt = Date.distantPast
-    private var followupUntil = Date.distantPast
-    private var lastLevelAt = Date.distantPast
-    private var spokenText = ""
-    private var speechGeneration = UUID()
-    private var pendingBuffers = 0
-    private var finalBufferSeen = false
-    private var conversationID: String?
-    private var activeTaskID: String?
-    private var privateSession = false
-    private var turnPrivate = false
-    private var turnScope = "personal"
-    private var turnProfile = "local_connected"
-    private var turnGeneration = UUID()
-    private var turnConversationID: String?
-    private var voiceScope = "personal"
-    private var sessionGeneration = UUID()
-    private var outputLevel: Float = 0
-    private var lastError: String?
-    private var inputLevel: Float = 0
-    var onStateChange: ((String) -> Void)?
+  private let client: ServiceClient
+  private var capture: AVAudioEngine?
+  private var recognition: SFSpeechRecognitionTask?
+  private var recognitionRestart: Task<Void, Never>?
+  private var recovery = RecognitionRecovery()
+  private let logger = Logger(subsystem: "it.jarvis.personal", category: "recognition")
+  private var recognizer: SFSpeechRecognizer?
+  private let requestLock = NSLock()
+  private var speechRequest: SFSpeechAudioBufferRecognitionRequest?
+  private let output = AVAudioEngine()
+  private let player = AVAudioPlayerNode()
+  private let synth = AVSpeechSynthesizer()
+  private let playbackFormat = AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 1)!
+  private let liveAudio = LiveAudioBuffer()
+  private var liveSocket: URLSessionWebSocketTask?
+  private var liveReader: Task<Void, Never>?
+  private var liveSender: Task<Void, Never>?
+  private var liveReady = false
+  private var liveGeneration = UUID()
+  private var endingLive = false
+  private var lastLiveSpeech = Date.distantPast
+  private var lastPlaybackSound = Date.distantPast
+  private var initialLiveSpeech: String?
+  private let liveTransport = URLSession(configuration: .ephemeral)
+  private var timer: Timer?
+  private var state = "muted"
+  private var enabled = false
+  private var muted = true
+  private var locked = false
+  private var settings: [String: Any] = [:]
+  private var command = ""
+  private var lastTranscript = ""
+  private var prefix = ""
+  private var lastTextAt = Date.distantPast
+  private var lastSoundAt = Date.distantPast
+  private var turnStartedAt = Date.distantPast
+  private var recognitionStartedAt = Date.distantPast
+  private var followupUntil = Date.distantPast
+  private var lastLevelAt = Date.distantPast
+  private var spokenText = ""
+  private var speechGeneration = UUID()
+  private var pendingBuffers = 0
+  private var finalBufferSeen = false
+  private var conversationID: String?
+  private var activeTaskID: String?
+  private var privateSession = false
+  private var turnPrivate = false
+  private var turnScope = "personal"
+  private var turnProfile = "local_connected"
+  private var turnGeneration = UUID()
+  private var turnConversationID: String?
+  private var voiceScope = "personal"
+  private var sessionGeneration = UUID()
+  private var outputLevel: Float = 0
+  private var lastError: String?
+  private var inputLevel: Float = 0
+  private var inputBuffers = 0
+  private var lastInputBuffer = Date.distantPast
+  private var recognitionCallbacks = 0
+  private var wakeMatches = 0
+  var onStateChange: ((String) -> Void)?
 
-    init(client: ServiceClient) {
-        self.client = client
-        super.init()
-        output.attach(player)
-        output.connect(player, to: output.mainMixerNode, format: playbackFormat)
-        output.mainMixerNode.installTap(onBus: 0, bufferSize: 1024, format: nil) { [weak self] buffer, _ in
-            let level = Self.rms(buffer)
-            DispatchQueue.main.async { self?.outputLevel = level }
-        }
-        timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.tick() }
-        }
+  init(client: ServiceClient) {
+    self.client = client
+    super.init()
+    output.attach(player)
+    output.connect(player, to: output.mainMixerNode, format: playbackFormat)
+    output.mainMixerNode.installTap(onBus: 0, bufferSize: 1024, format: nil) {
+      [weak self] buffer, _ in
+      let level = Self.rms(buffer)
+      DispatchQueue.main.async {
+        self?.outputLevel = level
+        if level > 0.01 { self?.lastPlaybackSound = Date() }
+      }
     }
-
-    nonisolated private static func rms(_ buffer: AVAudioPCMBuffer) -> Float {
-        guard let samples = buffer.floatChannelData?[0], buffer.frameLength > 0 else { return 0 }
-        var value: Float = 0
-        vDSP_rmsqv(samples, 1, &value, vDSP_Length(buffer.frameLength))
-        return min(1, value * 8)
+    timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+      Task { @MainActor in self?.tick() }
     }
+  }
 
-    func configure(_ values: [String: Any]) {
-        let previousLanguage = settings["language"] as? String
-        settings = values
-        if let privacy = values["private_session"] as? Bool, let scope = values["voice_scope"] as? String {
-            setSession(privateMode: privacy, scope: scope)
-        }
-        if values["voice_enabled"] as? Bool == false {
-            mute()
+  nonisolated private static func rms(_ buffer: AVAudioPCMBuffer) -> Float {
+    guard let samples = buffer.floatChannelData?[0], buffer.frameLength > 0 else { return 0 }
+    var value: Float = 0
+    vDSP_rmsqv(samples, 1, &value, vDSP_Length(buffer.frameLength))
+    return min(1, value * 8)
+  }
+
+  func configure(_ values: [String: Any]) {
+    let previousLanguage = settings["language"] as? String
+    let previousProvider = settings["desktop_voice_provider"] as? String
+    settings = values
+    if previousProvider != nil && previousProvider != values["desktop_voice_provider"] as? String {
+      closeLive()
+    }
+    if let privacy = values["private_session"] as? Bool,
+      let scope = values["voice_scope"] as? String
+    {
+      setSession(privateMode: privacy, scope: scope)
+    }
+    if values["voice_enabled"] as? Bool == false {
+      mute()
+      return
+    }
+    if previousLanguage != nil && previousLanguage != values["language"] as? String && enabled
+      && !muted
+    {
+      restartCapture()
+    }
+    // Existing grants can resume at login. First-time requests are made only by
+    // the explicit Enable Voice action, never by a background web page.
+    if !enabled && !UserDefaults.standard.bool(forKey: "microphoneMuted")
+      && AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+      && SFSpeechRecognizer.authorizationStatus() == .authorized
+    {
+      enabled = true
+      muted = false
+      restartCapture()
+    }
+  }
+
+  func authorize() async -> [String: Any] {
+    let mic = await AVCaptureDevice.requestAccess(for: .audio)
+    let speech: SFSpeechRecognizerAuthorizationStatus = await withCheckedContinuation {
+      continuation in
+      SFSpeechRecognizer.requestAuthorization { continuation.resume(returning: $0) }
+    }
+    guard mic && speech == .authorized else {
+      muted = true
+      setState("permission_required")
+      return [
+        "state": "permission_required",
+        "error":
+          "Concedi Microfono e Riconoscimento vocale in Impostazioni di Sistema → Privacy e sicurezza.",
+      ]
+    }
+    enabled = true
+    muted = false
+    UserDefaults.standard.set(false, forKey: "microphoneMuted")
+    restartCapture()
+    if state == "unavailable" {
+      return ["state": state, "error": lastError ?? "Riconoscimento locale non disponibile."]
+    }
+    return ["state": state]
+  }
+
+  func mute() {
+    muted = true
+    UserDefaults.standard.set(true, forKey: "microphoneMuted")
+    stopSpeaking()
+    stopCapture()
+    setState("muted")
+  }
+
+  func unmute() throws {
+    guard settings["voice_enabled"] as? Bool != false else {
+      throw ServiceClient.ClientError.server(
+        "La voce è disattivata nelle impostazioni o dall'arresto di emergenza.")
+    }
+    guard
+      enabled
+        || (AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+          && SFSpeechRecognizer.authorizationStatus() == .authorized)
+    else {
+      throw ServiceClient.ClientError.server("Abilita prima la voce e concedi i permessi.")
+    }
+    enabled = true
+    muted = false
+    UserDefaults.standard.set(false, forKey: "microphoneMuted")
+    restartCapture()
+    if capture?.isRunning != true {
+      throw ServiceClient.ClientError.server(
+        lastError ?? "Microfono o riconoscimento locale non disponibile.")
+    }
+  }
+
+  func listen() throws {
+    if liveSocket != nil {
+      closeLive()
+    }
+    if muted || capture?.isRunning != true { try unmute() }
+    guard capture?.isRunning == true else {
+      throw ServiceClient.ClientError.server(
+        lastError ?? "Abilita prima il microfono e il riconoscimento locale.")
+    }
+    stopSpeaking()
+    beginTurn("")
+    resetRecognition()
+  }
+
+  func setSession(privateMode: Bool, scope: String) {
+    if privateSession != privateMode || voiceScope != scope {
+      privateSession = privateMode
+      voiceScope = scope
+      conversationID = nil
+      sessionGeneration = UUID()
+      closeLive()
+    }
+  }
+
+  func setLocked(_ value: Bool) {
+    locked = value
+    if locked && settings["voice_on_lock_screen"] as? Bool != true {
+      stopSpeaking()
+      stopCapture()
+      setState("locked")
+    } else if !muted && enabled {
+      restartCapture()
+    }
+  }
+
+  func restartCapture() {
+    closeLive()
+    stopCapture()
+    guard
+      enabled && !muted && settings["voice_enabled"] as? Bool != false
+        && !(locked && settings["voice_on_lock_screen"] as? Bool != true)
+    else { return }
+    recovery = RecognitionRecovery()
+    guard
+      AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+        && SFSpeechRecognizer.authorizationStatus() == .authorized
+    else {
+      setState(
+        "permission_required",
+        error: "Concedi Microfono e Riconoscimento vocale a Jarvis in Privacy e sicurezza.")
+      return
+    }
+    let language = settings["language"] as? String ?? "it-IT"
+    guard let recognizer = SFSpeechRecognizer(locale: Locale(identifier: language)),
+      recognizer.supportsOnDeviceRecognition
+    else {
+      setState(
+        "unavailable",
+        error:
+          "Il riconoscimento on-device non è disponibile per questa lingua sul Mac. Nessun fallback cloud."
+      )
+      return
+    }
+    self.recognizer = recognizer
+    let engine = AVAudioEngine()
+    let input = engine.inputNode
+    let cloudAudio = liveAudio
+    // Capture and playback use separate graphs. Enabling VoiceProcessingIO
+    // here gives it no playback reference and can fail continuously in its
+    // downlink renderer (!i/o). Use the hardware microphone stream directly.
+    let format = input.outputFormat(forBus: 0)
+    logger.info(
+      "Capture format: rate=\(format.sampleRate, privacy: .public) channels=\(format.channelCount, privacy: .public)"
+    )
+    guard format.sampleRate > 0 && format.channelCount > 0 else {
+      setState("unavailable", error: "Microfono non disponibile.")
+      return
+    }
+    input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
+      guard let self = self else { return }
+      cloudAudio.append(buffer)
+      self.requestLock.lock()
+      self.speechRequest?.append(buffer)
+      self.requestLock.unlock()
+      let level = Self.rms(buffer)
+      DispatchQueue.main.async {
+        self.inputBuffers += 1
+        self.lastInputBuffer = Date()
+        self.inputLevel = level
+        if level > 0.1 { self.lastSoundAt = Date() }
+      }
+    }
+    do {
+      engine.prepare()
+      try engine.start()
+      capture = engine
+      lastInputBuffer = Date()
+      resetRecognition()
+      setState("armed")
+    } catch {
+      input.removeTap(onBus: 0)
+      setState("unavailable", error: "Avvio audio fallito: controlla il dispositivo e i permessi.")
+    }
+  }
+
+  private func stopCapture() {
+    cancelRecognition()
+    if let engine = capture {
+      engine.stop()
+      engine.inputNode.removeTap(onBus: 0)
+    }
+    capture = nil
+    inputLevel = 0
+    liveAudio.clear()
+  }
+
+  private func cancelRecognition() {
+    // Invalidate before cancel: its asynchronous error must never affect a
+    // replacement session, a locked screen, or a muted microphone.
+    recognitionID = UUID()
+    recognitionRestart?.cancel()
+    recognitionRestart = nil
+    requestLock.lock()
+    speechRequest?.endAudio()
+    speechRequest = nil
+    requestLock.unlock()
+    recognition?.cancel()
+    recognition = nil
+  }
+
+  private func resetRecognition() {
+    scheduleRecognition(after: 0.2)
+  }
+
+  private func scheduleRecognition(after delay: TimeInterval) {
+    cancelRecognition()
+    guard
+      liveSocket == nil && enabled && !muted && capture?.isRunning == true
+        && !(locked && settings["voice_on_lock_screen"] as? Bool != true)
+    else { return }
+    let generation = recognitionID
+    recognitionRestart = Task { [weak self] in
+      do { try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000)) } catch { return }
+      guard let self = self, self.recognitionID == generation, !self.muted,
+        self.capture?.isRunning == true,
+        !(self.locked && self.settings["voice_on_lock_screen"] as? Bool != true)
+      else { return }
+      self.recognitionRestart = nil
+      self.startRecognition()
+    }
+  }
+
+  private func startRecognition() {
+    guard liveSocket == nil, let recognizer = recognizer, capture?.isRunning == true else { return }
+    recognitionStartedAt = Date()
+    guard recognizer.isAvailable else {
+      handleRecognitionError(NSError(domain: "JarvisSpeechAvailability", code: 1))
+      return
+    }
+    let request = SFSpeechAudioBufferRecognitionRequest()
+    request.requiresOnDeviceRecognition = true
+    request.shouldReportPartialResults = true
+    request.taskHint = .dictation
+    request.contextualStrings = [
+      settings["wake_phrase"] as? String ?? "Jarvis", "Jarvis", "Second Brain", "GitHub",
+      "calendario",
+    ]
+    requestLock.lock()
+    speechRequest?.endAudio()
+    speechRequest = request
+    requestLock.unlock()
+    lastTranscript = ""
+    prefix = ""
+    let requestID = UUID()
+    recognitionID = requestID
+    if ["recovering", "unavailable"].contains(state) { setState("armed") }
+    recognition = recognizer.recognitionTask(with: request) { [weak self] result, error in
+      DispatchQueue.main.async {
+        guard let self = self, self.recognitionID == requestID else { return }
+        self.recognitionCallbacks += 1
+        if let result = result {
+          if !result.bestTranscription.formattedString.isEmpty { self.recovery.receivedSpeech() }
+          self.receive(result.bestTranscription.formattedString)
+          guard self.recognitionID == requestID else { return }
+          if result.isFinal {
+            if self.state == "listening" && !self.command.isEmpty {
+              self.finishTurn(restartRecognition: false)
+            }
+            self.resetRecognition()
             return
+          }
         }
-        if previousLanguage != nil && previousLanguage != values["language"] as? String && enabled && !muted {
-            restartCapture()
-        }
-        // Existing grants can resume at login. First-time requests are made only by
-        // the explicit Enable Voice action, never by a background web page.
-        if !enabled && !UserDefaults.standard.bool(forKey: "microphoneMuted") && AVCaptureDevice.authorizationStatus(for: .audio) == .authorized && SFSpeechRecognizer.authorizationStatus() == .authorized {
-            enabled = true
-            muted = false
-            restartCapture()
-        }
+        if let error = error, !self.muted { self.handleRecognitionError(error as NSError) }
+      }
     }
+  }
+  private var recognitionID = UUID()
 
-    func authorize() async -> [String: Any] {
-        let mic = await AVCaptureDevice.requestAccess(for: .audio)
-        let speech: SFSpeechRecognizerAuthorizationStatus = await withCheckedContinuation { continuation in
-            SFSpeechRecognizer.requestAuthorization { continuation.resume(returning: $0) }
-        }
-        guard mic && speech == .authorized else {
-            muted = true
-            setState("permission_required")
-            return ["state": "permission_required", "error": "Concedi Microfono e Riconoscimento vocale in Impostazioni di Sistema → Privacy e sicurezza."]
-        }
-        enabled = true
-        muted = false
-        UserDefaults.standard.set(false, forKey: "microphoneMuted")
-        restartCapture()
-        if state == "unavailable" { return ["state": state, "error": lastError ?? "Riconoscimento locale non disponibile."] }
-        return ["state": state]
+  private func handleRecognitionError(_ error: NSError) {
+    logger.error(
+      "Speech ended: domain=\(error.domain, privacy: .public) code=\(error.code, privacy: .public)")
+    let decision = recovery.handle(
+      error, sessionDuration: Date().timeIntervalSince(recognitionStartedAt))
+    switch decision {
+    case .retry(let delay):
+      if !["processing", "speaking"].contains(state) {
+        command = ""
+        prefix = ""
+        setState("recovering")
+      }
+      scheduleRecognition(after: delay)
+    case .unavailable(let message):
+      stopCapture()
+      setState("unavailable", error: message)
+    case .permissionRequired(let message):
+      stopCapture()
+      setState("permission_required", error: message)
     }
+  }
 
-    func mute() {
-        muted = true
-        UserDefaults.standard.set(true, forKey: "microphoneMuted")
-        stopSpeaking()
-        stopCapture()
-        setState("muted")
-    }
-
-    func unmute() throws {
-        guard settings["voice_enabled"] as? Bool != false else { throw ServiceClient.ClientError.server("La voce è disattivata nelle impostazioni o dall'arresto di emergenza.") }
-        guard enabled || (AVCaptureDevice.authorizationStatus(for: .audio) == .authorized && SFSpeechRecognizer.authorizationStatus() == .authorized) else {
-            throw ServiceClient.ClientError.server("Abilita prima la voce e concedi i permessi.")
-        }
-        enabled = true
-        muted = false
-        UserDefaults.standard.set(false, forKey: "microphoneMuted")
-        restartCapture()
-        if capture?.isRunning != true { throw ServiceClient.ClientError.server(lastError ?? "Microfono o riconoscimento locale non disponibile.") }
-    }
-
-    func listen() throws {
-        if muted { try unmute() }
-        guard capture?.isRunning == true else { throw ServiceClient.ClientError.server(lastError ?? "Abilita prima il microfono e il riconoscimento locale.") }
+  private func receive(_ text: String) {
+    guard !muted && state != "locked" && text != lastTranscript else { return }
+    lastTranscript = text
+    let lower = text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+    let phrase = settings["wake_phrase"] as? String ?? "Jarvis"
+    let pattern =
+      "(?i)(?<![\\p{L}\\p{N}])" + NSRegularExpression.escapedPattern(for: phrase)
+      + "(?![\\p{L}\\p{N}])"
+    let wake = text.range(of: pattern, options: .regularExpression)
+    if wake != nil { wakeMatches += 1 }
+    if state == "speaking" {
+      if ["stop", "fermati", "silenzio"].contains(lower) {
         stopSpeaking()
         beginTurn("")
         resetRecognition()
+        return
+      }
+      // Do not feed the assistant's own speech back as a new turn. Actual echo
+      // cancellation and far-field performance must still be tested on hardware.
+      if lower.count > 3 && spokenText.lowercased().contains(lower) { return }
+      if wake != nil && !spokenText.lowercased().contains(phrase.lowercased()) {
+        stopSpeaking()
+        beginTurn("")
+      } else {
+        return
+      }
     }
-
-    func setSession(privateMode: Bool, scope: String) {
-        if privateSession != privateMode || voiceScope != scope {
-            privateSession = privateMode
-            voiceScope = scope
-            conversationID = nil
-            sessionGeneration = UUID()
-        }
-    }
-
-    func setLocked(_ value: Bool) {
-        locked = value
-        if locked && settings["voice_on_lock_screen"] as? Bool != true {
-            stopSpeaking()
-            stopCapture()
-            setState("locked")
-        } else if !muted && enabled {
-            restartCapture()
-        }
-    }
-
-    func restartCapture() {
-        stopCapture()
-        guard !muted && !(locked && settings["voice_on_lock_screen"] as? Bool != true) else { return }
-        let language = settings["language"] as? String ?? "it-IT"
-        guard let recognizer = SFSpeechRecognizer(locale: Locale(identifier: language)), recognizer.supportsOnDeviceRecognition else {
-            setState("unavailable", error: "Il riconoscimento on-device non è disponibile per questa lingua sul Mac. Nessun fallback cloud.")
-            return
-        }
-        self.recognizer = recognizer
-        let engine = AVAudioEngine()
-        let input = engine.inputNode
-        // Voice processing is best effort; a hardware test still determines echo quality.
-        try? input.setVoiceProcessingEnabled(true)
-        let format = input.outputFormat(forBus: 0)
-        guard format.sampleRate > 0 && format.channelCount > 0 else {
-            setState("unavailable", error: "Microfono non disponibile.")
-            return
-        }
-        input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
-            guard let self = self else { return }
-            self.requestLock.lock()
-            self.speechRequest?.append(buffer)
-            self.requestLock.unlock()
-            let level = Self.rms(buffer)
-            DispatchQueue.main.async {
-                self.inputLevel = level
-                if level > 0.1 { self.lastSoundAt = Date() }
-            }
-        }
-        do {
-            engine.prepare()
-            try engine.start()
-            capture = engine
-            resetRecognition()
-            setState("armed")
-        } catch {
-            input.removeTap(onBus: 0)
-            setState("unavailable", error: "Avvio audio fallito: controlla il dispositivo e i permessi.")
-        }
-    }
-
-    private func stopCapture() {
-        recognition?.cancel()
-        recognition = nil
-        requestLock.lock()
-        speechRequest?.endAudio()
-        speechRequest = nil
-        requestLock.unlock()
-        if let engine = capture {
-            engine.stop()
-            engine.inputNode.removeTap(onBus: 0)
-        }
-        capture = nil
-        inputLevel = 0
-    }
-
-    private func resetRecognition() {
-        recognition?.cancel()
-        recognition = nil
-        guard capture?.isRunning == true, let recognizer = recognizer else { return }
-        let request = SFSpeechAudioBufferRecognitionRequest()
-        request.requiresOnDeviceRecognition = true
-        request.shouldReportPartialResults = true
-        request.taskHint = .dictation
-        request.contextualStrings = [settings["wake_phrase"] as? String ?? "Jarvis", "Jarvis", "Second Brain", "GitHub", "calendario"]
-        requestLock.lock()
-        speechRequest?.endAudio()
-        speechRequest = request
-        requestLock.unlock()
-        lastTranscript = ""
-        prefix = ""
-        recognitionStartedAt = Date()
-        let requestID = UUID()
-        recognitionID = requestID
-        recognition = recognizer.recognitionTask(with: request) { [weak self] result, error in
-            DispatchQueue.main.async {
-                guard let self = self, self.recognitionID == requestID else { return }
-                if let result = result {
-                    self.receive(result.bestTranscription.formattedString)
-                    if result.isFinal {
-                        if self.state == "listening" && !self.command.isEmpty { self.finishTurn() }
-                        self.resetRecognition()
-                    }
-                } else if error != nil && !self.muted {
-                    self.setState("unavailable", error: "Riconoscimento locale interrotto. Controlla i modelli della lingua e riattiva la voce.")
-                }
-            }
-        }
-    }
-    private var recognitionID = UUID()
-
-    private func receive(_ text: String) {
-        guard !muted && state != "locked" && text != lastTranscript else { return }
-        lastTranscript = text
-        let lower = text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-        let phrase = settings["wake_phrase"] as? String ?? "Jarvis"
-        let pattern = "(?i)(?<![\\p{L}\\p{N}])" + NSRegularExpression.escapedPattern(for: phrase) + "(?![\\p{L}\\p{N}])"
-        let wake = text.range(of: pattern, options: .regularExpression)
-        if state == "speaking" {
-            if ["stop", "fermati", "silenzio"].contains(lower) {
-                stopSpeaking()
-                beginTurn("")
-                resetRecognition()
-                return
-            }
-            // Do not feed the assistant's own speech back as a new turn. Actual echo
-            // cancellation and far-field performance must still be tested on hardware.
-            if lower.count > 3 && spokenText.lowercased().contains(lower) { return }
-            if wake != nil || (inputLevel > 0.2 && lower.count > 3) {
-                stopSpeaking()
-                beginTurn("")
-            } else { return }
-        }
-        if state == "armed" || state == "processing" || state == "unavailable" {
-            guard settings["wake_enabled"] as? Bool != false, let range = wake else { return }
-            prefix = String(text[..<range.upperBound])
-            beginTurn(String(text[range.upperBound...]).trimmingCharacters(in: .punctuationCharacters.union(.whitespacesAndNewlines)))
-        } else if state == "followup" {
-            beginTurn(text)
-        } else if state == "listening" {
-            if let range = wake, command.isEmpty {
-                prefix = String(text[..<range.upperBound])
-            }
-            if !prefix.isEmpty && text.hasPrefix(prefix) {
-                command = String(text.dropFirst(prefix.count)).trimmingCharacters(in: .punctuationCharacters.union(.whitespacesAndNewlines))
-            } else if prefix.isEmpty {
-                command = text
-            }
-            lastTextAt = Date()
-        }
-    }
-
-    private func beginTurn(_ text: String) {
-        turnPrivate = privateSession
-        turnScope = voiceScope
-        turnProfile = settings["profile"] as? String ?? "local_connected"
-        turnGeneration = sessionGeneration
-        turnConversationID = conversationID
+    if state == "armed" || state == "processing" || state == "unavailable" {
+      guard settings["wake_enabled"] as? Bool != false, let range = wake else { return }
+      prefix = String(text[..<range.upperBound])
+      beginTurn(
+        String(text[range.upperBound...]).trimmingCharacters(
+          in: .punctuationCharacters.union(.whitespacesAndNewlines)))
+    } else if state == "followup" {
+      beginTurn(text)
+    } else if state == "listening" {
+      if let range = wake, command.isEmpty {
+        prefix = String(text[..<range.upperBound])
+      }
+      if !prefix.isEmpty && text.hasPrefix(prefix) {
+        command = String(text.dropFirst(prefix.count)).trimmingCharacters(
+          in: .punctuationCharacters.union(.whitespacesAndNewlines))
+      } else if prefix.isEmpty {
         command = text
-        turnStartedAt = Date()
-        lastTextAt = Date()
-        lastSoundAt = Date()
+      }
+      lastTextAt = Date()
+    }
+  }
+
+  private func beginTurn(_ text: String) {
+    turnPrivate = privateSession
+    turnScope = voiceScope
+    turnProfile = settings["profile"] as? String ?? "local_connected"
+    turnGeneration = sessionGeneration
+    turnConversationID = conversationID
+    if usesOpenAIVoice {
+      startLive()
+      return
+    }
+    command = text
+    turnStartedAt = Date()
+    lastTextAt = Date()
+    lastSoundAt = Date()
+    setState("listening")
+  }
+
+  private var usesOpenAIVoice: Bool {
+    settings["desktop_voice_provider"] as? String == "openai_live"
+      && settings["profile"] as? String != "local_strict"
+  }
+
+  private func startLive(speech: String? = nil) {
+    guard liveSocket == nil, settings["voice_enabled"] as? Bool != false else { return }
+    cancelRecognition()
+    stopSpeaking()
+    endingLive = false
+    pendingBuffers = 0
+    finalBufferSeen = false
+    initialLiveSpeech = speech
+    liveReady = false
+    let generation = UUID()
+    let session = sessionGeneration
+    liveGeneration = generation
+    if !muted { liveAudio.begin() }
+    var address = URLComponents(url: client.base, resolvingAgainstBaseURL: true)!
+    address.scheme = "ws"
+    address.path = "/api/voice/live"
+    var request = URLRequest(url: address.url!)
+    request.setValue("Bearer \(client.token)", forHTTPHeaderField: "Authorization")
+    let socket = liveTransport.webSocketTask(with: request)
+    socket.maximumMessageSize = 1_048_576
+    liveSocket = socket
+    socket.resume()
+    setState("connecting")
+    var metadata: [String: Any] = [
+      "type": "start", "private": privateSession, "scope": voiceScope,
+      "profile": settings["profile"] as? String ?? "cloud",
+      "privacy_revision": settings["privacy_revision"] as? Int ?? 0,
+    ]
+    if let id = conversationID { metadata["conversation_id"] = id }
+    liveReader = Task { [weak self] in
+      guard let self = self else { return }
+      do {
+        try await socket.send(
+          .string(
+            String(data: try JSONSerialization.data(withJSONObject: metadata), encoding: .utf8)!))
+        while !Task.isCancelled && self.liveGeneration == generation {
+          let message = try await socket.receive()
+          let data: Data
+          switch message {
+          case .string(let value): data = Data(value.utf8)
+          case .data(let value): data = value
+          @unknown default: continue
+          }
+          guard let event = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+            self.liveGeneration == generation
+          else { continue }
+          switch event["type"] as? String {
+          case "ready":
+            self.liveReady = true
+            self.setState("listening")
+            if let text = self.initialLiveSpeech {
+              self.initialLiveSpeech = nil
+              try await self.sendLive(["type": "say", "text": text])
+            }
+          case "audio":
+            if let encoded = event["audio"] as? String, let bytes = Data(base64Encoded: encoded) {
+              try self.playLive(bytes)
+            }
+          case "input_text": self.recognitionCallbacks += 1
+          case "task":
+            if session == self.sessionGeneration {
+              self.conversationID = event["conversation_id"] as? String ?? self.conversationID
+              self.activeTaskID = event["id"] as? String
+            }
+          case "error":
+            self.closeLive(error: event["message"] as? String ?? "Voce OpenAI non disponibile.")
+            return
+          case "closed":
+            self.closeLive(drain: true)
+            return
+          default: break
+          }
+        }
+      } catch {
+        if self.liveGeneration == generation && !Task.isCancelled {
+          self.closeLive(
+            error: "Connessione vocale interrotta. Premi Parla con Jarvis per riprovare.")
+        }
+      }
+    }
+    liveSender = Task { [weak self] in
+      guard let self = self else { return }
+      do {
+        while !Task.isCancelled && self.liveGeneration == generation {
+          if self.liveReady && !self.muted {
+            let bytes = try self.liveAudio.drain()
+            if !bytes.isEmpty {
+              try await self.sendLive(["type": "audio", "audio": bytes.base64EncodedString()])
+            }
+          }
+          try await Task.sleep(nanoseconds: 20_000_000)
+        }
+      } catch {
+        if self.liveGeneration == generation && !Task.isCancelled {
+          self.closeLive(error: "Il flusso audio si è interrotto. Riapri la conversazione vocale.")
+        }
+      }
+    }
+  }
+
+  private func sendLive(_ object: [String: Any]) async throws {
+    guard let socket = liveSocket else { return }
+    let json = String(data: try JSONSerialization.data(withJSONObject: object), encoding: .utf8)!
+    try await socket.send(.string(json))
+  }
+
+  private func playLive(_ bytes: Data) throws {
+    guard bytes.count > 0, bytes.count % 2 == 0, pendingBuffers < 100,
+      let format = AVAudioFormat(
+        commonFormat: .pcmFormatInt16, sampleRate: 24000, channels: 1, interleaved: true),
+      let pcm = AVAudioPCMBuffer(
+        pcmFormat: format, frameCapacity: AVAudioFrameCount(bytes.count / 2)),
+      let destination = pcm.int16ChannelData?[0]
+    else {
+      throw ServiceClient.ClientError.server("Audio OpenAI non valido o riproduzione troppo lenta.")
+    }
+    pcm.frameLength = AVAudioFrameCount(bytes.count / 2)
+    _ = bytes.withUnsafeBytes { raw in memcpy(destination, raw.baseAddress!, bytes.count) }
+    guard let converted = convert(pcm) else { return }
+    if !output.isRunning { try output.start() }
+    if Self.rms(converted) > 0.01 {
+      lastLiveSpeech = Date()
+      if settings["desktop_voice_duplex"] as? String != "full" { liveAudio.setGated(true) }
+      if state != "speaking" { setState("speaking") }
+    }
+    let generation = speechGeneration
+    pendingBuffers += 1
+    player.scheduleBuffer(converted, completionCallbackType: .dataPlayedBack) { [weak self] _ in
+      DispatchQueue.main.async {
+        guard let self = self, self.speechGeneration == generation else { return }
+        self.pendingBuffers -= 1
+        self.finishPlaybackIfNeeded()
+      }
+    }
+    if !player.isPlaying { player.play() }
+  }
+
+  private func closeLive(error: String? = nil, drain: Bool = false) {
+    guard let socket = liveSocket else { return }
+    liveSocket = nil
+    liveGeneration = UUID()
+    liveReady = false
+    initialLiveSpeech = nil
+    liveReader?.cancel()
+    liveSender?.cancel()
+    liveReader = nil
+    liveSender = nil
+    liveAudio.clear()
+    Task {
+      try? await socket.send(.string("{\"type\":\"close\"}"))
+      socket.cancel(with: .normalClosure, reason: nil)
+    }
+    if drain && pendingBuffers > 0 {
+      endingLive = true
+      finalBufferSeen = true
+      return
+    }
+    speechGeneration = UUID()
+    player.stop()
+    output.stop()
+    pendingBuffers = 0
+    outputLevel = 0
+    if let error = error {
+      setState("unavailable", error: error)
+    } else {
+      setState(muted ? "muted" : "armed")
+    }
+    if !muted && !locked { resetRecognition() }
+  }
+
+  private func finishTurn(restartRecognition: Bool = true) {
+    let text = command.trimmingCharacters(in: .whitespacesAndNewlines)
+    command = ""
+    prefix = ""
+    guard !text.isEmpty else {
+      setState("armed")
+      return
+    }
+    setState("processing")
+    let conversation = turnConversationID
+    let privacy = privateSession || turnPrivate
+    let scope = turnScope
+    let generation = turnGeneration
+    let profile = turnProfile
+    Task {
+      do {
+        var body: [String: Any] = [
+          "text": text, "channel": "voice", "private": privacy, "scope": scope, "profile": profile,
+          "request_id": UUID().uuidString,
+        ]
+        if let conversation = conversation { body["conversation_id"] = conversation }
+        let response: [String: Any]
+        do { response = try await client.request("/api/chat", method: "POST", body: body) } catch {
+          response = try await client.request("/api/chat", method: "POST", body: body)
+        }
+        activeTaskID = response["id"] as? String
+        if generation == sessionGeneration && privacy == privateSession {
+          conversationID = response["conversation_id"] as? String ?? conversationID
+        }
+      } catch {
+        setState(
+          "armed",
+          error: "Consegna non confermata: controlla l'attività prima di ripetere la richiesta.")
+      }
+    }
+    if restartRecognition { resetRecognition() }
+  }
+
+  private func tick() {
+    let current = Date()
+    if !muted && capture?.isRunning == true && current.timeIntervalSince(lastInputBuffer) > 5 {
+      closeLive()
+      stopCapture()
+      setState(
+        "unavailable",
+        error:
+          "Il microfono non sta fornendo audio. Apri il coperchio del MacBook o seleziona un microfono esterno, poi premi Parla con Jarvis."
+      )
+      return
+    }
+    if liveSocket != nil {
+      if state == "speaking" && current.timeIntervalSince(lastLiveSpeech) > 0.6 {
         setState("listening")
+      }
+      if settings["desktop_voice_duplex"] as? String != "full"
+        && current.timeIntervalSince(lastLiveSpeech) > 0.6
+        && current.timeIntervalSince(lastPlaybackSound) > 0.4
+      {
+        liveAudio.setGated(false)
+      }
+    } else if state == "listening" {
+      let silence = max(lastTextAt, lastSoundAt)
+      let threshold = Double(settings["end_of_turn_ms"] as? Int ?? 900) / 1000
+      if !command.isEmpty && current.timeIntervalSince(silence) > threshold {
+        finishTurn()
+      } else if current.timeIntervalSince(turnStartedAt)
+        > Double(settings["listen_timeout_seconds"] as? Int ?? 30)
+      {
+        finishTurn()
+      }
+    } else if state == "followup" && current > followupUntil {
+      setState("armed")
+      resetRecognition()
+    } else if state == "armed" && recognitionRestart == nil
+      && current.timeIntervalSince(recognitionStartedAt) > 45
+    {
+      resetRecognition()
     }
-
-    private func finishTurn() {
-        let text = command.trimmingCharacters(in: .whitespacesAndNewlines)
-        command = ""
-        prefix = ""
-        guard !text.isEmpty else { setState("armed"); return }
-        setState("processing")
-        let conversation = turnConversationID
-        let privacy = privateSession || turnPrivate, scope = turnScope, generation = turnGeneration, profile = turnProfile
-        Task {
-            do {
-                var body: [String: Any] = ["text": text, "channel": "voice", "private": privacy, "scope": scope,"profile":profile,"request_id":UUID().uuidString]
-                if let conversation = conversation { body["conversation_id"] = conversation }
-                let response: [String: Any]
-                do { response = try await client.request("/api/chat", method:"POST",body:body) }
-                catch { response = try await client.request("/api/chat",method:"POST",body:body) }
-                activeTaskID = response["id"] as? String
-                if generation == sessionGeneration && privacy == privateSession { conversationID = response["conversation_id"] as? String ?? conversationID }
-            } catch {
-                setState("armed", error: "Consegna non confermata: controlla l'attività prima di ripetere la richiesta.")
-            }
-        }
-        resetRecognition()
+    if current.timeIntervalSince(lastLevelAt) >= 0.12
+      && ["armed", "listening", "speaking"].contains(state)
+    {
+      lastLevelAt = current
+      let input = inputLevel
+      let output = outputLevel
+      Task {
+        _ = try? await client.request(
+          "/api/native/level", method: "POST", body: ["input": input, "output": output])
+      }
     }
+  }
 
-    private func tick() {
-        let current = Date()
-        if state == "listening" {
-            let silence = max(lastTextAt, lastSoundAt)
-            let threshold = Double(settings["end_of_turn_ms"] as? Int ?? 900) / 1000
-            if !command.isEmpty && current.timeIntervalSince(silence) > threshold {
-                finishTurn()
-            } else if current.timeIntervalSince(turnStartedAt) > Double(settings["listen_timeout_seconds"] as? Int ?? 30) {
-                finishTurn()
-            }
-        } else if state == "followup" && current > followupUntil {
-            setState("armed")
-            resetRecognition()
-        } else if state == "armed" && current.timeIntervalSince(recognitionStartedAt) > 45 {
-            resetRecognition()
-        }
-        if current.timeIntervalSince(lastLevelAt) >= 0.12 && (state == "listening" || state == "speaking") {
-            lastLevelAt = current
-            let input = inputLevel, output = outputLevel
-            Task { _ = try? await client.request("/api/native/level", method: "POST", body: ["input": input, "output": output]) }
-        }
+  func speak(_ text: String) {
+    guard settings["voice_enabled"] as? Bool != false else { return }
+    guard !locked || settings["voice_on_lock_screen"] as? Bool == true else { return }
+    if usesOpenAIVoice {
+      if liveSocket != nil {
+        Task { try? await sendLive(["type": "say", "text": text]) }
+      } else {
+        startLive(speech: text)
+      }
+      return
     }
-
-    func speak(_ text: String) {
-        guard settings["voice_enabled"] as? Bool != false else { return }
-        guard !locked || settings["voice_on_lock_screen"] as? Bool == true else { return }
-        stopSpeaking()
-        spokenText = text
-        pendingBuffers = 0
-        finalBufferSeen = false
-        let generation = UUID()
-        speechGeneration = generation
-        setState("speaking")
-        let utterance = AVSpeechUtterance(string: text)
-        let identifier = settings["tts_voice"] as? String ?? ""
-        utterance.voice = identifier.isEmpty ? AVSpeechSynthesisVoice(language: settings["language"] as? String ?? "it-IT") : AVSpeechSynthesisVoice(identifier: identifier)
-        utterance.rate = AVSpeechUtteranceDefaultSpeechRate
-        synth.write(utterance) { [weak self] buffer in
-            guard let pcm = buffer as? AVAudioPCMBuffer else { return }
+    stopSpeaking()
+    spokenText = text
+    pendingBuffers = 0
+    finalBufferSeen = false
+    let generation = UUID()
+    speechGeneration = generation
+    setState("speaking")
+    let utterance = AVSpeechUtterance(string: text)
+    let identifier = settings["tts_voice"] as? String ?? ""
+    utterance.voice =
+      identifier.isEmpty
+      ? AVSpeechSynthesisVoice(language: settings["language"] as? String ?? "it-IT")
+      : AVSpeechSynthesisVoice(identifier: identifier)
+    utterance.rate = AVSpeechUtteranceDefaultSpeechRate
+    synth.write(utterance) { [weak self] buffer in
+      guard let pcm = buffer as? AVAudioPCMBuffer else { return }
+      DispatchQueue.main.async {
+        guard let self = self, self.speechGeneration == generation else { return }
+        if pcm.frameLength == 0 {
+          self.finalBufferSeen = true
+          self.finishPlaybackIfNeeded()
+          return
+        }
+        guard let converted = self.convert(pcm) else { return }
+        do {
+          if !self.output.isRunning { try self.output.start() }
+          self.pendingBuffers += 1
+          self.player.scheduleBuffer(converted, completionCallbackType: .dataPlayedBack) { _ in
             DispatchQueue.main.async {
-                guard let self = self, self.speechGeneration == generation else { return }
-                if pcm.frameLength == 0 {
-                    self.finalBufferSeen = true
-                    self.finishPlaybackIfNeeded()
-                    return
-                }
-                guard let converted = self.convert(pcm) else { return }
-                do {
-                    if !self.output.isRunning { try self.output.start() }
-                    self.pendingBuffers += 1
-                    self.player.scheduleBuffer(converted, completionCallbackType: .dataPlayedBack) { _ in
-                        DispatchQueue.main.async {
-                            guard self.speechGeneration == generation else { return }
-                            self.pendingBuffers -= 1
-                            self.finishPlaybackIfNeeded()
-                        }
-                    }
-                    if !self.player.isPlaying { self.player.play() }
-                } catch {
-                    self.stopSpeaking()
-                    self.setState(self.muted ? "muted" : "armed", error: "Riproduzione audio non disponibile.")
-                }
+              guard self.speechGeneration == generation else { return }
+              self.pendingBuffers -= 1
+              self.finishPlaybackIfNeeded()
             }
+          }
+          if !self.player.isPlaying { self.player.play() }
+        } catch {
+          self.stopSpeaking()
+          self.setState(
+            self.muted ? "muted" : "armed", error: "Riproduzione audio non disponibile.")
         }
+      }
     }
+  }
 
-    private func convert(_ input: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
-        guard let converter = AVAudioConverter(from: input.format, to: playbackFormat),
-              let result = AVAudioPCMBuffer(pcmFormat: playbackFormat, frameCapacity: AVAudioFrameCount(Double(input.frameLength) * 48000 / input.format.sampleRate) + 64) else { return nil }
-        var supplied = false
-        var error: NSError?
-        converter.convert(to: result, error: &error) { _, status in
-            if supplied { status.pointee = .noDataNow; return nil }
-            supplied = true
-            status.pointee = .haveData
-            return input
-        }
-        return error == nil ? result : nil
+  private func convert(_ input: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
+    guard let converter = AVAudioConverter(from: input.format, to: playbackFormat),
+      let result = AVAudioPCMBuffer(
+        pcmFormat: playbackFormat,
+        frameCapacity: AVAudioFrameCount(
+          Double(input.frameLength) * 48000 / input.format.sampleRate) + 64)
+    else { return nil }
+    var supplied = false
+    var error: NSError?
+    converter.convert(to: result, error: &error) { _, status in
+      if supplied {
+        status.pointee = .noDataNow
+        return nil
+      }
+      supplied = true
+      status.pointee = .haveData
+      return input
     }
+    return error == nil ? result : nil
+  }
 
-    private func finishPlaybackIfNeeded() {
-        guard finalBufferSeen && pendingBuffers == 0 else { return }
-        outputLevel = 0
-        if muted { setState("muted") }
-        else {
-            followupUntil = Date().addingTimeInterval(Double(settings["followup_seconds"] as? Int ?? 8))
-            setState("followup")
-            resetRecognition()
-        }
+  private func finishPlaybackIfNeeded() {
+    guard finalBufferSeen && pendingBuffers == 0 else { return }
+    outputLevel = 0
+    if endingLive {
+      endingLive = false
+      liveAudio.clear()
+      setState(muted ? "muted" : "armed")
+      if !muted { scheduleRecognition(after: 0.4) }
+      return
     }
+    if muted {
+      setState("muted")
+    } else {
+      followupUntil = Date().addingTimeInterval(Double(settings["followup_seconds"] as? Int ?? 8))
+      setState("followup")
+      resetRecognition()
+    }
+  }
 
-    func stopSpeaking() {
-        speechGeneration = UUID()
-        synth.stopSpeaking(at: .immediate)
-        player.stop()
-        output.stop()
-        pendingBuffers = 0
-        finalBufferSeen = false
-        outputLevel = 0
-        if state == "speaking" { setState(muted ? "muted" : "armed") }
-    }
+  func stopSpeaking() {
+    closeLive()
+    speechGeneration = UUID()
+    synth.stopSpeaking(at: .immediate)
+    player.stop()
+    output.stop()
+    pendingBuffers = 0
+    finalBufferSeen = false
+    outputLevel = 0
+    if state == "speaking" { setState(muted ? "muted" : "armed") }
+  }
 
-    private func setState(_ value: String, error: String? = nil) {
-        if let error = error { lastError = error }
-        else if value != state || !["unavailable", "permission_required"].contains(value) { lastError = nil }
-        state = value
-        onStateChange?(value)
-        var body: [String: Any] = ["voice_state": value, "microphone": AVCaptureDevice.authorizationStatus(for: .audio) == .authorized ? "authorized" : "not_authorized", "speech": SFSpeechRecognizer.authorizationStatus() == .authorized ? "authorized" : "not_authorized", "on_device": recognizer?.supportsOnDeviceRecognition ?? false, "muted": muted, "locked": locked]
-        if let error = lastError { body["error"] = error }
-        Task { _ = try? await client.request("/api/native/status", method: "POST", body: body) }
+  private func setState(_ value: String, error: String? = nil) {
+    if let error = error {
+      lastError = error
+    } else if value != state || !["unavailable", "permission_required"].contains(value) {
+      lastError = nil
     }
+    state = value
+    onStateChange?(value)
+    var body: [String: Any] = [
+      "voice_state": value,
+      "microphone": AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+        ? "authorized" : "not_authorized",
+      "speech": SFSpeechRecognizer.authorizationStatus() == .authorized
+        ? "authorized" : "not_authorized",
+      "on_device": recognizer?.supportsOnDeviceRecognition ?? false, "muted": muted,
+      "locked": locked, "input_buffers": inputBuffers,
+      "recognition_callbacks": recognitionCallbacks, "wake_matches": wakeMatches,
+    ]
+    if let error = lastError { body["error"] = error }
+    Task { _ = try? await client.request("/api/native/status", method: "POST", body: body) }
+  }
 
-    func statusHeartbeat() {
-        setState(state)
-    }
+  func statusHeartbeat() {
+    setState(state)
+  }
 
-    func shutdown() {
-        stopSpeaking()
-        stopCapture()
-    }
+  func shutdown() {
+    stopSpeaking()
+    stopCapture()
+  }
 
-    func taskChanged(_ id: String, state: String) {
-        if id == activeTaskID && ["failed", "cancelled", "waiting_user"].contains(state) {
-            activeTaskID = nil
-            if !muted { setState("armed") }
-        }
+  func taskChanged(_ id: String, state: String) {
+    guard liveSocket == nil else { return }
+    if id == activeTaskID && ["failed", "cancelled", "waiting_user"].contains(state) {
+      activeTaskID = nil
+      if !muted { setState("armed") }
     }
+  }
 }

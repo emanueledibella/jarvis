@@ -10,6 +10,7 @@ from .budget import ModelBudget
 from .config import ConfigStore
 from .db import Database, now
 from .integrations import MCPHub, NativeBridge
+from .live_voice import LiveVoice
 from .memory import Memory
 from .policy import Gateway
 from .productivity import Productivity
@@ -29,6 +30,7 @@ class Runtime:
         self.budget = ModelBudget(config, self.db)
         self.tasks = TaskManager(self)
         self.telephony = Telephony(self)
+        self.live_voice = LiveVoice(self)
         self.scheduler = Scheduler(self)
         self.started_at = time.monotonic()
         self.audio = {"input": 0.0, "output": 0.0, "revision": 0}
@@ -69,10 +71,24 @@ class Runtime:
         await self.tasks.start()
         if scheduler:
             await self.scheduler.start()
+        settings = self.config.settings
+        cached_oauth = (self.config.data_dir / "oauth" / "second_brain").exists()
+        if (
+            settings.second_brain_url
+            and settings.profile != "local_strict"
+            and (
+                (settings.second_brain_auth == "oauth" and cached_oauth)
+                or (
+                    settings.second_brain_auth == "bearer" and settings.secret("second_brain_token")
+                )
+            )
+        ):
+            await self.connect("second_brain", interactive=False)
         await self.db.emit("service.status", {"state": "ready"})
 
     async def close(self):
         self.scheduler.stop()
+        self.live_voice.stop_all()
         await self.telephony.stop_all()
         for job in self.connect_jobs.values():
             job.cancel()
@@ -185,6 +201,7 @@ class Runtime:
             ("1" if stopped else "0",),
         )
         if stopped:
+            self.live_voice.stop_all()
             jobs = list(self.tasks.running)
             for key in jobs:
                 await self.tasks.cancel(key)
@@ -215,13 +232,13 @@ class Runtime:
             for name, spec in self.mcp.specs().items()
         ]
 
-    async def connect(self, name):
+    async def connect(self, name, *, interactive=True):
         if name in self.connect_jobs and not self.connect_jobs[name].done():
             return {"state": "connecting"}
 
         async def work():
             try:
-                await self.mcp.discover(name, self.config.settings.profile, interactive=True)
+                await self.mcp.discover(name, self.config.settings.profile, interactive=interactive)
                 await self.db.emit("integration.updated", {"name": name, "state": "connected"})
             except Exception as error:
                 await self.db.emit(
