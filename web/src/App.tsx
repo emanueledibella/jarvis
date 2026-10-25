@@ -1,25 +1,12 @@
-import React, {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
-  ArrowDown,
   ArrowRight,
   ArrowUp,
-  ArrowUpRight,
   Bell,
   Brain,
   CalendarClock,
-  CalendarDays,
   Check,
-  ChevronDown,
   ChevronRight,
-  CloudSun,
-  Code2,
-  Command,
   Computer,
   LayoutDashboard,
   Link2,
@@ -30,30 +17,19 @@ import {
   MicOff,
   OctagonX,
   Plus,
-  Search,
   Send,
   Settings2,
   ShieldCheck,
   Square,
   Sun,
-  Terminal,
   Workflow,
   X,
 } from "lucide-react";
-import {
-  api,
-  eventStream,
-  hasToken,
-  patch,
-  post,
-  setToken,
-  type Json,
-} from "./api";
+import { api, eventStream, hasToken, post, setToken, type Json } from "./api";
 import {
   Badge,
   Empty,
   Modal,
-  Orb,
   Text,
   formatDate,
   profileLabels,
@@ -61,6 +37,8 @@ import {
 import { Tasks, Routines } from "./Activity";
 import { Memory, Integrations } from "./Memory";
 import Settings from "./Settings";
+import CommandCenter, { SystemClock, VoiceSignal } from "./CommandCenter";
+import brandIcon from "./assets/jarvis.svg";
 
 type Page =
   | "home"
@@ -70,24 +48,6 @@ type Page =
   | "memory"
   | "integrations"
   | "settings";
-const weatherNames = (code: number) =>
-  code === 0
-    ? "Clear"
-    : code <= 2
-      ? "Partly cloudy"
-      : code === 3
-        ? "Cloudy"
-        : code <= 48
-          ? "Fog"
-          : code <= 67
-            ? "Rain"
-            : code <= 77
-              ? "Snow"
-              : code <= 82
-                ? "Showers"
-                : code <= 86
-                  ? "Snow"
-                  : "Thunderstorms";
 
 export default function App() {
   const [authenticated, setAuthenticated] = useState(hasToken()),
@@ -240,11 +200,8 @@ export default function App() {
           [event.task_id]: (current[event.task_id] || "") + event.data.text,
         }));
       } else {
-        if (event.type === "voice.state")
-          setStatus((current) => ({
-            ...current,
-            native: { ...current.native, ...event.data, connected: true },
-          }));
+        // Replayed events can predate the status snapshot. Refresh the current
+        // native state instead of briefly showing an old microphone state.
         if (refreshTimer.current) clearTimeout(refreshTimer.current);
         refreshTimer.current = setTimeout(refresh, 200);
       }
@@ -301,14 +258,6 @@ export default function App() {
       ? "processing"
       : voiceState;
   const unread = notifications.filter((n) => !n.read).length;
-  const notConfigured =
-    !status.models?.local && !status.models?.cloud_configured;
-  const upcoming = (dashboard.calendar?.events || [])
-    .filter(
-      (e: Json) =>
-        !e.start || new Date(e.start).getTime() >= Date.now() - 86400000,
-    )
-    .slice(0, 3);
   async function send(value = text) {
     if (!value.trim() || sending) return;
     if (!privacyReady) {
@@ -487,7 +436,7 @@ export default function App() {
   if (!authenticated)
     return (
       <div className="connect-screen">
-        <img className="brand-mark brand-logo" src="/jarvis.svg" alt="" />
+        <img className="brand-mark brand-logo" src={brandIcon} alt="" />
         <h1>A private connection.</h1>
         <p>
           Open the dashboard from the macOS app or with <code>jarvis open</code>
@@ -525,7 +474,7 @@ export default function App() {
           onClick={() => setPage("home")}
           aria-label="Jarvis home"
         >
-          <img className="brand-mark brand-logo" src="/jarvis.svg" alt="" />
+          <img className="brand-mark brand-logo" src={brandIcon} alt="" />
           <div>
             <strong>JARVIS</strong>
             <span>PERSONAL INTELLIGENCE</span>
@@ -535,6 +484,7 @@ export default function App() {
           <Plus size={15} />
           New conversation<kbd>↵</kbd>
         </button>
+        <span className="nav-label eyebrow">WORKSPACE</span>
         <nav aria-label="Main navigation">
           {(
             [
@@ -549,6 +499,8 @@ export default function App() {
             <button
               key={item.id}
               className={page === item.id ? "active" : ""}
+              aria-label={item.label}
+              aria-current={page === item.id ? "page" : undefined}
               onClick={() => setPage(item.id)}
             >
               <item.icon size={16} />
@@ -588,6 +540,50 @@ export default function App() {
           {!conversations.length && <p>Context starts with a conversation.</p>}
         </div>
         <div className="sidebar-bottom">
+          <button
+            className="sidebar-voice"
+            onClick={() => openSettings("voice")}
+            aria-label="Open voice settings"
+          >
+            <span className="eyebrow">
+              VOICE CHANNEL{" "}
+              <span
+                className={
+                  "tiny-dot " +
+                  (status.native?.muted || !status.native?.connected
+                    ? "off"
+                    : "")
+                }
+              />
+            </span>
+            <VoiceSignal
+              level={
+                status.native?.muted ||
+                !status.native?.connected ||
+                !["armed", "listening", "speaking", "followup"].includes(
+                  voiceState,
+                )
+                  ? 0
+                  : voiceState === "speaking"
+                    ? audio.output
+                    : audio.input
+              }
+            />
+            <span>
+              <Mic size={12} />
+              {!status.native?.connected
+                ? "Not connected"
+                : status.native?.muted
+                  ? "Microphone muted"
+                  : voiceState === "speaking"
+                    ? "Jarvis is speaking"
+                    : voiceState === "armed"
+                      ? "Listening for Jarvis"
+                      : voiceState === "listening" || voiceState === "followup"
+                        ? "Listening"
+                        : "Open voice settings"}
+            </span>
+          </button>
           <div className="brain-state">
             <Brain size={17} />
             <div>
@@ -644,6 +640,7 @@ export default function App() {
               }
             </span>
           </div>
+          <SystemClock timezone={status.timezone} />
           <div className="topbar-controls">
             <button
               className="icon-btn"
@@ -752,332 +749,26 @@ export default function App() {
           className={"content-area " + (page === "chat" ? "chat-content" : "")}
         >
           {page === "home" && (
-            <div className="dashboard">
-              <div className="dashboard-title">
-                <div>
-                  <span className="eyebrow">YOUR SPACE, ALWAYS CONNECTED</span>
-                  <h1>A thought. An action.</h1>
-                  <p>The right context and the tools to move forward.</p>
-                </div>
-                <div className="date-chip">
-                  <CalendarDays size={15} />
-                  {new Intl.DateTimeFormat("en-GB", {
-                    weekday: "short",
-                    day: "numeric",
-                    month: "long",
-                  }).format(new Date())}
-                </div>
-              </div>
-              {notConfigured && (
-                <div className="setup-banner">
-                  <div>
-                    <Computer size={20} />
-                    <span>
-                      <strong>Start with your model.</strong>
-                      <small>
-                        Ollama, LM Studio, or a cloud provider: choose how
-                        Jarvis thinks.
-                      </small>
-                    </span>
-                  </div>
-                  <button
-                    className="btn"
-                    onClick={() => openSettings("models")}
-                  >
-                    Configure <ArrowRight size={14} />
-                  </button>
-                </div>
-              )}
-              <div className="dashboard-grid">
-                <aside className="dashboard-left">
-                  <section className="widget weather-widget">
-                    <div className="widget-heading">
-                      <span>
-                        <CloudSun size={16} />
-                        WEATHER
-                      </span>
-                      <small>
-                        {dashboard.weather?.stale
-                          ? "Needs refresh"
-                          : dashboard.weather?.state === "ready"
-                            ? "Open-Meteo"
-                            : ""}
-                      </small>
-                    </div>
-                    {dashboard.weather?.state === "ready" ? (
-                      <>
-                        <div className="weather-temperature">
-                          {Math.round(dashboard.weather.current.temperature_2m)}
-                          <span>°</span>
-                          <CloudSun size={48} strokeWidth={1} />
-                        </div>
-                        <h3>
-                          {weatherNames(dashboard.weather.current.weather_code)}
-                        </h3>
-                        <p>{dashboard.weather.location}</p>
-                        <div className="weather-metrics">
-                          <span>
-                            Feels like{" "}
-                            <strong>
-                              {Math.round(
-                                dashboard.weather.current.apparent_temperature,
-                              )}
-                              °
-                            </strong>
-                          </span>
-                          <span>
-                            Wind{" "}
-                            <strong>
-                              {Math.round(
-                                dashboard.weather.current.wind_speed_10m,
-                              )}{" "}
-                              km/h
-                            </strong>
-                          </span>
-                        </div>
-                        <a
-                          className="source-link"
-                          href="https://open-meteo.com/"
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >
-                          Open-Meteo ·{" "}
-                          {formatDate(dashboard.weather.updated_at, true)}
-                          <ArrowUpRight size={10} />
-                        </a>
-                      </>
-                    ) : (
-                      <div className="widget-unconfigured">
-                        <CloudSun size={34} strokeWidth={1} />
-                        <h3>
-                          {dashboard.weather?.state === "loading"
-                            ? "Checking the weather…"
-                            : "The weather in your city."}
-                        </h3>
-                        <p>
-                          {dashboard.weather?.message ||
-                            "Set a location for real, current information."}
-                        </p>
-                        <button
-                          className="text-btn"
-                          onClick={() => openSettings("productivity")}
-                        >
-                          Choose location <ArrowRight size={12} />
-                        </button>
-                      </div>
-                    )}
-                  </section>
-                  <section className="widget agenda-widget">
-                    <div className="widget-heading">
-                      <span>
-                        <CalendarDays size={15} />
-                        YOUR AGENDA
-                      </span>
-                      <button
-                        className="icon-btn"
-                        onClick={() => openSettings("productivity")}
-                        aria-label="Set up calendar"
-                      >
-                        <ArrowUpRight size={14} />
-                      </button>
-                    </div>
-                    {upcoming.length ? (
-                      <div className="agenda-events">
-                        {upcoming.map((e: Json, i: number) => (
-                          <div className="agenda-event" key={e.id + "-" + i}>
-                            <span>
-                              {e.all_day ? "Day" : formatDate(e.start, true)}
-                            </span>
-                            <div>
-                              <h3>{e.title}</h3>
-                              <small>
-                                {e.calendar ||
-                                  e.location?.displayName ||
-                                  e.location ||
-                                  dashboard.calendar.provider}
-                              </small>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="widget-unconfigured">
-                        <h3>
-                          {dashboard.calendar?.state === "ready"
-                            ? "Some room to breathe."
-                            : "Your next events, right here."}
-                        </h3>
-                        <p>
-                          {dashboard.calendar?.state === "ready"
-                            ? "No events in the selected period."
-                            : dashboard.calendar?.message ||
-                              "Connect your calendar to see your day."}
-                        </p>
-                        <button
-                          className="text-btn"
-                          onClick={() => openSettings("productivity")}
-                        >
-                          Calendar <ArrowRight size={12} />
-                        </button>
-                      </div>
-                    )}
-                  </section>
-                </aside>
-                <section className="dashboard-center">
-                  <Orb
-                    state={orbState}
-                    level={orbState === "speaking" ? audio.output : audio.input}
-                  />
-                  <div className="voice-actions">
-                    <button className="btn" onClick={() => native("listen")}>
-                      <Mic size={14} />
-                      Talk to Jarvis<kbd>⌘ ⇧ J</kbd>
-                    </button>
-                    {!status.native?.connected && (
-                      <button
-                        className="text-btn"
-                        onClick={() => openSettings("voice")}
-                      >
-                        Set up voice
-                      </button>
-                    )}
-                  </div>
-                  <div className="quick-requests">
-                    <span className="eyebrow">WHERE SHALL WE START?</span>
-                    <button
-                      onClick={() =>
-                        send(
-                          "What does my day look like? Check my events and tasks.",
-                        )
-                      }
-                    >
-                      <CalendarDays size={14} />
-                      A look at your day
-                      <ArrowUpRight size={12} />
-                    </button>
-                    <button
-                      onClick={() => {
-                        setText("Research in depth: ");
-                        setPage("chat");
-                        input.current?.focus();
-                      }}
-                    >
-                      <Search size={14} />
-                      Explore a topic
-                      <ArrowUpRight size={12} />
-                    </button>
-                    <button
-                      onClick={() => {
-                        setText("Help me work on the project ");
-                        setPage("chat");
-                        input.current?.focus();
-                      }}
-                    >
-                      <Code2 size={14} />
-                      Work on code
-                      <ArrowUpRight size={12} />
-                    </button>
-                  </div>
-                </section>
-                <aside className="dashboard-right">
-                  <section className="widget">
-                    <div className="widget-heading">
-                      <span>
-                        <Workflow size={15} />
-                        WORK IN PROGRESS
-                      </span>
-                      <button
-                        className="icon-btn"
-                        aria-label="Open tasks"
-                        onClick={() => setPage("tasks")}
-                      >
-                        <ArrowUpRight size={14} />
-                      </button>
-                    </div>
-                    {activeTasks.length ? (
-                      <div className="compact-tasks">
-                        {activeTasks.slice(0, 3).map((t) => (
-                          <button key={t.id} onClick={() => setPage("tasks")}>
-                            <span className="compact-task-icon">
-                              {t.state === "running" ? (
-                                <LoaderCircle size={15} className="spin" />
-                              ) : (
-                                <Workflow size={15} />
-                              )}
-                            </span>
-                            <span>
-                              <strong>{t.title}</strong>
-                              <small>
-                                <Badge state={t.state} />
-                              </small>
-                            </span>
-                          </button>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="widget-unconfigured">
-                        <h3>Ready to make room.</h3>
-                        <p>
-                          Research, coding, and checks continue in the
-                          background while you do something else.
-                        </p>
-                        <span className="quiet-status">
-                          <span className="tiny-dot" />
-                          No open tasks
-                        </span>
-                      </div>
-                    )}
-                  </section>
-                  <section className="widget memory-widget">
-                    <div className="widget-heading">
-                      <span>
-                        <Brain size={15} />
-                        MEMORY THAT CONTINUES
-                      </span>
-                    </div>
-                    <h3>Pick up where we left off.</h3>
-                    <p>
-                      Preferences, projects, and decisions stay in your Second
-                      Brain.
-                    </p>
-                    <button
-                      className="text-btn"
-                      onClick={() => setPage("memory")}
-                    >
-                      Explore memory <ArrowRight size={12} />
-                    </button>
-                  </section>
-                  <div className="local-note">
-                    <ShieldCheck size={15} />
-                    <p>
-                      The service lives on your Mac.
-                      <br />
-                      You choose what to connect.
-                    </p>
-                  </div>
-                  {approvals.length > 0 && (
-                    <button
-                      className="attention-mini"
-                      onClick={() => setPage("tasks")}
-                    >
-                      <span className="attention-dot" />
-                      {approvals.length} pending decisions
-                      <ArrowRight size={13} />
-                    </button>
-                  )}
-                </aside>
-              </div>
-              {composer}
-              <footer className="dashboard-footer">
-                <span>
-                  <span className="tiny-dot" />
-                  {status.models?.local ||
-                    status.models?.cloud ||
-                    "Model needs setup"}
-                </span>
-                <span>Your Mac must be awake to run tasks and calls.</span>
-              </footer>
-            </div>
+            <CommandCenter
+              status={status}
+              dashboard={dashboard}
+              tasks={tasks}
+              schedules={schedules}
+              approvals={approvals}
+              connection={connection}
+              orbState={orbState}
+              audio={audio}
+              composer={composer}
+              onPage={setPage}
+              onSettings={openSettings}
+              onListen={() => native("listen")}
+              onNewChat={newChat}
+              onCompose={(prompt) => {
+                setText(prompt);
+                setPage("chat");
+                setTimeout(() => input.current?.focus(), 0);
+              }}
+            />
           )}
           {page === "chat" && (
             <div className="chat-view">
@@ -1103,7 +794,7 @@ export default function App() {
                   <div className="chat-welcome">
                     <img
                       className="brand-mark brand-logo"
-                      src="/jarvis.svg"
+                      src={brandIcon}
                       alt=""
                     />
                     <h2>Tell me the goal.</h2>

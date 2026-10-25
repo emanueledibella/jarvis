@@ -244,33 +244,62 @@ export function Orb({
     locked: ["Session protected.", "Listening resumes after unlock."],
   };
   const [title, detail] = descriptions[state] || descriptions.unavailable;
+  const safeLevel = Math.max(
+    0,
+    Math.min(1, Number.isFinite(level) ? level : 0),
+  );
   return (
     <div className={"orb-block " + (small ? "orb-small" : "")}>
       <div
         className={"orb orb-" + state}
         style={
           {
-            "--level": Math.min(1, level),
-            "--pulse": 1 + Math.min(1, level) * 0.14,
+            "--level": safeLevel,
+            "--pulse": 1 + safeLevel * 0.14,
           } as React.CSSProperties
         }
         role="img"
         aria-label={"Jarvis: " + title}
       >
         <div className="orb-haze" />
+        <svg
+          className="reactor-orbits"
+          viewBox="0 0 320 320"
+          fill="none"
+          aria-hidden="true"
+        >
+          <circle cx="160" cy="160" r="151" strokeDasharray="2 7" />
+          <ellipse
+            cx="160"
+            cy="160"
+            rx="143"
+            ry="68"
+            transform="rotate(-32 160 160)"
+          />
+          <ellipse
+            cx="160"
+            cy="160"
+            rx="143"
+            ry="68"
+            transform="rotate(32 160 160)"
+          />
+          <path d="M160 0v17m0 286v17M0 160h17m286 0h17M48 48l9 9m206 206 9 9M48 272l9-9M263 57l9-9" />
+          <circle className="reactor-satellite" cx="40" cy="199" r="3" />
+          <circle className="reactor-satellite" cx="280" cy="121" r="3" />
+        </svg>
         <div className="orb-ring ring-a" />
         <div className="orb-ticks" />
         <div className="orb-ring ring-b" />
         <div className="orb-ring ring-c" />
         <div className="orb-core">
-          <span>J</span>
+          <span className="reactor-name">JARVIS</span>
+          <small>VOICE LINK</small>
           <div className="spectrum" aria-hidden="true">
             {Array.from({ length: 13 }, (_, i) => (
               <i
                 key={i}
                 style={{
-                  height:
-                    4 + Math.sin(i * 1.9) ** 2 * 6 + level * ((i % 3) + 1) * 8,
+                  height: 3 + safeLevel * (5 + Math.sin(i * 1.9) ** 2 * 18),
                 }}
               />
             ))}
