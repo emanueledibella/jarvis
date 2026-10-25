@@ -91,7 +91,7 @@ def create_app(
             "localhost",
             "testserver" if not process_lock else "127.0.0.1",
         }:
-            return JSONResponse({"detail": "Host non ammesso."}, status_code=400)
+            return JSONResponse({"detail": "Host is not allowed."}, status_code=400)
         origin = request.headers.get("origin")
         allowed_origins = {
             f"http://127.0.0.1:{config.settings.api_port}",
@@ -100,18 +100,20 @@ def create_app(
             "http://localhost:5173",
         }
         if origin and origin not in allowed_origins:
-            return JSONResponse({"detail": "Origin non ammessa."}, status_code=403)
+            return JSONResponse({"detail": "Origin is not allowed."}, status_code=403)
         if request.url.path.startswith("/api/"):
             token = request.headers.get("authorization", "").removeprefix("Bearer ")
             if not hmac.compare_digest(token, config.token):
-                return JSONResponse({"detail": "Autenticazione locale richiesta."}, status_code=401)
+                return JSONResponse(
+                    {"detail": "Local authentication is required."}, status_code=401
+                )
         if request.method in {"POST", "PUT", "PATCH"}:
             size = 0
             chunks = []
             async for chunk in request.stream():
                 size += len(chunk)
                 if size > 512000:
-                    return JSONResponse({"detail": "Richiesta oltre 512 KB."}, status_code=413)
+                    return JSONResponse({"detail": "Request exceeds 512 KB."}, status_code=413)
                 chunks.append(chunk)
             request._body = b"".join(chunks)
         response = await call_next(request)
@@ -143,7 +145,7 @@ def create_app(
     @app.post("/api/control/emergency")
     async def emergency(data: dict):
         if not isinstance(data.get("stopped"), bool):
-            raise ValueError("Specifica stopped: true o false.")
+            raise ValueError("Specify stopped: true or false.")
         return await runtime.emergency(data["stopped"])
 
     @app.get("/api/settings")
@@ -168,6 +170,8 @@ def create_app(
             for key in (
                 "profile",
                 "voice_enabled",
+                "language",
+                "response_language",
                 "desktop_voice_provider",
                 "desktop_voice_model",
                 "desktop_voice_name",
@@ -207,7 +211,7 @@ def create_app(
             runtime.db,
             TaskContext(
                 "model-test",
-                "Verifica capacità",
+                "Capability check",
                 data.get("profile", config.settings.profile),
                 "personal",
             ),
@@ -264,7 +268,7 @@ def create_app(
             and data.privacy_revision != runtime.voice_session["revision"]
         ):
             raise HTTPException(
-                409, "Privacy o ambito sono cambiati: attendi l'aggiornamento della conversazione."
+                409, "Privacy or scope changed: wait for the conversation to refresh."
             )
         privacy = data.private or bool(runtime.voice_session["private"])
         scope = data.scope if "scope" in data.model_fields_set else runtime.voice_session["scope"]
@@ -308,7 +312,7 @@ def create_app(
     @app.post("/api/tasks/{key}/cancel")
     async def cancel(key: str):
         if not await runtime.db.fetchone("SELECT id FROM tasks WHERE id=?", (key,)):
-            raise HTTPException(404, "Task non trovato.")
+            raise HTTPException(404, "Task not found.")
         await runtime.tasks.cancel(key)
         return {"state": "cancelling"}
 
@@ -316,7 +320,7 @@ def create_app(
     async def task_detail(key: str):
         row = await runtime.db.fetchone("SELECT * FROM tasks WHERE id=?", (key,))
         if not row:
-            raise HTTPException(404, "Task non trovato.")
+            raise HTTPException(404, "Task not found.")
         if row["private"]:
             row.update(
                 {
@@ -368,7 +372,7 @@ def create_app(
     async def reconcile_effect(key: str, data: dict):
         if data.get("verified") is not True:
             raise ValueError(
-                "Conferma di aver verificato l'esito sul servizio o sul file originale."
+                "Confirm that you verified the outcome in the original service or file."
             )
         await runtime.gateway.reconcile(key, data.get("outcome"), data.get("result", {}))
         return {"state": "reconciled"}
@@ -453,11 +457,11 @@ def create_app(
     async def update_schedule(key: str, changes: dict):
         row = await runtime.db.fetchone("SELECT * FROM schedules WHERE id=?", (key,))
         if not row:
-            raise HTTPException(404, "Routine non trovata.")
+            raise HTTPException(404, "Routine not found.")
         if set(changes) == {"enabled"} and isinstance(changes["enabled"], bool):
             if changes["enabled"] and row["next_run_at"] is None:
                 raise ValueError(
-                    "Il promemoria è già concluso. Modifica la scadenza per programmarlo nuovamente."
+                    "This reminder has already completed. Change its due date to schedule it again."
                 )
             await runtime.db.execute(
                 "UPDATE schedules SET enabled=? WHERE id=?", (int(changes["enabled"]), key)
@@ -526,7 +530,7 @@ def create_app(
     @app.post("/api/memory/remember", status_code=202)
     async def remember(data: MemoryInput):
         if config.settings.profile == "local_strict":
-            raise PermissionError("Le scritture sono sospese nel profilo locale rigoroso.")
+            raise PermissionError("Writes are suspended in the strict local profile.")
         return await runtime.memory.enqueue(data.text, data.scope)
 
     @app.get("/api/memory/source/{key}")
@@ -550,7 +554,7 @@ def create_app(
     @app.post("/api/integrations/{name}/connect")
     async def connect_integration(name: str, interactive: bool = True):
         if name not in runtime.mcp.specs():
-            raise ValueError("Server non configurato.")
+            raise ValueError("Server is not configured.")
         return await runtime.connect(name, interactive=interactive)
 
     @app.put("/api/integrations/mcp/config")
@@ -568,17 +572,17 @@ def create_app(
     @app.post("/api/calls/owner")
     async def call_owner(data: dict):
         if data.get("authorized") is not True:
-            raise PermissionError("Autorizza la chiamata al tuo numero prima di avviarla.")
+            raise PermissionError("Authorize the call to your number before starting it.")
         return await runtime.telephony.call_owner(
             "manual:" + str(data.get("request_id", "")),
-            str(data.get("reason", "Chiamata di prova richiesta dal proprietario")),
+            str(data.get("reason", "Test call requested by the owner")),
             authorized=True,
         )
 
     @app.post("/api/calls/{key}/reconcile")
     async def reconcile_call(key: str, data: dict):
         if data.get("verified") is not True:
-            raise ValueError("Conferma la verifica del registro dell'operatore.")
+            raise ValueError("Confirm that you checked the carrier call log.")
         return await runtime.telephony.reconcile(
             key,
             provider_id=str(data.get("provider_id", "")),
@@ -599,13 +603,11 @@ def create_app(
             "autostart_enable",
             "autostart_disable",
         }:
-            raise ValueError("Azione nativa non ammessa.")
+            raise ValueError("Native action is not allowed.")
         if runtime.gateway.blocked and operation in {"enable", "unmute", "listen"}:
-            raise PermissionError("Arresto di emergenza attivo: riabilita prima il servizio.")
+            raise PermissionError("Emergency stop is active: re-enable the service first.")
         if not config.settings.voice_enabled and operation in {"enable", "unmute", "listen"}:
-            raise PermissionError(
-                "Il percorso vocale è disattivato. Abilitalo nelle impostazioni Voce."
-            )
+            raise PermissionError("Voice is disabled. Enable it in Voice settings.")
         arguments = (
             {k: runtime.voice_session[k] for k in ("private", "scope")}
             if operation == "listen" and runtime.voice_session["private"] is not None
@@ -623,7 +625,7 @@ def create_app(
                 "personal",
                 "work",
             }:
-                raise ValueError("Sessione vocale non valida.")
+                raise ValueError("Invalid voice session.")
         return await runtime.native.invoke(
             "control." + operation,
             arguments,
@@ -644,7 +646,7 @@ def create_app(
             "personal",
             "work",
         }:
-            raise ValueError("Sessione vocale non valida.")
+            raise ValueError("Invalid voice session.")
         return await runtime.set_voice_session(data["private"], data["scope"])
 
     @app.post("/api/native/status")
@@ -680,6 +682,7 @@ def create_app(
             "events": batch,
             "settings": {
                 "language": config.settings.language,
+                "response_language": config.settings.response_language,
                 "wake_phrase": config.settings.wake_phrase,
                 "wake_enabled": config.settings.wake_enabled,
                 "voice_enabled": config.settings.voice_enabled and not runtime.gateway.blocked,
@@ -716,7 +719,7 @@ def create_app(
             raise HTTPException(404)
         if not (ui / "index.html").is_file():
             return JSONResponse(
-                {"detail": "Compila la dashboard con npm run build nella cartella web."},
+                {"detail": "Build the dashboard with npm run build in the web directory."},
                 status_code=503,
             )
         return FileResponse(ui / "index.html")

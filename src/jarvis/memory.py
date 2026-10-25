@@ -12,14 +12,14 @@ class Memory:
         self.suspended = False
 
     async def enqueue(
-        self, text: str, scope: str, task_id=None, *, title="Conversazione con Jarvis"
+        self, text: str, scope: str, task_id=None, *, title="Conversation with Jarvis"
     ):
         if self.config.settings.memory_capture == "off":
-            raise PermissionError("La memoria è disattivata.")
+            raise PermissionError("Memory is disabled.")
         if not self.config.settings.second_brain_url:
-            raise ValueError("Collega il Second Brain prima di salvare memorie.")
+            raise ValueError("Connect Second Brain before saving memories.")
         if scope not in {"personal", "work", "test-mcp"}:
-            raise ValueError("Ambito memoria non valido.")
+            raise ValueError("Invalid memory scope.")
         key = uid()
         payload = {
             "text": text,
@@ -37,12 +37,12 @@ class Memory:
         return {
             "outbox_id": key,
             "state": "pending",
-            "message": "Richiesta di salvataggio nella coda locale; il Second Brain non l'ha ancora confermata.",
+            "message": "Save request queued locally; Second Brain has not confirmed it yet.",
         }
 
     async def recall(self, query: str, scope: str, profile: str):
         if not query.strip() or len(query) > 2000:
-            raise ValueError("La ricerca nei ricordi richiede da 1 a 2000 caratteri.")
+            raise ValueError("Memory search requires between 1 and 2,000 characters.")
         return await self.mcp.call(
             "second_brain",
             "recall",
@@ -92,7 +92,7 @@ class Memory:
                     "stored_with_warnings",
                     "superseded",
                 }:
-                    raise ValueError("Stato Second Brain non riconosciuto.")
+                    raise ValueError("Unrecognized Second Brain status.")
                 next_attempt = (
                     datetime.now(UTC) + timedelta(seconds=min(300, 10 * (row["attempts"] + 1)))
                 ).isoformat()
@@ -130,7 +130,7 @@ class Memory:
                         json.dumps(
                             {
                                 "error": type(error).__name__,
-                                "message": "Consegna o adozione non confermata; la richiesta originale è conservata.",
+                                "message": "Delivery or adoption is unconfirmed; the original request has been retained.",
                             }
                         ),
                         row["id"],
@@ -140,7 +140,7 @@ class Memory:
     async def retry(self, key: str):
         row = await self.db.fetchone("SELECT * FROM memory_outbox WHERE id=?", (key,))
         if not row:
-            raise ValueError("Fonte in coda non trovata.")
+            raise ValueError("Queued source not found.")
         await self.db.execute(
             "UPDATE memory_outbox SET state=?,attempts=0,next_attempt=? WHERE id=?",
             ("queued" if row["source_id"] else "pending", now(), key),

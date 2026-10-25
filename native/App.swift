@@ -24,9 +24,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        if let icon = Bundle.main.url(forResource: "Jarvis", withExtension: "icns") {
+            NSApp.applicationIconImage = NSImage(contentsOf: icon)
+        }
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem.button?.image = NSImage(systemSymbolName: "waveform.circle", accessibilityDescription: "Jarvis")
-        statusItem.button?.toolTip = "Jarvis — assistente personale"
+        statusItem.button?.toolTip = "Jarvis — personal assistant"
         buildMenu()
         do {
             let resource = Bundle.main.url(forResource: "project-root", withExtension: "txt")!
@@ -44,7 +47,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             guard let info = try JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let address = info["url"] as? String, let url = URL(string: address),
                   url.host == "127.0.0.1", let token = info["token"] as? String else {
-                throw ServiceClient.ClientError.server("Esegui scripts/setup.sh per preparare il servizio.")
+                throw ServiceClient.ClientError.server("Run scripts/setup.sh to prepare the service.")
             }
             dataDirectory = info["data_dir"] as? String ?? ""
             client = ServiceClient(base: url, token: token)
@@ -69,7 +72,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             }
         } catch {
             let alert = NSAlert()
-            alert.messageText = "Jarvis non è ancora pronto"
+            alert.messageText = "Jarvis is not ready yet"
             alert.informativeText = error.localizedDescription
             alert.runModal()
         }
@@ -77,19 +80,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
     func buildMenu() {
         let menu = NSMenu()
-        let items: [(String, Selector, String)] = [("Apri Jarvis", #selector(showDashboard), "j"), ("Parla ora", #selector(listen), ""), ("Disattiva microfono", #selector(mute), ""), ("Riattiva microfono", #selector(unmute), "")]
+        let items: [(String, Selector, String)] = [("Open Jarvis", #selector(showDashboard), "j"), ("Talk now", #selector(listen), ""), ("Mute microphone", #selector(mute), ""), ("Unmute microphone", #selector(unmute), "")]
         for (title, action, key) in items {
             let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
             item.target = self
             menu.addItem(item)
         }
         menu.addItem(.separator())
-        let settings = NSMenuItem(title: "Avvia al login", action: #selector(toggleAutostart), keyEquivalent: "")
+        let settings = NSMenuItem(title: "Launch at login", action: #selector(toggleAutostart), keyEquivalent: "")
         settings.target = self
         settings.state = SMAppService.mainApp.status == .enabled ? .on : .off
         menu.addItem(settings)
         menu.addItem(.separator())
-        let quit = NSMenuItem(title: "Termina Jarvis", action: #selector(quit), keyEquivalent: "q")
+        let quit = NSMenuItem(title: "Quit Jarvis", action: #selector(quit), keyEquivalent: "q")
         quit.target = self
         menu.addItem(quit)
         statusItem.menu = menu
@@ -122,7 +125,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             try process.run()
             service = process
         } catch {
-            statusItem.button?.toolTip = "Jarvis: avvio del servizio fallito"
+            statusItem.button?.toolTip = "Jarvis: service startup failed"
         }
     }
 
@@ -212,7 +215,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                 failures = 0
             } catch {
                 failures += 1
-                if failures > 2 { statusItem.button?.toolTip = "Jarvis: riconnessione al servizio" }
+                if failures > 2 { statusItem.button?.toolTip = "Jarvis: reconnecting to the service" }
                 if failures == 3 { startService() }
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
             }
@@ -244,7 +247,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             case "control.autostart_disable": try await SMAppService.mainApp.unregister(); buildMenu(); result = ["state": "disabled"]
             default:
                 if operation.hasPrefix("calendar.") { result = try calendar.perform(operation, arguments) }
-                else { throw ServiceClient.ClientError.server("Operazione nativa non ammessa.") }
+                else { throw ServiceClient.ClientError.server("Native action is not allowed.") }
             }
         } catch { result = ["error": error.localizedDescription] }
         _ = try? await client.request("/api/native/result/" + key, method: "POST", body: result)
@@ -255,7 +258,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         guard settings.authorizationStatus == .authorized else { return }
         let content = UNMutableNotificationContent()
         content.title = title
-        content.body = "Apri Jarvis per vedere il risultato."
+        content.body = "Open Jarvis to see the result."
         let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
         try? await UNUserNotificationCenter.current().add(request)
     }
@@ -295,8 +298,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                 buildMenu()
             } catch {
                 let alert = NSAlert()
-                alert.messageText = "Avvio al login da autorizzare"
-                alert.informativeText = "Controlla Impostazioni di Sistema → Generali → Elementi login."
+                alert.messageText = "Launch at login requires approval"
+                alert.informativeText = "Check System Settings → General → Login Items."
                 alert.runModal()
             }
         }

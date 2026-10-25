@@ -23,7 +23,7 @@ class ScriptedToolModel(BaseChatModel):
         if any(isinstance(m, ToolMessage) and m.name == self.operation for m in messages):
             last = next(m for m in reversed(messages) if isinstance(m, ToolMessage))
             message = AIMessage(
-                content="Esito verificato: " + str(last.content),
+                content="Verified outcome: " + str(last.content),
                 usage_metadata={"input_tokens": 20, "output_tokens": 10, "total_tokens": 30},
             )
         else:
@@ -71,12 +71,24 @@ async def test_responses_stream_accepts_content_blocks_without_streaming_reasoni
 
 
 async def test_actual_deep_agent_executes_a_tool(runtime, monkeypatch):
+    from jarvis import agent
+    from jarvis.language import language_instructions
+
+    captured = []
+    create_agent = agent.create_deep_agent
+
+    def capture_agent(**kwargs):
+        captured.append(kwargs["system_prompt"])
+        return create_agent(**kwargs)
+
+    monkeypatch.setattr(agent, "create_deep_agent", capture_agent)
     monkeypatch.setattr(runtime.tasks, "model", model_factory())
     task = await runtime.tasks.create("Che ore sono?")
     await runtime.tasks.running[task["id"]]
     row = await runtime.db.fetchone("SELECT * FROM tasks WHERE id=?", (task["id"],))
     assert row["state"] == "succeeded", row["error"]
     assert "timezone" in row["result"]
+    assert language_instructions("auto", "it-IT") in captured[0]
     assert await runtime.db.fetchone("SELECT * FROM events WHERE type='tool.completed'")
 
 
@@ -132,7 +144,7 @@ async def test_unknown_effect_blocks_retry_until_reconciled(runtime):
     try:
         with pytest.raises(TimeoutError):
             await runtime.gateway.invoke("send", {"text": "test"}, "external", network_timeout)
-        with pytest.raises(ValueError, match="incerto"):
+        with pytest.raises(ValueError, match="uncertain"):
             await runtime.gateway.invoke("send", {"text": "test"}, "external", network_timeout)
         assert count == 1
         effect = await runtime.db.fetchone("SELECT * FROM effects")
@@ -155,7 +167,7 @@ async def test_cloud_budget_reserves_before_request_and_accounts_usage(runtime):
             "model_output_usd_per_million": 100,
         }
     )
-    with pytest.raises(ValueError, match="Budget"):
+    with pytest.raises(ValueError, match="budget"):
         await runtime.budget.reserve("rejected", "task", [[HumanMessage(content="hello")]], {})
     assert not await runtime.db.fetchall("SELECT * FROM model_usage")
     runtime.config.update({"monthly_budget_usd": 50})
@@ -267,7 +279,7 @@ async def test_submission_id_cannot_be_rebound_to_different_arguments(runtime, m
     monkeypatch.setattr(runtime.tasks, "model", model_factory())
     key = uid()
     await runtime.tasks.create("Prima richiesta", request_id=key)
-    with pytest.raises(ValueError, match="richiesta diversa"):
+    with pytest.raises(ValueError, match="different request"):
         await runtime.tasks.create("Richiesta diversa", request_id=key)
     if key in runtime.tasks.running:
         await runtime.tasks.running[key]

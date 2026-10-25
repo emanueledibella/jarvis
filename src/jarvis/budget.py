@@ -27,7 +27,7 @@ class ModelBudget:
         output_rate = pricing["output"] if pricing else settings.model_output_usd_per_million
         if not input_rate or not output_rate:
             raise ValueError(
-                "Per il cloud configura le tariffe input/output nelle impostazioni: servono a verificare il budget prima delle richieste."
+                "Configure cloud input/output rates in Settings so the budget can be checked before requests."
             )
         # UTF-8 bytes are a conservative estimate for ordinary BPE text tokens.
         # Include serialized tool schemas and per-message protocol overhead.
@@ -48,7 +48,7 @@ class ModelBudget:
             )
             if row["total"] + reservation > settings.monthly_budget_usd:
                 raise ValueError(
-                    "Budget mensile insufficiente per la prossima richiesta cloud. Nessuna richiesta inviata."
+                    "The monthly budget cannot cover the next cloud request. No request was sent."
                 )
             await self.db.execute(
                 "INSERT INTO model_usage(id,task_id,month,state,reservation_usd,created_at) VALUES(?,?,?,'reserved',?,?)",
@@ -75,9 +75,7 @@ class ModelBudget:
                 (month,),
             )
             if row["total"] + reservation > self.config.settings.monthly_budget_usd:
-                raise ValueError(
-                    "Budget mensile insufficiente per aprire la sessione vocale OpenAI."
-                )
+                raise ValueError("The monthly budget cannot cover an OpenAI voice session.")
             await self.db.execute(
                 "INSERT INTO model_usage(id,task_id,month,state,reservation_usd,created_at) VALUES(?,?,?,'reserved',?,?)",
                 (run_id, "voice:" + run_id, month, reservation, now()),
@@ -106,5 +104,5 @@ class ModelBudget:
                 self.config.settings.model_input_usd_per_million
                 and self.config.settings.model_output_usd_per_million
             ),
-            "basis": "Stima con tariffe configurate; errori e consumi ignoti conservano la prenotazione.",
+            "basis": "Estimate based on configured rates; errors and unknown usage retain the reservation.",
         }

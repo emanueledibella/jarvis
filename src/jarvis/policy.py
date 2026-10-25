@@ -114,14 +114,14 @@ class Gateway:
     async def invoke(self, name: str, arguments: dict, risk: str, function):
         if self.blocked:
             raise PermissionError(
-                "Arresto di emergenza attivo. Riabilita il servizio dalla dashboard."
+                "Emergency stop is active. Re-enable the service from the dashboard."
             )
         ctx = active_task.get()
         if risk in {"external", "command"} and not ctx.external_authorized:
             if not await self.approval(ctx, name, arguments):
                 return {
                     "state": "rejected",
-                    "message": "Il proprietario non ha autorizzato questa operazione.",
+                    "message": "The owner did not authorize this operation.",
                 }
         argument_hash = digest(arguments)
         operation_key = digest([ctx.id, name, argument_hash])
@@ -147,7 +147,7 @@ class Gateway:
                     )
                 if not retry:
                     raise ValueError(
-                        "Esito dell'operazione incerto: riconcilia prima di ripeterla."
+                        "The operation outcome is uncertain: reconcile it before retrying."
                     )
         await self.db.emit("tool.started", {"tool": name}, ctx.id, private=ctx.private)
         try:
@@ -179,21 +179,21 @@ class Gateway:
     async def decide(self, approval_id: str, approved: bool) -> str:
         row = await self.db.fetchone("SELECT * FROM approvals WHERE id=?", (approval_id,))
         if not row or row["state"] != "pending" or row["expires_at"] < now():
-            raise ValueError("La proposta è scaduta o è già stata decisa.")
+            raise ValueError("The proposal has expired or has already been decided.")
         task = await self.db.fetchone("SELECT state FROM tasks WHERE id=?", (row["task_id"],))
         if not task or task["state"] != "waiting_user":
-            raise ValueError("Il task non attende più questa decisione.")
+            raise ValueError("The task is no longer waiting for this decision.")
         changed = await self.db.execute(
             "UPDATE approvals SET state=?,decided_at=? WHERE id=? AND state='pending'",
             ("approved" if approved else "rejected", now(), approval_id),
         )
         if not changed:
-            raise ValueError("La proposta è già stata decisa.")
+            raise ValueError("The proposal has already been decided.")
         return row["task_id"]
 
     async def reconcile(self, operation_key: str, outcome: str, result: dict):
         if outcome not in {"succeeded", "not_executed"}:
-            raise ValueError("Specifica un esito verificato: succeeded o not_executed.")
+            raise ValueError("Specify a verified outcome: succeeded or not_executed.")
         changed = await self.db.execute(
             "UPDATE effects SET state=?,result=?,updated_at=? WHERE operation_key=? AND state='unknown'",
             (
@@ -204,4 +204,4 @@ class Gateway:
             ),
         )
         if not changed:
-            raise ValueError("L'operazione non richiede riconciliazione.")
+            raise ValueError("The operation does not require reconciliation.")

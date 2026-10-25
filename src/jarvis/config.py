@@ -26,6 +26,9 @@ class Settings(BaseSettings):
     api_port: int = Field(default=8765, ge=1024, le=65535)
     timezone: str = "Europe/Rome"
     language: str = "it-IT"
+    response_language: str = Field(
+        default="auto", pattern=r"^(?:auto|[a-zA-Z]{2,3}(?:-[a-zA-Z0-9]{2,8})*)$"
+    )
     profile: Profile = "local_connected"
     cloud_provider: Literal["openai", "anthropic", "openai_compatible"] = "openai"
     cloud_model: str = ""
@@ -122,9 +125,7 @@ class Settings(BaseSettings):
         try:
             ZoneInfo(value)
         except KeyError:
-            raise ValueError(
-                "Fuso orario sconosciuto: usa un nome IANA come Europe/Rome."
-            ) from None
+            raise ValueError("Unknown time zone: use an IANA name such as Europe/Rome.") from None
         return value
 
     @field_validator("cloud_base_url", "second_brain_url")
@@ -143,16 +144,14 @@ class Settings(BaseSettings):
                 or parts.fragment
                 or (parts.scheme != "https" and not loopback_url(value))
             ):
-                raise ValueError("Usa HTTPS per i server remoti oppure HTTP su loopback.")
+                raise ValueError("Use HTTPS for remote servers or HTTP on loopback.")
         return value
 
     @field_validator("api_host")
     @classmethod
     def local_bind(cls, value):
         if value != "127.0.0.1":
-            raise ValueError(
-                "Jarvis si espone solo su 127.0.0.1; usa il proxy telefonico dedicato."
-            )
+            raise ValueError("Jarvis binds only to 127.0.0.1; use the dedicated telephony proxy.")
         return value
 
     @field_validator("allow_cloud_fallback")
@@ -160,7 +159,7 @@ class Settings(BaseSettings):
     def no_implicit_fallback(cls, value):
         if value:
             raise ValueError(
-                "Il fallback automatico non è abilitato. Il profilo ibrido sceglie il provider all'avvio del task."
+                "Automatic fallback is disabled. The hybrid profile selects its provider when the task starts."
             )
         return value
 
@@ -185,7 +184,7 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def validate_location(self):
         if (self.weather_latitude is None) != (self.weather_longitude is None):
-            raise ValueError("Imposta entrambe le coordinate meteo.")
+            raise ValueError("Set both weather coordinates.")
         return self
 
     def secret(self, field: str) -> str:
@@ -234,12 +233,12 @@ class ConfigStore:
         self.token_path.chmod(0o600)
         self.token = self.token_path.read_text().strip()
         if len(self.token) < 32:
-            raise ValueError("Token API locale non valido; rimuovi il file per rigenerarlo.")
+            raise ValueError("Invalid local API token; remove its file to regenerate it.")
 
     def load(self) -> Settings:
         saved = json.loads(self.path.read_text()) if self.path.exists() else {}
         # Process env > .env > private UI settings > defaults. Pydantic init kwargs normally
-        # win over env, therefore merge only non-explicit settings as defaults via a subclass.
+        # win over env, therefore merge saved settings only where no explicit environment value is present.
         env_settings = Settings(_env_file=self.env_file)
         explicit = env_settings.model_fields_set
         merged = {**saved, **{key: getattr(env_settings, key) for key in explicit}}
@@ -250,7 +249,7 @@ class ConfigStore:
         forbidden = {"data_dir", "api_host", "api_port", "ui_dir", "record_audio"}
         unknown = set(changes) - set(Settings.model_fields)
         if unknown or forbidden.intersection(changes):
-            raise ValueError("Parametro sconosciuto o non modificabile durante l'esecuzione.")
+            raise ValueError("Unknown setting or setting that cannot be changed while running.")
         saved = json.loads(self.path.read_text()) if self.path.exists() else {}
         candidate = {**saved, **changes}
         Settings(_env_file=None, **{**self.settings.model_dump(), **changes})

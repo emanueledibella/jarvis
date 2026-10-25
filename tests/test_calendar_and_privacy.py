@@ -63,18 +63,18 @@ async def test_do_not_remember_is_enforced_by_tool(runtime):
     try:
         tool = next(t for t in build_tools(runtime) if t.name == "memory_remember")
         result = await tool.ainvoke({"text": "il dato personale"})
-        assert "non consente" in result
+        assert "does not allow" in result
         assert not await runtime.db.fetchall("SELECT * FROM memory_outbox")
     finally:
         active_task.reset(marker)
 
 
-def test_spoken_code_and_links_are_replaced_by_dashboard_reference():
+def test_spoken_code_and_urls_are_removed_without_changing_language():
     text = speech_text(
         "Risultato.\n```python\nprint('hello')\n```\nFonte: [documentazione](https://example.com)."
     )
     assert "print" not in text and "https://" not in text
-    assert "codice è disponibile nella dashboard" in text and "documentazione" in text
+    assert text == "Risultato. Fonte: documentazione."
 
 
 async def test_cloud_callback_enforces_budget_before_generation(runtime):
@@ -90,7 +90,7 @@ async def test_cloud_callback_enforces_budget_before_generation(runtime):
     callback = TokenEvents(
         runtime.db, TaskContext("task", "test", "cloud", "personal"), runtime.budget, cloud=True
     )
-    with pytest.raises(ValueError, match="Budget"):
+    with pytest.raises(ValueError, match="budget"):
         await ScriptedToolModel().ainvoke(
             [HumanMessage(content="test")], config={"callbacks": [callback]}
         )

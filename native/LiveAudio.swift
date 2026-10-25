@@ -72,7 +72,7 @@ final class LiveAudioBuffer: @unchecked Sendable {
     defer { lock.unlock() }
     if overflow {
       throw ServiceClient.ClientError.server(
-        "La connessione audio è troppo lenta. Riapri la conversazione.")
+        "The audio connection is too slow. Reopen the conversation.")
     }
     let size = min(4800, pending.count)
     let result = Data(pending.prefix(size))

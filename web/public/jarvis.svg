@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" fill="none">
+  <title>Jarvis orbital intelligence mark</title>
+  <defs>
+    <linearGradient id="panel" x1="160" y1="64" x2="854" y2="960" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#182D3E"/><stop offset=".48" stop-color="#0B1825"/><stop offset="1" stop-color="#050C16"/>
+    </linearGradient>
+    <radialGradient id="halo"><stop stop-color="#68D4DC" stop-opacity=".18"/><stop offset="1" stop-color="#68D4DC" stop-opacity="0"/></radialGradient>
+    <linearGradient id="light" x1="268" y1="208" x2="766" y2="836" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#C7FBFF"/><stop offset=".5" stop-color="#68D4DC"/><stop offset="1" stop-color="#258AAB"/>
+    </linearGradient>
+  </defs>
+  <rect x="64" y="64" width="896" height="896" rx="200" fill="url(#panel)"/>
+  <rect x="66" y="66" width="892" height="892" rx="198" stroke="#83C9DC" stroke-opacity=".2" stroke-width="4"/>
+  <circle cx="512" cy="512" r="360" fill="url(#halo)"/>
+  <circle cx="512" cy="512" r="302" stroke="#376373" stroke-opacity=".5" stroke-width="4"/>
+  <path d="M 278 321 A 302 302 0 0 1 772 358 M 746 703 A 302 302 0 0 1 252 666" stroke="url(#light)" stroke-width="15" stroke-linecap="round"/>
+  <circle cx="512" cy="512" r="257" stroke="#68D4DC" stroke-opacity=".25" stroke-width="3" stroke-dasharray="2 22"/>
+  <path d="M 322 438 A 204 204 0 0 1 638 351 M 702 586 A 204 204 0 0 1 386 673" stroke="url(#light)" stroke-width="5" stroke-linecap="round"/>
+  <path d="M 404 371 H 631 V 558 C 631 644 583 691 510 691 C 442 691 398 654 385 593 L 448 568 C 455 608 475 629 508 629 C 547 629 565 604 565 558 V 435 H 404 Z" fill="url(#light)"/>
+  <path d="M 512 180 V 206 M 512 818 V 844 M 180 512 H 206 M 818 512 H 844" stroke="#95ECF0" stroke-width="7" stroke-linecap="round"/>
+  <circle cx="745" cy="321" r="9" fill="#C7FBFF"/>
+  <circle cx="279" cy="703" r="7" fill="#68D4DC"/>
+</svg>

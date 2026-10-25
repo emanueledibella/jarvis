@@ -81,7 +81,7 @@ export default function Settings({
       disabled={locked.includes(key)}
       placeholder={
         type === "password" && values[key + "_configured"]
-          ? "Configurata · lascia vuoto per conservarla"
+          ? "Configured · leave blank to keep it"
           : undefined
       }
       options={options}
@@ -102,7 +102,7 @@ export default function Settings({
     try {
       await patch("/settings", changes);
       await load();
-      notify("Impostazioni salvate.");
+      notify("Settings saved.");
       onSaved();
     } catch (e: any) {
       notify(e.message, true);
@@ -116,8 +116,8 @@ export default function Settings({
       const result = await post("/models/test", { profile });
       notify(
         result.tool_calling
-          ? "Connessione e tool calling verificati."
-          : "Il modello risponde ma non ha prodotto la chiamata tool richiesta.",
+          ? "Connection and tool calling verified."
+          : "The model responded but did not make the requested tool call.",
         !result.tool_calling,
       );
     } catch (e: any) {
@@ -130,16 +130,15 @@ export default function Settings({
     try {
       const result = await post("/voice/control", { action });
       const states: Record<string, string> = {
-        requires_approval:
-          "Conferma l’avvio al login nelle impostazioni di macOS.",
+        requires_approval: "Confirm launch at login in macOS settings.",
         denied:
-          "Permesso non concesso. Puoi cambiarlo nelle impostazioni di macOS.",
-        not_registered: "L’avvio al login non risulta attivo.",
-        enabled: "Avvio al login attivo.",
-        disabled: "Avvio al login disattivato.",
+          "Permission was not granted. You can change it in macOS settings.",
+        not_registered: "Launch at login is not active.",
+        enabled: "Launch at login is active.",
+        disabled: "Launch at login is disabled.",
       };
       notify(
-        result.error || states[result.state] || "Operazione completata.",
+        result.error || states[result.state] || "Operation completed.",
         Boolean(result.error) ||
           ["denied", "not_registered"].includes(result.state),
       );
@@ -160,19 +159,19 @@ export default function Settings({
     return () => clearInterval(timer);
   }, [tab]);
   const tabs = [
-    ["models", "Modelli"],
-    ["voice", "Voce e presenza"],
-    ["memory", "Memoria"],
-    ["productivity", "Produttività"],
-    ["security", "Autonomia e privacy"],
-    ["phone", "Telefonia"],
+    ["models", "Models"],
+    ["voice", "Voice and presence"],
+    ["memory", "Memory"],
+    ["productivity", "Productivity"],
+    ["security", "Autonomy and privacy"],
+    ["phone", "Telephony"],
   ];
   return (
     <div className="page settings-page">
       <SectionTitle
-        eyebrow="IL TUO ASSISTENTE, LE TUE SCELTE"
-        title="Impostazioni"
-        description="Modelli, connessioni e confini. Tutto sotto il tuo controllo."
+        eyebrow="YOUR ASSISTANT, YOUR CHOICES"
+        title="Settings"
+        description="Models, connections, and boundaries. All under your control."
         action={
           <button
             className="btn primary"
@@ -184,14 +183,14 @@ export default function Settings({
             ) : (
               <Save size={15} />
             )}
-            Salva modifiche
+            Save changes
           </button>
         }
       />
       <div
         className="settings-tabs"
         role="tablist"
-        aria-label="Sezioni impostazioni"
+        aria-label="Settings sections"
       >
         {tabs.map(([key, label]) => (
           <button
@@ -207,8 +206,9 @@ export default function Settings({
       </div>
       {!!locked.length && (
         <div className="info-line">
-          <KeyRound size={14} />I campi con il lucchetto sono imposti
-          dall’ambiente. Modifica il file env e riavvia il servizio.
+          <KeyRound size={14} />
+          Locked fields are set by the environment. Edit the env file and
+          restart the service.
         </div>
       )}
       {tab === "models" && (
@@ -217,8 +217,8 @@ export default function Settings({
             <div className="card-heading">
               <Computer size={19} />
               <div>
-                <h2>Intelligenza locale</h2>
-                <p>Il modello gira sul tuo Mac.</p>
+                <h2>Local intelligence</h2>
+                <p>The model runs on your Mac.</p>
               </div>
               <Badge
                 state={
@@ -232,18 +232,18 @@ export default function Settings({
               { value: "ollama", label: "Ollama" },
               {
                 value: "openai_compatible",
-                label: "LM Studio / compatibile OpenAI",
+                label: "LM Studio / OpenAI compatible",
               },
             ])}
             {field(
               "local_base_url",
-              "Endpoint locale",
+              "Local endpoint",
               "url",
               "Ollama: http://127.0.0.1:11434 · LM Studio: http://127.0.0.1:1234/v1",
             )}
             <label className="field">
               <span>
-                Modello locale{" "}
+                Local model{" "}
                 {locked.includes("local_model") && <KeyRound size={11} />}
               </span>
               <input
@@ -251,7 +251,7 @@ export default function Settings({
                 value={values.local_model || ""}
                 onChange={(e) => change("local_model", e.target.value)}
                 disabled={locked.includes("local_model")}
-                placeholder="Seleziona un modello installato"
+                placeholder="Select an installed model"
               />
               <datalist id="local-models">
                 {models.local?.map((m: Json) => (
@@ -260,15 +260,11 @@ export default function Settings({
               </datalist>
               <small>
                 {models.local?.length
-                  ? `${models.local.length} modelli rilevati sul runtime locale.`
-                  : "Avvia il runtime e rileva i modelli."}
+                  ? `${models.local.length} models detected in the local runtime.`
+                  : "Start the runtime and detect models."}
               </small>
             </label>
-            {field(
-              "local_api_key",
-              "Token del runtime, se richiesto",
-              "password",
-            )}
+            {field("local_api_key", "Runtime token, if required", "password")}
             <div className="button-row">
               <button
                 className="btn"
@@ -279,7 +275,7 @@ export default function Settings({
                 }
               >
                 <RefreshCw size={14} />
-                Rileva modelli
+                Detect models
               </button>
               <button
                 className="btn"
@@ -291,20 +287,20 @@ export default function Settings({
                 ) : (
                   <ShieldCheck size={14} />
                 )}
-                Prova tool calling
+                Test tool calling
               </button>
             </div>
             <small className="hint">
-              Salva le modifiche prima della prova. Non vengono scaricati
-              modelli automaticamente.
+              Save changes before testing. Models are never downloaded
+              automatically.
             </small>
           </section>
           <section className="settings-card">
             <div className="card-heading">
               <Cloud size={19} />
               <div>
-                <h2>Intelligenza cloud</h2>
-                <p>Per i lavori che richiedono un modello remoto.</p>
+                <h2>Cloud intelligence</h2>
+                <p>For tasks that need a remote model.</p>
               </div>
             </div>
             {field("cloud_provider", "Provider", "text", undefined, [
@@ -312,26 +308,22 @@ export default function Settings({
               { value: "anthropic", label: "Anthropic" },
               {
                 value: "openai_compatible",
-                label: "Altro provider compatibile OpenAI",
+                label: "Other OpenAI-compatible provider",
               },
             ])}
             {field(
               "cloud_model",
-              "ID del modello",
+              "Model ID",
               "text",
-              "Usa l’ID esatto disponibile nel tuo account.",
+              "Use the exact ID available in your account.",
             )}
             {field(
               "cloud_api_key",
-              "Chiave API",
+              "API key",
               "password",
-              "Conservata nella configurazione privata; puoi usare anche un riferimento keychain:account.",
+              "Stored in private configuration; keychain:account references are also supported.",
             )}
-            {field(
-              "cloud_base_url",
-              "Endpoint personalizzato, opzionale",
-              "url",
-            )}
+            {field("cloud_base_url", "Custom endpoint, optional", "url")}
             <button
               className="btn"
               disabled={!!testing}
@@ -342,14 +334,14 @@ export default function Settings({
               ) : (
                 <ShieldCheck size={14} />
               )}
-              Prova connessione e tool
+              Test connection and tools
             </button>
             <small className="hint">
-              La prova esegue una breve richiesta reale al provider.
+              The test makes a short real request to the provider.
             </small>
           </section>
           <section className="settings-card full">
-            <h2>Profilo predefinito</h2>
+            <h2>Default profile</h2>
             <div className="profile-options">
               {Object.entries(profileLabels).map(([key, label]) => (
                 <button
@@ -361,23 +353,23 @@ export default function Settings({
                   <span>{label}</span>
                   <small>
                     {key === "local_strict"
-                      ? "Nessun tool remoto né fallback cloud"
+                      ? "No remote tools or cloud fallback"
                       : key === "local_connected"
-                        ? "LLM locale, servizi connessi abilitati"
+                        ? "Local LLM, connected services enabled"
                         : key === "cloud"
-                          ? "Modello cloud selezionato"
-                          : "Cloud se configurato, altrimenti locale"}
+                          ? "Selected cloud model"
+                          : "Cloud when configured, otherwise local"}
                   </small>
                 </button>
               ))}
             </div>
             <div className="form-grid">
-              {field("max_output_tokens", "Limite token di risposta", "number")}
+              {field("max_output_tokens", "Response token limit", "number")}
               {field(
                 "cloud_reasoning_effort",
-                "Ragionamento OpenAI",
+                "OpenAI reasoning",
                 "text",
-                "Low privilegia i tempi di risposta; il parametro si applica ai modelli GPT-5 e GPT-6.",
+                "Low prioritizes response time; this setting applies to GPT-5 and GPT-6 models.",
                 [
                   { value: "low", label: "Low" },
                   { value: "medium", label: "Medium" },
@@ -386,15 +378,15 @@ export default function Settings({
                   { value: "max", label: "Max" },
                 ],
               )}
-              {field("max_agent_steps", "Limite passi dell’agente", "number")}
+              {field("max_agent_steps", "Agent step limit", "number")}
               {field(
                 "task_timeout_seconds",
-                "Durata massima del task, secondi",
+                "Maximum task duration, seconds",
                 "number",
               )}
               {field(
                 "model_request_timeout_seconds",
-                "Timeout del modello, secondi",
+                "Model timeout, seconds",
                 "number",
               )}
             </div>
@@ -407,58 +399,72 @@ export default function Settings({
             <div className="card-heading">
               <Headphones size={19} />
               <div>
-                <h2>Una voce sempre vicina</h2>
-                <p>Microfono e riconoscimento sono gestiti dall’app macOS.</p>
+                <h2>A voice within reach</h2>
+                <p>
+                  Microphone access and recognition are managed by the macOS
+                  app.
+                </p>
               </div>
             </div>
-            {toggle("voice_enabled", "Abilita il percorso vocale")}
-            {toggle("wake_enabled", "Attivazione con la voce")}
+            {toggle("voice_enabled", "Enable voice")}
+            {toggle("wake_enabled", "Voice activation")}
             {field(
               "wake_phrase",
-              "Parola di attivazione",
+              "Wake phrase",
               "text",
-              "La ricerca avviene nella trascrizione on-device, con confini di parola.",
+              "Detection uses on-device transcription with word boundaries.",
             )}
             {field(
               "language",
-              "Lingua",
+              "Recognition language",
               "text",
-              "Esempio: it-IT. La lingua deve supportare il riconoscimento locale sul Mac.",
+              "Example: it-IT. The language must support on-device recognition on this Mac. OpenAI detects the conversation language from audio after activation.",
+            )}
+            {field(
+              "response_language",
+              "Response language",
+              "text",
+              "Auto follows complete requests in Italian, English, or another supported language. Tool output and accents do not change the conversation language.",
+              [
+                { value: "auto", label: "Auto · follow the user" },
+                { value: "it-IT", label: "Italian" },
+                { value: "en-GB", label: "English" },
+              ],
             )}
             {field(
               "tts_voice",
-              "Voce di sistema, identificativo opzionale",
+              "System voice, optional identifier",
               "text",
-              "Lascia vuoto per la voce italiana di sistema.",
+              "Leave blank to select a system voice automatically from the response language.",
             )}
             {field(
               "desktop_voice_provider",
-              "Conversazione vocale",
+              "Voice conversation",
               "text",
               undefined,
               [
                 {
                   value: "apple",
-                  label: "Apple · riconoscimento e sintesi sul Mac",
+                  label: "Apple · recognition and synthesis on Mac",
                 },
                 {
                   value: "openai_live",
-                  label: "OpenAI Live · ascolto e voce naturale",
+                  label: "OpenAI Live · listening and natural speech",
                 },
               ],
             )}
-            {field("desktop_voice_model", "Modello vocale OpenAI")}
+            {field("desktop_voice_model", "OpenAI voice model")}
             {field(
               "desktop_voice_duplex",
-              "Microfono durante la risposta",
+              "Microphone during playback",
               "text",
-              "Con gli altoparlanti l'audio in ingresso è sospeso mentre parla, per evitare comandi generati dall'eco. La scorciatoia ⌘⇧J permette di riprendere la parola.",
+              "With speakers, input audio is gated during playback to prevent commands caused by echo. Press ⌘⇧J to take the floor again.",
               [
-                { value: "gated", label: "Altoparlanti · protezione dall’eco" },
-                { value: "full", label: "Cuffie · ascolto mentre parla" },
+                { value: "gated", label: "Speakers · echo protection" },
+                { value: "full", label: "Headphones · listen during playback" },
               ],
             )}
-            {field("desktop_voice_name", "Voce OpenAI", "text", undefined, [
+            {field("desktop_voice_name", "OpenAI voice", "text", undefined, [
               { value: "cedar", label: "Cedar" },
               { value: "marin", label: "Marin" },
               { value: "ash", label: "Ash" },
@@ -467,69 +473,65 @@ export default function Settings({
             ])}
             {field(
               "desktop_voice_api_key",
-              "Chiave OpenAI per la voce, opzionale",
+              "OpenAI voice API key, optional",
               "password",
-              "Se vuota usa la chiave del provider OpenAI configurato nei Modelli.",
+              "Leave blank to use the OpenAI provider key configured under Models.",
             )}
             <small className="hint">
-              La voce è generata da un modello AI. Con OpenAI Live la parola di
-              attivazione resta locale; dopo l’attivazione il comando e la
-              conversazione audio passano a OpenAI, con un breve buffer iniziale
-              in RAM. Usa il microfono integrato con il coperchio aperto oppure
-              scegli un ingresso esterno.
+              Speech is generated by an AI model. With OpenAI Live, wake
+              detection stays local; after activation, the command and
+              conversation audio go to OpenAI with a short initial RAM buffer.
+              Keep the lid open for the built-in microphone or choose an
+              external input.
             </small>
             <div className="button-row">
               <button className="btn primary" onClick={() => native("enable")}>
                 <Headphones size={15} />
-                Abilita voce e permessi
+                Enable voice and permissions
               </button>
               <button className="btn" onClick={() => native("listen")}>
-                Prova ascolto
+                Test listening
               </button>
             </div>
           </section>
           <section className="settings-card">
-            <h2>Ritmo della conversazione</h2>
+            <h2>Conversation timing</h2>
             {field(
               "desktop_voice_max_session_seconds",
-              "Durata massima di una sessione OpenAI, secondi",
+              "Maximum OpenAI session duration, seconds",
               "number",
             )}
             {field(
               "desktop_voice_idle_seconds",
-              "Chiusura OpenAI dopo inattività, secondi",
+              "OpenAI idle timeout, seconds",
               "number",
             )}
             {field(
               "desktop_voice_rate_usd_per_minute",
-              "Tariffa vocale USD/minuto per il budget",
+              "Voice rate in USD/minute for the budget",
               "number",
             )}
-            {field(
-              "followup_seconds",
-              "Finestra per continuare, secondi",
-              "number",
-            )}
+            {field("followup_seconds", "Follow-up window, seconds", "number")}
             {field(
               "end_of_turn_ms",
-              "Pausa di fine turno, millisecondi",
+              "End-of-turn pause, milliseconds",
               "number",
             )}
             {field(
               "listen_timeout_seconds",
-              "Durata massima di un comando, secondi",
+              "Maximum command duration, seconds",
               "number",
             )}
             {toggle(
               "voice_on_lock_screen",
-              "Consenti voce con schermo bloccato",
-              "Disattivata per impostazione predefinita.",
+              "Allow voice while the screen is locked",
+              "Disabled by default.",
             )}
             <div className="info-box">
               <strong>⌘ ⇧ J</strong>
               <p>
-                Scorciatoia globale per aprire un turno. Chiudere la finestra
-                mantiene Jarvis nella barra dei menu.
+                Global shortcut to start a turn. Closing the window keeps Jarvis
+                in the menu bar.
               </p>
             </div>
             <div className="button-row">
@@ -537,18 +539,17 @@ export default function Settings({
                 className="btn"
                 onClick={() => native("autostart_enable")}
               >
-                Avvia al login
+                Launch at login
               </button>
               <button
                 className="btn ghost"
                 onClick={() => native("autostart_disable")}
               >
-                Disabilita avvio
+                Disable launch at login
               </button>
             </div>
             <small className="hint">
-              Il Mac deve essere sveglio. Stop e spegnimento sospendono
-              l’assistente.
+              The Mac must be awake. Sleep and shutdown suspend the assistant.
             </small>
           </section>
         </div>
@@ -556,47 +557,41 @@ export default function Settings({
       {tab === "memory" && (
         <div className="settings-grid">
           <section className="settings-card">
-            <h2>Il tuo Second Brain</h2>
+            <h2>Your Second Brain</h2>
             {field(
               "second_brain_url",
               "Endpoint MCP",
               "url",
-              "Usa l’installazione canonica della tua memoria.",
+              "Use your canonical memory installation.",
             )}
-            {field("second_brain_auth", "Autenticazione", "text", undefined, [
-              { value: "bearer", label: "Token Bearer" },
-              { value: "oauth", label: "OAuth con consenso nel browser" },
+            {field("second_brain_auth", "Authentication", "text", undefined, [
+              { value: "bearer", label: "Bearer token" },
+              { value: "oauth", label: "OAuth with browser consent" },
               {
                 value: "none",
-                label: "Nessuna · solo server esplicitamente protetto altrove",
+                label: "None · only for servers explicitly protected elsewhere",
               },
             ])}
-            {field("second_brain_token", "Token dedicato", "password")}
+            {field("second_brain_token", "Dedicated token", "password")}
             {toggle(
               "second_brain_allow_corrections",
-              "Abilita correzioni e ritrattazioni",
-              "Richiede un consenso OAuth separato con memory:write. Le modifiche restano soggette ad approvazione.",
+              "Enable corrections and retractions",
+              "Requires separate OAuth consent with memory:write. Changes still require approval.",
             )}
-            {field(
-              "memory_capture",
-              "Acquisizione dei ricordi",
-              "text",
-              undefined,
-              [
-                {
-                  value: "explicit_only",
-                  label: "Soltanto quando chiedo di ricordare",
-                },
-                {
-                  value: "explicit_facts",
-                  label: "Fatti espliciti pertinenti nelle conversazioni",
-                },
-                { value: "off", label: "Nessuna nuova memoria" },
-              ],
-            )}
+            {field("memory_capture", "Memory capture", "text", undefined, [
+              {
+                value: "explicit_only",
+                label: "Only when I ask to remember",
+              },
+              {
+                value: "explicit_facts",
+                label: "Relevant explicit facts from conversations",
+              },
+              { value: "off", label: "No new memory" },
+            ])}
             {field(
               "memory_recall_token_budget",
-              "Budget di contesto per il recupero",
+              "Recall context budget",
               "number",
             )}
             <button
@@ -605,30 +600,29 @@ export default function Settings({
                 post("/integrations/second_brain/connect")
                   .then(() =>
                     notify(
-                      "Connessione avviata. Completa il consenso nel browser se richiesto.",
+                      "Connection started. Complete browser consent if requested.",
                     ),
                   )
                   .catch((e) => notify(e.message, true))
               }
             >
-              Connetti Second Brain
+              Connect Second Brain
             </button>
           </section>
           <section className="settings-card">
-            <h2>Fonti e continuità</h2>
+            <h2>Sources and continuity</h2>
             <p className="body-copy">
-              I ricordi mantengono fonte, revisione e citazioni. Il salvataggio
-              è asincrono: una fonte in coda non è ancora un ricordo
-              ricercabile.
+              Memories retain their source, revision, and quotations. Saving is
+              asynchronous: a queued source is not yet a searchable memory.
             </p>
             <p className="body-copy">
-              La sessione privata esclude nuova memoria, contenuti dei
-              checkpoint e messaggi persistenti. La ritrattazione di un ricordo
-              conserva gli originali nel Second Brain.
+              Private sessions exclude new memory, checkpoint content, and
+              persistent messages. Retracting a memory preserves originals in
+              Second Brain.
             </p>
             <div className="info-box">
-              Non riutilizzare credenziali di altre applicazioni. Configura una
-              connessione dedicata con i soli privilegi necessari.
+              Do not reuse other applications' credentials. Configure a
+              dedicated connection with only the required privileges.
             </div>
           </section>
         </div>
@@ -637,10 +631,10 @@ export default function Settings({
         <div className="settings-grid">
           <section className="settings-card">
             <h2>Agenda</h2>
-            {field("calendar_provider", "Calendario", "text", undefined, [
-              { value: "disabled", label: "Non collegato" },
-              { value: "apple", label: "Apple Calendar · nativo Mac" },
-              { value: "ics", label: "Feed ICS · sola lettura" },
+            {field("calendar_provider", "Calendar", "text", undefined, [
+              { value: "disabled", label: "Not connected" },
+              { value: "apple", label: "Apple Calendar · native on Mac" },
+              { value: "ics", label: "ICS feed · read only" },
               { value: "google", label: "Google Calendar" },
               { value: "microsoft", label: "Microsoft 365 / Outlook" },
             ])}
@@ -649,67 +643,63 @@ export default function Settings({
                 className="btn"
                 onClick={() => native("calendar_authorize")}
               >
-                Autorizza il calendario del Mac
+                Authorize Mac calendar
               </button>
             )}
             {values.calendar_provider === "ics" &&
-              field("calendar_ics_url", "URL del feed ICS", "url")}
+              field("calendar_ics_url", "ICS feed URL", "url")}
             {["google", "microsoft"].includes(values.calendar_provider) && (
               <>
                 {field("calendar_client_id", "OAuth client ID")}
                 {field(
                   "calendar_client_secret",
-                  "OAuth client secret, se richiesto",
+                  "OAuth client secret, if required",
                   "password",
                 )}
                 {field(
                   "calendar_refresh_token",
                   "Refresh token",
                   "password",
-                  "Il rinnovo avviene automaticamente quando configurato.",
+                  "Refresh runs automatically when configured.",
                 )}
                 {field(
                   "calendar_access_token",
-                  "Access token, alternativa temporanea",
+                  "Access token, temporary alternative",
                   "password",
                 )}
                 {values.calendar_provider === "microsoft" &&
-                  field("calendar_tenant_id", "Tenant Microsoft")}
+                  field("calendar_tenant_id", "Microsoft tenant")}
               </>
             )}
             <small className="hint">
-              Salva il provider prima di autorizzare il calendario.
+              Save the provider before authorizing the calendar.
             </small>
           </section>
           <section className="settings-card">
-            <h2>Meteo e ricerca</h2>
+            <h2>Weather and search</h2>
             {field(
               "weather_location",
-              "Località meteo",
+              "Weather location",
               "text",
-              "Una città scelta da te; nessuna geolocalizzazione automatica.",
+              "A city you choose; no automatic geolocation.",
             )}
             {field(
               "weather_refresh_minutes",
-              "Aggiornamento meteo, minuti",
+              "Weather refresh, minutes",
               "number",
             )}
-            {field("search_provider", "Motore di ricerca", "text", undefined, [
+            {field("search_provider", "Search engine", "text", undefined, [
               {
                 value: "duckduckgo",
-                label: "DuckDuckGo pubblico · senza chiave, best effort",
+                label: "Public DuckDuckGo · keyless, best effort",
               },
               { value: "brave", label: "Brave Search API" },
               { value: "tavily", label: "Tavily Search API" },
             ])}
-            {field(
-              "search_api_key",
-              "Chiave del motore di ricerca",
-              "password",
-            )}
+            {field("search_api_key", "Search engine API key", "password")}
             <small className="hint">
-              Il meteo usa Open-Meteo con attribuzione. La ricerca senza chiave
-              può essere limitata dal servizio.
+              Weather uses Open-Meteo with attribution. The service may limit
+              keyless search.
             </small>
           </section>
         </div>
@@ -717,61 +707,64 @@ export default function Settings({
       {tab === "security" && (
         <div className="settings-grid">
           <section className="settings-card">
-            <h2>Workspace e comandi</h2>
+            <h2>Workspaces and commands</h2>
             {field(
               "workspace_roots",
-              "Cartelle autorizzate, array JSON",
+              "Authorized folders, JSON array",
               "textarea",
-              'Esempio: ["/absolute/path/progetti/app"]. I tool file escludono credenziali e symlink esterni.',
+              'Example: ["/absolute/path/projects/app"]. File tools exclude credentials and external symlinks.',
             )}
             {field(
               "command_execution",
-              "Esecuzione di comandi",
+              "Command execution",
               "text",
               undefined,
               [
-                { value: "disabled", label: "Disabilitata" },
-                { value: "approval", label: "Host · proposta da approvare" },
-                { value: "sandbox", label: "Sandbox macOS · senza rete" },
+                { value: "disabled", label: "Disabled" },
+                {
+                  value: "approval",
+                  label: "Host · proposal requires approval",
+                },
+                { value: "sandbox", label: "macOS sandbox · no network" },
               ],
             )}
             {field(
               "command_timeout_seconds",
-              "Timeout del comando, secondi",
+              "Command timeout, seconds",
               "number",
             )}
             <p className="body-copy">
-              Una conferma sui comandi autorizza quell’azione concreta. Il
-              motore non eredita le chiavi dei provider nel processo di coding.
+              Command approval authorizes that specific action. Coding processes
+              do not inherit provider API keys.
             </p>
           </section>
           <section className="settings-card">
-            <h2>Privacy e limiti</h2>
+            <h2>Privacy and limits</h2>
             {field(
               "transcript_retention_days",
-              "Conservazione messaggi, giorni",
+              "Message retention, days",
               "number",
             )}
             {field(
               "operation_log_retention_days",
-              "Conservazione eventi, giorni",
+              "Event retention, days",
               "number",
             )}
-            {field("monthly_budget_usd", "Soglia mensile, USD", "number")}
+            {field("monthly_budget_usd", "Monthly limit, USD", "number")}
             {field(
               "model_input_usd_per_million",
-              "Costo input per milione token, USD",
+              "Input cost per million tokens, USD",
               "number",
             )}
             {field(
               "model_output_usd_per_million",
-              "Costo output per milione token, USD",
+              "Output cost per million tokens, USD",
               "number",
             )}
             <small className="hint">
-              Per il cloud le tariffe input e output sono obbligatorie. Ogni
-              richiesta prenota una stima prima dell’invio; il consuntivo
-              dell’operatore resta il riferimento.
+              Cloud input and output rates are required. Each request reserves
+              an estimate before sending; the provider's final bill remains
+              authoritative.
             </small>
           </section>
         </div>
@@ -782,92 +775,92 @@ export default function Settings({
             <div className="card-heading">
               <Phone size={19} />
               <div>
-                <h2>Jarvis al telefono</h2>
-                <p>Twilio Media Streams con dialogo bidirezionale.</p>
+                <h2>Jarvis on the phone</h2>
+                <p>Twilio Media Streams with two-way conversation.</p>
               </div>
             </div>
             {toggle(
               "telephony_enabled",
-              "Abilita la telefonia",
-              "Richiede operatore, tunnel HTTPS/WSS e credito.",
+              "Enable telephony",
+              "Requires a carrier, an HTTPS/WSS tunnel, and credit.",
             )}
-            {field("telephony_account_id", "Account SID Twilio")}
-            {field("telephony_auth_token", "Auth token Twilio", "password")}
+            {field("telephony_account_id", "Twilio account SID")}
+            {field("telephony_auth_token", "Twilio auth token", "password")}
             {field(
               "telephony_public_base_url",
-              "URL pubblico del proxy telefonico",
+              "Public telephony proxy URL",
               "url",
-              "Esporre soltanto /telephony, non l’intera API locale.",
+              "Expose only /telephony, not the entire local API.",
             )}
-            {field("telephony_from_number", "Numero chiamante, E.164")}
-            {field("owner_phone_number", "Il tuo numero verificato, E.164")}
+            {field("telephony_from_number", "Caller number, E.164")}
+            {field("owner_phone_number", "Your verified number, E.164")}
             {field(
               "phone_pin",
-              "PIN personale, 4–8 cifre",
+              "Personal PIN, 4–8 digits",
               "password",
-              "Richiesto prima di parlare di dati privati. Non viene passato al modello.",
+              "Required before discussing private data. Never sent to the model.",
             )}
           </section>
           <section className="settings-card">
-            <h2>Audio e limiti delle chiamate</h2>
+            <h2>Call audio and limits</h2>
             {field(
               "phone_stt_provider",
-              "Riconoscimento telefonico",
+              "Phone speech recognition",
               "text",
               undefined,
               [
-                { value: "openai", label: "OpenAI · audio cloud" },
+                { value: "openai", label: "OpenAI · cloud audio" },
                 {
                   value: "faster_whisper",
-                  label: "faster-whisper locale · extra voice richiesto",
+                  label: "Local faster-whisper · voice extra required",
                 },
               ],
             )}
             {field(
               "phone_api_key",
-              "Chiave OpenAI per audio, se usata",
+              "OpenAI audio API key, if used",
               "password",
-              "Distinta dal provider del ragionamento. Senza chiave il TTS usa la voce di sistema.",
+              "Separate from the reasoning provider. Without a key, TTS uses the system voice.",
             )}
             {field(
               "phone_max_call_seconds",
-              "Durata massima, secondi",
+              "Maximum duration, seconds",
               "number",
             )}
             {field(
               "phone_local_tts_voice",
-              "Voce Mac per il telefono, nome opzionale",
+              "Mac phone voice, optional name",
               "text",
-              "Esempio: Alice, se installata. È distinta dall’ID vocale del desktop.",
+              "Example: Alice, if installed. This differs from the desktop voice ID.",
             )}
             {field(
               "phone_daily_budget_usd",
-              "Riserva massima giornaliera, USD",
+              "Maximum daily reservation, USD",
               "number",
             )}
             {field(
               "phone_minute_rate_usd",
-              "Tariffa prudenziale, USD/min",
+              "Conservative rate, USD/min",
               "number",
             )}
             {field(
               "quiet_hours",
-              "Orari silenziosi",
+              "Quiet hours",
               "text",
-              "Formato 22:00-08:00. Nessuna chiamata proattiva fuori policy.",
+              "Format: 22:00-08:00. No proactive calls outside policy.",
             )}
             <div className="info-box">
-              Riserva per una chiamata in uscita:{" "}
+              Reservation for an outgoing call:{" "}
               {(
                 Math.ceil((values.phone_max_call_seconds || 0) / 60) *
                 (values.phone_minute_rate_usd || 0)
               ).toFixed(2)}{" "}
-              USD. Verifica le tariffe reali e salva le impostazioni.
+              USD. Check actual rates and save settings.
             </div>
             <Toggle
               checked={authorized}
               onChange={setAuthorized}
-              label="Autorizzo una chiamata di prova al mio numero"
+              label="I authorize a test call to my number"
             />
             <button
               className="btn"
@@ -878,9 +871,9 @@ export default function Settings({
                   await post("/calls/owner", {
                     authorized: true,
                     request_id: crypto.randomUUID(),
-                    reason: "Chiamata di prova richiesta dal proprietario",
+                    reason: "Test call requested by the owner",
                   });
-                  notify("Richiesta inviata all’operatore.");
+                  notify("Request sent to the carrier.");
                   setCalls(await api("/calls"));
                 } catch (e: any) {
                   notify(e.message, true);
@@ -888,23 +881,23 @@ export default function Settings({
               }}
             >
               <Phone size={14} />
-              Avvia chiamata di prova
+              Start test call
             </button>
           </section>
           {!!calls.length && (
             <section className="settings-card full">
-              <h2>Chiamate recenti</h2>
+              <h2>Recent calls</h2>
               {calls.map((c) => (
                 <React.Fragment key={c.id}>
                   <div className="list-row">
                     <div>
                       <strong>
                         {c.direction === "outbound"
-                          ? "Chiamata in uscita"
-                          : "Chiamata in ingresso"}
+                          ? "Outgoing call"
+                          : "Incoming call"}
                       </strong>
                       <small>
-                        {new Date(c.created_at).toLocaleString("it-IT")}
+                        {new Date(c.created_at).toLocaleString("en-GB")}
                       </small>
                     </div>
                     <Badge state={c.state} />
@@ -943,23 +936,23 @@ function CallReview({
   return (
     <section className="subform">
       <p className="body-copy">
-        L’operatore potrebbe aver ricevuto la richiesta. Verifica il registro
-        prima di consentire un nuovo tentativo.
+        The carrier may have received the request. Check its log before allowing
+        another attempt.
       </p>
       <Field
-        label="Call SID osservato nell’operatore"
+        label="Call SID observed in the carrier log"
         value={sid}
         onChange={setSid}
         disabled={notCreated}
       />
       <Toggle
-        label="Ho verificato che la chiamata non è stata creata"
+        label="I verified that the call was not created"
         checked={notCreated}
         onChange={setNotCreated}
       />
-      <Field label="Esito della verifica" value={note} onChange={setNote} />
+      <Field label="Verification outcome" value={note} onChange={setNote} />
       <Toggle
-        label="Confermo di aver verificato il registro dell’operatore"
+        label="I confirm that I checked the carrier log"
         checked={verified}
         onChange={setVerified}
       />
@@ -978,7 +971,7 @@ function CallReview({
               note,
             });
             onDone();
-            notify("Esito della chiamata riconciliato.");
+            notify("Call outcome reconciled.");
           } catch (e: any) {
             notify(e.message, true);
           } finally {
@@ -986,7 +979,7 @@ function CallReview({
           }
         }}
       >
-        Registra l’esito verificato
+        Record verified outcome
       </button>
     </section>
   );

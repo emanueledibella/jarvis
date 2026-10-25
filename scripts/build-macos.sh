@@ -3,17 +3,17 @@ set -euo pipefail
 JARVIS_PROJECT_DIR="${0:A:h:h}"
 cd "$JARVIS_PROJECT_DIR"
 if [[ ! -x .venv/bin/jarvis ]]; then
-  print -u2 "Esegui prima scripts/setup.sh."
+  print -u2 "Run scripts/setup.sh first."
   exit 1
 fi
-if [[ ! -f web/dist/index.html ]]; then
-  npm --prefix web run build
-fi
+npm --prefix web run build
 mkdir -p dist/Jarvis.app/Contents/MacOS dist/Jarvis.app/Contents/Resources
+scripts/build-icon.sh
 cp native/Info.plist dist/Jarvis.app/Contents/Info.plist
+cp native/Resources/Jarvis.icns dist/Jarvis.app/Contents/Resources/Jarvis.icns
 print -rn -- "$JARVIS_PROJECT_DIR" > dist/Jarvis.app/Contents/Resources/project-root.txt
 JARVIS_BUILD_ARCH="$(uname -m)"
-swiftc -swift-version 5 -target "${JARVIS_BUILD_ARCH}-apple-macos14.0" -O -framework AppKit -framework WebKit -framework Speech -framework AVFoundation -framework EventKit -framework ServiceManagement -framework UserNotifications -framework Carbon -framework Accelerate native/Client.swift native/CalendarBridge.swift native/RecognitionRecovery.swift native/LiveAudio.swift native/VoiceEngine.swift native/App.swift -o dist/Jarvis.app/Contents/MacOS/Jarvis
+swiftc -swift-version 5 -target "${JARVIS_BUILD_ARCH}-apple-macos14.0" -O -framework AppKit -framework WebKit -framework Speech -framework AVFoundation -framework EventKit -framework ServiceManagement -framework UserNotifications -framework Carbon -framework Accelerate -framework NaturalLanguage native/Client.swift native/CalendarBridge.swift native/RecognitionRecovery.swift native/LiveAudio.swift native/SpokenLanguage.swift native/VoiceEngine.swift native/App.swift -o dist/Jarvis.app/Contents/MacOS/Jarvis
 codesign --force --deep --sign - --identifier it.jarvis.personal dist/Jarvis.app
-print "Bundle creato: $JARVIS_PROJECT_DIR/dist/Jarvis.app"
-print "Aprilo con: open dist/Jarvis.app"
+print "Bundle created: $JARVIS_PROJECT_DIR/dist/Jarvis.app"
+print "Open it with: open dist/Jarvis.app"

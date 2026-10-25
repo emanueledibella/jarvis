@@ -13,7 +13,7 @@ final class CalendarBridge {
 
     func perform(_ operation: String, _ arguments: [String: Any]) throws -> [String: Any] {
         guard EKEventStore.authorizationStatus(for: .event) == .fullAccess else {
-            throw ServiceClient.ClientError.server("Concedi l'accesso al calendario dalle impostazioni di Jarvis.")
+            throw ServiceClient.ClientError.server("Grant calendar access in Jarvis settings.")
         }
         if operation == "calendar.list" {
             let days = min(max(arguments["days"] as? Int ?? 7, 1), 30)
@@ -21,13 +21,13 @@ final class CalendarBridge {
             let predicate = store.predicateForEvents(withStart: Date(), end: end, calendars: nil)
             let events = store.events(matching: predicate).sorted { $0.startDate < $1.startDate }.prefix(200)
             let rows: [[String: Any]] = events.map { event in
-                ["id": event.eventIdentifier ?? "", "title": event.title ?? "Evento", "start": formatter.string(from: event.startDate), "end": formatter.string(from: event.endDate), "all_day": event.isAllDay, "location": event.location ?? "", "calendar": event.calendar.title, "calendar_id": event.calendar.calendarIdentifier]
+                ["id": event.eventIdentifier ?? "", "title": event.title ?? "Event", "start": formatter.string(from: event.startDate), "end": formatter.string(from: event.endDate), "all_day": event.isAllDay, "location": event.location ?? "", "calendar": event.calendar.title, "calendar_id": event.calendar.calendarIdentifier]
             }
             return ["state": "ready", "provider": "apple", "events": rows, "updated_at": formatter.string(from: Date())]
         }
         if operation == "calendar.delete" {
             guard let key = arguments["event_id"] as? String, let event = store.event(withIdentifier: key) else {
-                throw ServiceClient.ClientError.server("Evento non trovato; aggiorna il calendario.")
+                throw ServiceClient.ClientError.server("Event not found; refresh the calendar.")
             }
             // Only the selected occurrence is deleted. A whole series is never removed by inference.
             try store.remove(event, span: .thisEvent, commit: true)
@@ -37,7 +37,7 @@ final class CalendarBridge {
         guard let title = values["title"] as? String,
               let startValue = values["start"] as? String, let start = parseDate(startValue),
               let endValue = values["end"] as? String, let end = parseDate(endValue), end > start else {
-            throw ServiceClient.ClientError.server("Titolo e date dell'evento non validi.")
+            throw ServiceClient.ClientError.server("Invalid event title or dates.")
         }
         let event: EKEvent
         if operation == "calendar.update", let key = arguments["event_id"] as? String, let existing = store.event(withIdentifier: key) {
@@ -46,7 +46,7 @@ final class CalendarBridge {
             event = EKEvent(eventStore: store)
             event.calendar = store.defaultCalendarForNewEvents
         } else {
-            throw ServiceClient.ClientError.server("Operazione calendario non supportata o evento assente.")
+            throw ServiceClient.ClientError.server("Unsupported calendar operation or missing event.")
         }
         event.title = title
         event.startDate = start

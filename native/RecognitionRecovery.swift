@@ -27,17 +27,17 @@ struct RecognitionRecovery {
     }
     if contains("kLSRErrorDomain", 102) {
       return .unavailable(
-        "Manca il modello vocale locale della lingua selezionata. Controlla la lingua in Impostazioni di Sistema → Tastiera → Dettatura, poi riattiva la voce. (\(reference))"
+        "The selected language's local speech model is missing. Check System Settings → Keyboard → Dictation, then enable voice again. (\(reference))"
       )
     }
     if contains("kLSRErrorDomain", 201) {
       return .unavailable(
-        "macOS segnala che Siri o Dettatura sono disattivati. Controlla Impostazioni di Sistema → Tastiera → Dettatura, poi riattiva la voce. (\(reference))"
+        "macOS reports that Siri or Dictation is disabled. Check System Settings → Keyboard → Dictation, then enable voice again. (\(reference))"
       )
     }
     if contains("kAFAssistantErrorDomain", 1700) {
       return .permissionRequired(
-        "Il riconoscimento vocale non è autorizzato. Controlla i permessi di Jarvis in Privacy e sicurezza. (\(reference))"
+        "Speech recognition is not authorized. Check Jarvis permissions in Privacy & Security. (\(reference))"
       )
     }
     let normalEnd = contains("kAFAssistantErrorDomain", 1110) || contains("kLSRErrorDomain", 301)
@@ -49,7 +49,7 @@ struct RecognitionRecovery {
     consecutiveFailures += 1
     guard consecutiveFailures <= 5 else {
       return .unavailable(
-        "Il servizio vocale locale continua a interrompersi. Controlla il microfono selezionato e la Dettatura di macOS, poi premi Parla con Jarvis per riprovare. (\(reference))"
+        "The local speech service keeps stopping. Check the selected microphone and macOS Dictation, then press Talk to Jarvis to retry. (\(reference))"
       )
     }
     return .retry(after: min(8, 0.5 * pow(2, Double(consecutiveFailures - 1))))

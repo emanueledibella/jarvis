@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "jarvis-personal"
 version = "0.1.0"
-description = "Assistente personale macOS con agenti, voce, tool MCP e memoria verificabile."
+description = "Personal macOS assistant with agents, voice, MCP tools, and verifiable memory."
 requires-python = ">=3.12,<3.14"
 dependencies = [
   "fastapi==0.162.0",

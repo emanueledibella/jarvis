@@ -43,7 +43,7 @@ struct RecognitionRecoveryTests {
     guard case .unavailable(let assetsMessage) = policy.handle(missing, sessionDuration: 0) else {
       fatalError("Missing assets require setup, not automatic retries")
     }
-    expect(assetsMessage.contains("modello vocale"), "Missing assets need actionable advice")
+    expect(assetsMessage.contains("speech model"), "Missing assets need actionable advice")
 
     guard
       case .unavailable(let disabledMessage) = policy.handle(
@@ -52,7 +52,7 @@ struct RecognitionRecoveryTests {
       fatalError("Disabled Dictation requires system setup")
     }
     expect(
-      disabledMessage.contains("disattivati"),
+      disabledMessage.contains("disabled"),
       "Disabled Dictation must not be reported as missing assets")
 
     guard

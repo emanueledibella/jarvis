@@ -5,14 +5,16 @@
 <key>CFBundleDisplayName</key><string>Jarvis</string>
 <key>CFBundleIdentifier</key><string>it.jarvis.personal</string>
 <key>CFBundleExecutable</key><string>Jarvis</string>
+<key>CFBundleIconFile</key><string>Jarvis.icns</string>
+<key>CFBundleDevelopmentRegion</key><string>en</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>0.1.0</string>
-<key>CFBundleVersion</key><string>1</string>
+<key>CFBundleVersion</key><string>2</string>
 <key>LSMinimumSystemVersion</key><string>14.0</string>
 <key>LSUIElement</key><true/>
-<key>NSMicrophoneUsageDescription</key><string>Jarvis ascolta la parola di attivazione sul Mac. Se selezioni OpenAI Live, dopo l'attivazione invia la conversazione audio a OpenAI. Puoi disattivare il microfono in qualsiasi momento.</string>
-<key>NSSpeechRecognitionUsageDescription</key><string>Jarvis riconosce la parola di attivazione sul Mac. Con il percorso Apple anche i comandi sono trascritti localmente.</string>
-<key>NSCalendarsFullAccessUsageDescription</key><string>Jarvis legge gli impegni e modifica gli eventi soltanto nelle attività che autorizzi.</string>
+<key>NSMicrophoneUsageDescription</key><string>Jarvis detects the wake phrase on your Mac. If you select OpenAI Live, conversation audio is sent to OpenAI after activation. You can mute the microphone at any time.</string>
+<key>NSSpeechRecognitionUsageDescription</key><string>Jarvis recognizes the wake phrase on your Mac. With the Apple voice path, commands are also transcribed locally.</string>
+<key>NSCalendarsFullAccessUsageDescription</key><string>Jarvis reads your schedule and changes events only in tasks you authorize.</string>
 <key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
 <key>NSHighResolutionCapable</key><true/>
 </dict></plist>

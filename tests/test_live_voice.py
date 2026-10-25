@@ -136,6 +136,9 @@ async def test_live_delegation_uses_deep_agent_once_and_accounts_audio(runtime, 
     assert len(connection.commentary) == 1 and "timezone" in connection.commentary[0]["content"]
     assert connection.configuration["store"] is False
     assert connection.configuration["delegation"] == {"type": "client"}
+    from jarvis.language import language_instructions
+
+    assert language_instructions("auto", "it-IT") in connection.configuration["instructions"]
     assert not await runtime.db.fetchone("SELECT * FROM events WHERE type='speech.requested'")
     usage = await runtime.db.fetchone("SELECT * FROM model_usage")
     assert usage["state"] == "complete" and usage["actual_usd"] == pytest.approx(2 * 0.05 / 60)
@@ -163,7 +166,7 @@ async def test_live_voice_budget_is_reserved_before_provider_connection(runtime)
     def forbidden(**kwargs):
         raise AssertionError("No provider request may happen after budget exhaustion")
 
-    with pytest.raises(ValueError, match="Budget"):
+    with pytest.raises(ValueError, match="budget"):
         await runtime.live_voice.serve(Peer(), start(runtime), client_factory=forbidden)
     assert not await runtime.db.fetchall("SELECT * FROM model_usage")
 
@@ -176,7 +179,7 @@ async def test_live_rejects_malformed_pcm_without_forwarding_it(runtime):
 
     connection = Connection(delegate=False)
     peer = Peer(on_ready=ready)
-    with pytest.raises(ValueError, match="campioni completi"):
+    with pytest.raises(ValueError, match="complete 16-bit samples"):
         await asyncio.wait_for(
             runtime.live_voice.serve(peer, start(runtime), client_factory=factory(connection)),
             3,
@@ -230,7 +233,7 @@ async def test_live_websocket_requires_authentication_and_same_origin(runtime):
 
 async def test_disabled_voice_cannot_open_or_charge_a_provider_session(runtime):
     configure(runtime, voice_enabled=False)
-    with pytest.raises(PermissionError, match="sospesa"):
+    with pytest.raises(PermissionError, match="suspended"):
         await runtime.live_voice.serve(Peer(), start(runtime))
     assert not runtime.live_voice.sessions
     assert not await runtime.db.fetchall("SELECT * FROM model_usage")
@@ -289,7 +292,7 @@ async def test_concurrent_voice_sessions_claim_slots_before_waiting_on_the_budge
     try:
         await asyncio.sleep(0)
         assert len(runtime.live_voice.sessions) == 2
-        with pytest.raises(ValueError, match="già aperta"):
+        with pytest.raises(ValueError, match="already open"):
             await runtime.live_voice.serve(Peer(), start(runtime))
     finally:
         release.set()

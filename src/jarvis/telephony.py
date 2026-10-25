@@ -113,7 +113,7 @@ class Telephony:
             * settings.phone_minute_rate_usd
         )
         if spent["total"] + reservation > settings.phone_daily_budget_usd:
-            raise ValueError("Il budget giornaliero non copre la durata massima della chiamata.")
+            raise ValueError("The daily budget cannot cover the maximum call duration.")
         return reservation
 
     def quiet(self) -> bool:
@@ -129,16 +129,16 @@ class Telephony:
 
     async def call_owner(self, event_key: str, reason: str, task_id=None, *, authorized=False):
         if self.runtime.gateway.blocked:
-            raise PermissionError("Arresto di emergenza attivo.")
+            raise PermissionError("Emergency stop is active.")
         if not authorized:
-            raise PermissionError("La chiamata non è autorizzata.")
+            raise PermissionError("The call is not authorized.")
         ready, missing = self.ready()
         if not ready:
-            raise ValueError("Completa il setup telefonico: " + ", ".join(missing))
+            raise ValueError("Complete telephony setup: " + ", ".join(missing))
         if self.config.settings.profile == "local_strict":
-            raise PermissionError("Telefonia disattivata dal profilo locale rigoroso.")
+            raise PermissionError("Telephony is disabled by the strict local profile.")
         if self.quiet():
-            raise ValueError("La chiamata ricade negli orari silenziosi configurati.")
+            raise ValueError("The call falls within the configured quiet hours.")
         async with self.lock:
             existing = await self.db.fetchone(
                 "SELECT id,state,provider_id FROM calls WHERE event_key=?", (event_key,)
@@ -149,7 +149,7 @@ class Telephony:
                 "SELECT id FROM calls WHERE state IN ('creating','queued','initiated','ringing','answered','in-progress','connected','unknown') LIMIT 1"
             )
             if active:
-                raise ValueError("Esiste già una chiamata attiva o da riconciliare.")
+                raise ValueError("A call is already active or awaiting reconciliation.")
             settings = self.config.settings
             reservation = await self.reservation()
             key = uid()
@@ -191,7 +191,7 @@ class Telephony:
                 if isinstance(error, asyncio.CancelledError):
                     raise
                 raise ValueError(
-                    "Esito della creazione incerto. Non richiamare: verifica il registro dell'operatore e riconcilia."
+                    "Call creation outcome is uncertain. Do not redial: check the carrier call log and reconcile."
                 ) from None
 
     def signed(
@@ -247,9 +247,9 @@ class Telephony:
     ):
         row = await self.db.fetchone("SELECT * FROM calls WHERE id=?", (key,))
         if not row or row["state"] != "unknown":
-            raise ValueError("La chiamata non richiede riconciliazione.")
+            raise ValueError("The call does not require reconciliation.")
         if len(note.strip()) < 5:
-            raise ValueError("Descrivi la verifica effettuata nel registro dell'operatore.")
+            raise ValueError("Describe the verification performed in the carrier call log.")
         if not_created and not provider_id:
             await self.db.execute(
                 "UPDATE calls SET state='verified_not_created',reservation_usd=0,detail=?,ended_at=? WHERE id=?",
@@ -257,10 +257,10 @@ class Telephony:
             )
             return {"state": "verified_not_created"}
         if not re.fullmatch(r"CA[0-9a-fA-F]{32}", provider_id):
-            raise ValueError("Inserisci il Call SID osservato presso l'operatore.")
+            raise ValueError("Enter the Call SID observed in the carrier log.")
         if self.config.settings.profile == "local_strict":
             raise PermissionError(
-                "La verifica remota della chiamata non è disponibile nel profilo locale rigoroso."
+                "Remote call verification is unavailable in the strict local profile."
             )
         from twilio.http.http_client import TwilioHttpClient
         from twilio.rest import Client
@@ -273,13 +273,13 @@ class Telephony:
         )
         call = await asyncio.to_thread(client.calls(provider_id).fetch)
         if call.to != settings.owner_phone_number or call.from_ != settings.telephony_from_number:
-            raise ValueError("Il SID non corrisponde ai numeri autorizzati della chiamata.")
+            raise ValueError("The SID does not match the call's authorized numbers.")
         if (
             call.date_created
             and abs((call.date_created - datetime.fromisoformat(row["created_at"])).total_seconds())
             > 300
         ):
-            raise ValueError("Il SID non corrisponde all'orario della richiesta.")
+            raise ValueError("The SID does not match the request time.")
         await self.db.execute(
             "UPDATE calls SET provider_id=?,state=?,detail=? WHERE id=?",
             (provider_id, call.status, note[:1000], key),
@@ -296,7 +296,6 @@ class Telephony:
                 result = await client.audio.transcriptions.create(
                     model=settings.phone_stt_model,
                     file=("turn.wav", data, "audio/wav"),
-                    language="it",
                 )
             return result.text
 
@@ -311,7 +310,7 @@ class Telephony:
                     local_files_only=True,
                 )
             segments, _ = self.local_stt.transcribe(
-                io.BytesIO(data), language="it", vad_filter=True
+                io.BytesIO(data), language=None, vad_filter=True
             )
             return " ".join(segment.text for segment in segments)
 
@@ -355,7 +354,7 @@ class Telephony:
                     process.kill()
                     await process.wait()
             if process.returncode:
-                raise ValueError("Sintesi vocale locale fallita.")
+                raise ValueError("Local speech synthesis failed.")
             convert = await asyncio.create_subprocess_exec(
                 "/usr/bin/afconvert",
                 "-f",
@@ -370,7 +369,7 @@ class Telephony:
             )
             await asyncio.wait_for(convert.wait(), 10)
             if convert.returncode:
-                raise ValueError("Conversione audio telefonico fallita.")
+                raise ValueError("Phone audio conversion failed.")
             with wave.open(str(wav), "rb") as file:
                 return encode_mulaw(np.frombuffer(file.readframes(file.getnframes()), dtype="<i2"))
 
@@ -439,13 +438,13 @@ class Telephony:
                         (task["id"], now()),
                     )
                     if len(proposals) != 1:
-                        await speak("La proposta richiede una verifica nella dashboard del Mac.")
+                        await speak("The proposal requires review in the Mac dashboard.")
                         return
                     proposal = proposals[0]
                     brief = json.dumps(json.loads(proposal["arguments"]), ensure_ascii=False)
                     if len(brief) > 1000:
                         await speak(
-                            "La proposta è troppo lunga per una conferma telefonica. Verificala nella dashboard."
+                            "The proposal is too long for phone confirmation. Review it in the dashboard."
                         )
                         return
                     # Read the exact gateway proposal. Never let model prose authorize it.
@@ -455,16 +454,18 @@ class Telephony:
                         "expires_at": proposal["expires_at"],
                     }
                     await speak(
-                        f"Conferma richiesta per {proposal['tool']}. Parametri: {brief}. Premi uno per approvare questa azione, oppure due per rifiutare."
+                        f"Confirmation required for {proposal['tool']}. Parameters: {brief}. Press one to approve this action or two to reject it."
                     )
                     return
                 if row["state"] in {"failed", "cancelled"}:
                     await speak(
-                        "Non ho completato l'operazione. Il dettaglio è disponibile nella dashboard."
+                        "I did not complete the operation. Details are available in the dashboard."
                     )
                     return
                 await asyncio.sleep(0.2)
-            await speak("Il lavoro continua in background. Il risultato sarà disponibile sul Mac.")
+            await speak(
+                "Work continues in the background. The result will be available on the Mac."
+            )
 
         async def respond(samples):
             nonlocal conversation_id
@@ -476,13 +477,16 @@ class Telephony:
                     "riaggancia",
                     "chiudi la chiamata",
                     "arrivederci",
+                    "hang up",
+                    "end the call",
+                    "goodbye",
                 }:
-                    await speak("A presto.")
+                    await speak("Goodbye.")
                     await websocket.close()
                     return
                 if pending_approval and pending_approval["expires_at"] > now():
                     await speak(
-                        "Premi uno per approvare la proposta letta, oppure due per rifiutarla."
+                        "Press one to approve the proposal you just heard or two to reject it."
                     )
                     return
                 task = await self.runtime.tasks.create(
@@ -497,19 +501,17 @@ class Telephony:
             except asyncio.CancelledError:
                 raise
             except Exception:
-                await speak(
-                    "La richiesta vocale non è riuscita. Controlla le connessioni nella dashboard."
-                )
+                await speak("The voice request failed. Check connections in the dashboard.")
 
         try:
             async with asyncio.timeout(self.config.settings.phone_max_call_seconds):
                 async for raw in websocket.iter_text():
                     if len(raw) > 100_000:
-                        raise ValueError("Frame telefonico oltre il limite.")
+                        raise ValueError("Phone frame exceeds the size limit.")
                     event = json.loads(raw)
                     if event.get("event") == "start":
                         if stream_sid:
-                            raise PermissionError("Sessione media già iniziata.")
+                            raise PermissionError("Media session has already started.")
                         start = event["start"]
                         fmt = start.get("mediaFormat", {})
                         if (
@@ -517,7 +519,7 @@ class Telephony:
                             or int(fmt.get("sampleRate", 0)) != 8000
                             or int(fmt.get("channels", 0)) != 1
                         ):
-                            raise ValueError("Formato audio telefonico non supportato.")
+                            raise ValueError("Unsupported phone audio format.")
                         params = start.get("customParameters", {})
                         key = params.get("call_id")
                         secret = self.media_tokens.pop(key, "")
@@ -530,7 +532,7 @@ class Telephony:
                             or row["provider_id"] != start.get("callSid")
                             or key in self.active
                         ):
-                            raise PermissionError("Sessione media non autorizzata.")
+                            raise PermissionError("Unauthorized media session.")
                         self.active.add(key)
                         if row["task_id"]:
                             origin = await self.db.fetchone(
@@ -551,13 +553,13 @@ class Telephony:
                         )
                         answer = asyncio.create_task(
                             speak(
-                                "Sono Jarvis. Identità verificata. "
+                                "I am Jarvis. Identity verified. "
                                 + (
-                                    "Ti chiamo per " + row["detail"][:400] + ". "
+                                    "I am calling about " + row["detail"][:400] + ". "
                                     if row["detail"]
                                     else ""
                                 )
-                                + "Dimmi come posso aiutarti."
+                                + "Tell me how I can help."
                             )
                         )
                     elif event.get("event") == "dtmf" and stream_sid and pending_approval:
@@ -576,7 +578,7 @@ class Telephony:
                             answer = asyncio.create_task(wait_task({"id": task_id}))
                         except ValueError:
                             answer = asyncio.create_task(
-                                speak("Questa proposta è scaduta o è già stata decisa.")
+                                speak("This proposal has expired or has already been decided.")
                             )
                     elif event.get("event") == "media" and stream_sid:
                         pcm = decode_mulaw(
@@ -626,7 +628,7 @@ class Telephony:
 
         async def signed_form(request):
             if int(request.headers.get("content-length", "0")) > 16384:
-                raise PermissionError("Richiesta troppo grande.")
+                raise PermissionError("Request is too large.")
             params = dict(await request.form())
             if not self.signed(
                 request.url.path,
@@ -634,7 +636,7 @@ class Telephony:
                 request.headers.get("x-twilio-signature", ""),
                 params,
             ):
-                raise PermissionError("Firma telefonica non valida.")
+                raise PermissionError("Invalid telephony signature.")
             return params
 
         @router.post("/telephony/voice")
@@ -720,8 +722,8 @@ class Telephony:
                         method="POST",
                     )
                     gather.say(
-                        "Sono Jarvis. Inserisci il tuo codice personale per continuare.",
-                        language="it-IT",
+                        "I am Jarvis. Enter your personal code to continue.",
+                        language="en-GB",
                     )
                     result.append(gather)
                     result.hangup()

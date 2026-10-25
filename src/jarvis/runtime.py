@@ -52,9 +52,7 @@ class Runtime:
                 fcntl.flock(self.lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except OSError:
                 self.lock_file.close()
-                raise RuntimeError(
-                    "Un'altra istanza di Jarvis possiede questa directory dati."
-                ) from None
+                raise RuntimeError("Another Jarvis instance owns this data directory.") from None
         await self.db.open()
         voice = await self.db.fetchone("SELECT value FROM controls WHERE name='voice_session'")
         self.voice_session = (
@@ -129,7 +127,7 @@ class Runtime:
             },
             "mcp": self.mcp.statuses,
             "timezone": settings.timezone,
-            "availability": "Il servizio richiede il Mac sveglio e la sessione utente attiva.",
+            "availability": "The service requires an awake Mac and an active user session.",
         }
 
     async def set_voice_session(self, private: bool, scope: str):
@@ -176,7 +174,7 @@ class Runtime:
         for task in expired:
             await self.tasks.checkpointer.adelete_thread(task["id"])
             await self.db.execute(
-                "UPDATE tasks SET title='Attività archiviata',prompt='',result='',error=NULL WHERE id=?",
+                "UPDATE tasks SET title='Archived task',prompt='',result='',error=NULL WHERE id=?",
                 (task["id"],),
             )
             await self.db.execute(

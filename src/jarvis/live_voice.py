@@ -16,21 +16,22 @@ from starlette.websockets import WebSocketDisconnect
 
 from .config import Profile
 from .db import uid
+from .language import language_instructions
 from .speech import speech_text
 
-LIVE_PROMPT = """Sei Jarvis, l'assistente vocale AI del proprietario di questo Mac.
-Parla in italiano con una voce naturale, calma e diretta. Per domande semplici usa una o due frasi.
-Backchannel policy: conferma brevemente che stai ascoltando, senza coprire chi parla.
-Interruption policy: lascia parlare l'utente quando ti interrompe. Non scambiare la tua voce per una nuova richiesta.
+LIVE_PROMPT = """You are Jarvis, the Mac owner's AI voice assistant.
+Speak naturally, calmly, and directly. Use one or two sentences for simple questions.
+Backchannel policy: Briefly acknowledge that you are listening without talking over the user.
+Interruption policy: Let the user speak when they interrupt. Do not mistake your own voice for a new request.
 Delegation policy:
-Backend tools: ora e date reali, memoria personale Second Brain, calendario, meteo, ricerca web,
-programmazione, file, comandi, routine e azioni con controllo dei permessi.
-Generate <|SpawnThinking|> quando una richiesta richiede informazioni, ragionamento o uno dei tool.
-Generate <|SpawnThinking|> prima di fornire l'ora, un fatto personale o confermare un'azione.
-Non inventare risultati mentre attendi. Riferisci soltanto gli esiti verificati che ricevi dal backend.
-Non generare <|SpawnThinking|> per un saluto, per chiedere un chiarimento o ripetere un risultato appena verificato.
-Le approvazioni delle azioni si completano nella dashboard: un sì pronunciato non concede permessi.
-Se senti soltanto 'Jarvis', rispondi brevemente 'Dimmi pure' e attendi la richiesta.
+Backend tools: actual time and dates, personal Second Brain memory, calendar, weather, web search,
+coding, files, commands, routines, and actions with permission checks.
+Generate <|SpawnThinking|> when a request needs information, reasoning, or a backend tool.
+Generate <|SpawnThinking|> before giving the time, a personal fact, or confirming an action.
+Do not invent results while waiting. Report only verified outcomes received from the backend.
+Do not generate <|SpawnThinking|> for greetings, clarification, or repeating a just-verified result.
+Actions require dashboard approval: a spoken yes does not grant permission.
+If you hear only 'Jarvis', briefly invite the user to continue in the conversation language and wait.
 """
 
 
@@ -66,29 +67,27 @@ class LiveVoice:
         ):
             key = settings.secret("cloud_api_key")
         if not key:
-            raise ValueError("Configura una chiave OpenAI per la voce nelle impostazioni.")
+            raise ValueError("Configure an OpenAI voice API key in Settings.")
         return key
 
     def validate(self, metadata: LiveStart):
         settings = self.runtime.config.settings
         preference = self.runtime.voice_session
         if self.runtime.gateway.blocked or not settings.voice_enabled:
-            raise PermissionError("La voce è sospesa.")
+            raise PermissionError("Voice is suspended.")
         if settings.profile == "local_strict" or metadata.profile == "local_strict":
-            raise PermissionError("Il profilo offline rigoroso non invia audio a OpenAI.")
+            raise PermissionError("The strict offline profile does not send audio to OpenAI.")
         if metadata.profile != settings.profile:
-            raise PermissionError("Il profilo è cambiato: riapri la conversazione vocale.")
+            raise PermissionError("The profile changed: reopen the voice conversation.")
         if settings.desktop_voice_provider != "openai_live":
-            raise PermissionError("La voce OpenAI non è selezionata.")
+            raise PermissionError("OpenAI voice is not selected.")
         if (
             metadata.privacy_revision != preference["revision"]
             or metadata.scope != preference["scope"]
         ):
-            raise PermissionError("Privacy o ambito sono cambiati: riapri la conversazione vocale.")
+            raise PermissionError("Privacy or scope changed: reopen the voice conversation.")
         if preference["private"] and not metadata.private:
-            raise PermissionError(
-                "La sessione privata non può essere disattivata da questa connessione."
-            )
+            raise PermissionError("This connection cannot disable the private session.")
 
     async def endpoint(self, websocket: WebSocket):
         token = websocket.headers.get("authorization", "").removeprefix("Bearer ")
@@ -115,7 +114,7 @@ class LiveVoice:
         except ValidationError:
             with suppress(RuntimeError, WebSocketDisconnect):
                 await websocket.send_json(
-                    {"type": "error", "message": "Metadati della sessione vocale non validi."}
+                    {"type": "error", "message": "Invalid voice session metadata."}
                 )
         except (ValueError, PermissionError) as error:
             with suppress(RuntimeError, WebSocketDisconnect):
@@ -129,7 +128,7 @@ class LiveVoice:
                 await websocket.send_json(
                     {
                         "type": "error",
-                        "message": "Connessione vocale OpenAI interrotta.",
+                        "message": "OpenAI voice connection interrupted.",
                         "code": type(error).__name__,
                     }
                 )
@@ -141,7 +140,7 @@ class LiveVoice:
         self.validate(metadata)
         key = self.key()
         if len(self.sessions) >= 2:
-            raise ValueError("È già aperta una conversazione vocale. Chiudila prima di riprovare.")
+            raise ValueError("A voice conversation is already open. Close it before trying again.")
         settings = self.runtime.config.settings
         maximum = settings.desktop_voice_max_session_seconds
         rate = settings.desktop_voice_rate_usd_per_minute
@@ -179,7 +178,7 @@ class LiveVoice:
             await self.runtime.budget.reserve_voice(reservation, maximum + 20, rate)
             self.validate(metadata)
             if stop.is_set():
-                raise PermissionError("La sessione vocale è stata interrotta prima dell'avvio.")
+                raise PermissionError("The voice session was stopped before it started.")
             async with client_factory(
                 api_key=key, base_url="https://api.openai.com/v1", max_retries=0, timeout=20
             ) as client:
@@ -202,7 +201,7 @@ class LiveVoice:
                         if not text:
                             await connection.session.commentary.append(
                                 delegation_id=delegation_id,
-                                content="La richiesta non è stata trascritta: chiedi all'utente di ripeterla.",
+                                content="The request was not transcribed: ask the user to repeat it in their language.",
                             )
                             return
                         last_offset = max(p["end_ms"] for p in selected)
@@ -237,9 +236,9 @@ class LiveVoice:
                                         task["id"], {}
                                     ).get("result", row["result"])
                                 elif row["state"] == "waiting_user":
-                                    result = "L'azione richiede una decisione nella dashboard e non è stata eseguita. Invita l'utente a controllare la proposta in Jarvis."
+                                    result = "The action requires a dashboard decision and has not been executed. Ask the user to review the proposal in Jarvis, using their language."
                                 else:
-                                    result = f"Stato del task: {row['state']}. Non dichiarare completata l'azione. {row['error'] or ''}"
+                                    result = f"Task state: {row['state']}. Do not claim that the action is complete. {row['error'] or ''}"
                                 await connection.session.commentary.append(
                                     delegation_id=delegation_id, content=excerpt(result)
                                 )
@@ -271,7 +270,7 @@ class LiveVoice:
                                     > 50000
                                 ):
                                     raise ValueError(
-                                        "Conversazione vocale troppo lunga; riapri una sessione."
+                                        "Voice conversation is too long; open a new session."
                                     )
                                 fragments.append(
                                     {k: event[k] for k in ("delta", "start_ms", "end_ms")}
@@ -304,7 +303,7 @@ class LiveVoice:
                                 await send(
                                     {
                                         "type": "error",
-                                        "message": "OpenAI ha rifiutato un comando della sessione vocale.",
+                                        "message": "OpenAI rejected a voice session command.",
                                         "code": str(
                                             event.get("error", {}).get("code", "provider_error")
                                         )[:100],
@@ -312,7 +311,7 @@ class LiveVoice:
                                 )
                                 stop.set()
                         if not closed.is_set():
-                            raise ConnectionError("Sessione OpenAI chiusa senza evento finale.")
+                            raise ConnectionError("OpenAI session closed without a final event.")
 
                     async def receive_native():
                         nonlocal disconnected
@@ -333,15 +332,13 @@ class LiveVoice:
                                     or not isinstance(data.get("audio"), str)
                                     or len(data["audio"]) > 65536
                                 ):
-                                    raise ValueError("Pacchetto audio non valido.")
+                                    raise ValueError("Invalid audio packet.")
                                 try:
                                     pcm = base64.b64decode(data["audio"], validate=True)
                                 except (binascii.Error, ValueError):
-                                    raise ValueError("Audio PCM non valido.") from None
+                                    raise ValueError("Invalid PCM audio.") from None
                                 if not pcm or len(pcm) % 2:
-                                    raise ValueError(
-                                        "Il PCM deve contenere campioni completi a 16 bit."
-                                    )
+                                    raise ValueError("PCM must contain complete 16-bit samples.")
                                 await connection.session.input_audio.append(audio=data["audio"])
                         except WebSocketDisconnect:
                             disconnected = True
@@ -365,8 +362,9 @@ class LiveVoice:
                             "model": settings.desktop_voice_model,
                             "store": False,
                             "instructions": LIVE_PROMPT
+                            + language_instructions(settings.response_language, settings.language)
                             + (
-                                "\nCon gli altoparlanti attendi che l'utente abbia finito prima di parlare. Evita backchannel audio mentre sta ancora formulando la richiesta."
+                                "\nWhen using speakers, wait until the user finishes before speaking. Avoid spoken backchannels while they are still making their request."
                                 if settings.desktop_voice_duplex == "gated"
                                 else ""
                             ),

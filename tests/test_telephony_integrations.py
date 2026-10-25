@@ -167,13 +167,13 @@ async def test_outbound_timeout_does_not_create_a_second_call(runtime, monkeypat
             self.calls = Calls()
 
     monkeypatch.setattr("twilio.rest.Client", Carrier)
-    with pytest.raises(ValueError, match="incerto"):
+    with pytest.raises(ValueError, match="uncertain"):
         await runtime.telephony.call_owner("incident-one", "Evento autorizzato", authorized=True)
     repeated = await runtime.telephony.call_owner(
         "incident-one", "Evento autorizzato", authorized=True
     )
     assert repeated["state"] == "unknown" and len(attempts) == 1
-    with pytest.raises(ValueError, match="riconciliare"):
+    with pytest.raises(ValueError, match="reconciliation"):
         await runtime.telephony.call_owner("incident-two", "Altro evento", authorized=True)
     assert len(attempts) == 1
 
@@ -303,11 +303,11 @@ async def test_phone_dtmf_approves_only_the_proposal_read_back(runtime, tmp_path
                 await asyncio.sleep(0)
             for _ in range(200):
                 row = await runtime.db.fetchone("SELECT * FROM approvals WHERE state='pending'")
-                if row and any("Premi uno" in text for text in utterances):
+                if row and any("Press one" in text for text in utterances):
                     break
                 await asyncio.sleep(0.01)
             assert row and "printf approved" in next(
-                text for text in utterances if "Premi uno" in text
+                text for text in utterances if "Press one" in text
             )
             assert not await runtime.db.fetchall("SELECT * FROM effects")
             yield json.dumps({"event": "dtmf", "dtmf": {"digit": "1"}})

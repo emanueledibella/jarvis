@@ -40,8 +40,8 @@ export async function api<T = any>(
       typeof detail.detail === "string"
         ? detail.detail
         : response.status === 422
-          ? "Controlla i campi: uno o più valori non sono validi."
-          : `Servizio non disponibile (${response.status}).`,
+          ? "Check the fields: one or more values are invalid."
+          : `Service unavailable (${response.status}).`,
     );
   }
   return response.json();
@@ -63,8 +63,7 @@ export async function eventStream(
         headers: { Authorization: "Bearer " + token },
         signal,
       });
-      if (!response.ok || !response.body)
-        throw new Error("Stream non disponibile");
+      if (!response.ok || !response.body) throw new Error("Stream unavailable");
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";

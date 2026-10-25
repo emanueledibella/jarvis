@@ -19,7 +19,7 @@ class Workspace:
         path = Path(value).expanduser()
         if not path.is_absolute():
             if not self.roots:
-                raise ValueError("Nessun workspace configurato.")
+                raise ValueError("No workspace is configured.")
             path = self.roots[0] / path
         absolute = Path(os.path.abspath(path))
         for root in self.roots:
@@ -29,20 +29,20 @@ class Workspace:
                     part in {".git", ".runtime", ".ssh", ".aws", ".venv", "node_modules"}
                     for part in rel.parts
                 ):
-                    raise PermissionError("Percorso riservato o dipendenza esclusa.")
+                    raise PermissionError("Restricted path or excluded dependency.")
                 if any(
                     part in SENSITIVE
                     or part.startswith(".env.")
                     or part.endswith((".pem", ".key", ".p12"))
                     for part in rel.parts
                 ):
-                    raise PermissionError("File riservato: il tool non legge segreti.")
+                    raise PermissionError("Restricted file: the tool does not read secrets.")
                 if not absolute.resolve().is_relative_to(root):
-                    raise PermissionError("Il symlink esce dal workspace.")
+                    raise PermissionError("The symlink leaves the workspace.")
                 if directory and not absolute.is_dir():
-                    raise ValueError("Directory inesistente.")
+                    raise ValueError("Directory does not exist.")
                 return root, rel
-        raise PermissionError("Il percorso non appartiene ai workspace abilitati.")
+        raise PermissionError("The path is outside the enabled workspaces.")
 
     @contextlib.contextmanager
     def parent_fd(self, root: Path, relative: Path):
@@ -59,7 +59,7 @@ class Workspace:
     def read(self, path: str) -> str:
         root, relative = self.resolve(path)
         if not relative.parts:
-            raise ValueError("Indica un file.")
+            raise ValueError("Specify a file.")
         with self.parent_fd(root, relative) as parent:
             fd = os.open(relative.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
             try:
@@ -67,7 +67,7 @@ class Workspace:
 
                 info = os.fstat(fd)
                 if not stat.S_ISREG(info.st_mode) or info.st_size > 256_000:
-                    raise ValueError("Serve un file di testo regolare entro 256 KB.")
+                    raise ValueError("A regular text file up to 256 KB is required.")
                 with os.fdopen(fd, "r", encoding="utf-8") as file:
                     fd = -1
                     return file.read(256_001)
@@ -81,14 +81,14 @@ class Workspace:
         import stat
 
         if len(content.encode()) > 256_000:
-            raise ValueError("Contenuto oltre 256 KB.")
+            raise ValueError("Content exceeds 256 KB.")
         root, relative = self.resolve(path)
         target = root / relative
         old = self.read(path) if target.exists() else ""
         old_hash = hashlib.sha256(old.encode()).hexdigest()
         if target.exists() and expected_sha256 != old_hash:
             raise ValueError(
-                "Il file esiste: leggi la revisione corrente e fornisci expected_sha256."
+                "The file exists: read its current revision and supply expected_sha256."
             )
         with self.parent_fd(root, relative) as parent:
             mode = (
@@ -186,7 +186,7 @@ class Workspace:
     async def command(self, command: str, cwd: str, mode: str, timeout: int) -> dict:
         root, relative = self.resolve(cwd, directory=True)
         if mode == "disabled":
-            raise PermissionError("Esecuzione comandi disabilitata.")
+            raise PermissionError("Command execution is disabled.")
         with tempfile.TemporaryDirectory(prefix="jarvis-worker-") as scratch:
             env = {
                 "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
@@ -199,7 +199,7 @@ class Workspace:
             if mode == "sandbox":
                 if not await asyncio.to_thread(Path("/usr/bin/sandbox-exec").exists):
                     raise PermissionError(
-                        "Sandbox macOS non disponibile; nessun fallback sull'host."
+                        "The macOS sandbox is unavailable; there is no host fallback."
                     )
 
                 def quoted(value):
@@ -235,7 +235,7 @@ class Workspace:
                     while chunk := await process.stdout.read(8192):
                         output.extend(chunk)
                         if len(output) > 65536:
-                            raise ValueError("Output oltre 64 KB: comando interrotto.")
+                            raise ValueError("Output exceeds 64 KB: command stopped.")
                     await process.wait()
             finally:
                 if process.returncode is None:

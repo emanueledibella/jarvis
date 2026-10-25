@@ -17,33 +17,33 @@ import remarkGfm from "remark-gfm";
 import type { Json } from "./api";
 
 export const stateLabels: Record<string, string> = {
-  queued: "In coda",
-  running: "In esecuzione",
-  waiting_user: "Serve una decisione",
-  paused: "In pausa",
-  succeeded: "Completato",
-  failed: "Da verificare",
-  cancelled: "Annullato",
-  cancelling: "Interruzione",
-  unknown: "Esito incerto",
-  pending: "In attesa",
-  indexed: "Indicizzata",
-  queued_memory: "Fonte salvata",
-  stored_pending_extraction: "Estrazione pendente",
-  needs_review: "Da revisionare",
-  delivery_error: "Consegna da riprovare",
-  stored_with_warnings: "Con avvisi",
-  superseded: "Revisione successiva",
-  connected: "Collegato",
-  not_connected: "Da collegare",
-  connecting: "Connessione…",
-  error: "Errore",
+  queued: "Queued",
+  running: "Running",
+  waiting_user: "Decision needed",
+  paused: "Paused",
+  succeeded: "Completed",
+  failed: "Needs review",
+  cancelled: "Cancelled",
+  cancelling: "Stopping",
+  unknown: "Uncertain outcome",
+  pending: "Pending",
+  indexed: "Indexed",
+  queued_memory: "Source saved",
+  stored_pending_extraction: "Extraction pending",
+  needs_review: "Needs review",
+  delivery_error: "Delivery needs retry",
+  stored_with_warnings: "With warnings",
+  superseded: "Newer revision",
+  connected: "Connected",
+  not_connected: "Not connected",
+  connecting: "Connecting…",
+  error: "Error",
 };
 export const profileLabels: Record<string, string> = {
-  local_strict: "Offline rigoroso",
-  local_connected: "Locale connesso",
+  local_strict: "Strict offline",
+  local_connected: "Connected local",
   cloud: "Cloud",
-  hybrid: "Ibrido",
+  hybrid: "Hybrid",
 };
 export function formatDate(value?: string, short = false) {
   if (!value) return "—";
@@ -51,7 +51,7 @@ export function formatDate(value?: string, short = false) {
   return Number.isNaN(+date)
     ? value
     : new Intl.DateTimeFormat(
-        "it-IT",
+        "en-GB",
         short
           ? { hour: "2-digit", minute: "2-digit" }
           : {
@@ -183,7 +183,7 @@ export function Modal({
           <button
             className="icon-btn"
             onClick={onClose}
-            aria-label="Chiudi finestra"
+            aria-label="Close window"
           >
             <X size={19} />
           </button>
@@ -222,32 +222,26 @@ export function Orb({
   small?: boolean;
 }) {
   const descriptions: Record<string, [string, string]> = {
-    armed: ["Sono qui.", "Dì «Jarvis» per iniziare."],
-    listening: ["Ti ascolto.", "Il comando rimane sul Mac fino all’invio."],
-    processing: [
-      "Ci sto lavorando.",
-      "Puoi seguire i passaggi nelle attività.",
+    armed: ["I am here.", "Say “Jarvis” to begin."],
+    listening: [
+      "I am listening.",
+      "Voice input is active; your configured provider processes the conversation.",
     ],
-    speaking: [
-      "Una risposta, con contesto.",
-      "Puoi interrompermi mentre parlo.",
-    ],
-    followup: ["Dimmi pure.", "Puoi continuare senza ripetere «Jarvis»."],
-    muted: ["In ascolto, quando vuoi.", "Il microfono è disattivato."],
+    processing: ["Working on it.", "Follow the steps in Tasks."],
+    speaking: ["An answer, with context.", "You can interrupt while I speak."],
+    followup: ["Go ahead.", "Continue without repeating “Jarvis”."],
+    muted: ["Ready when you are.", "The microphone is muted."],
     recovering: [
-      "Riattivo l’ascolto.",
-      "Il riconoscimento locale riprende tra pochi secondi.",
+      "Restoring listening.",
+      "Local recognition will resume in a few seconds.",
     ],
-    connecting: ["Tra un istante.", "Sto preparando la conversazione vocale."],
-    unavailable: [
-      "Pronto per il primo passo.",
-      "Configura la voce o scrivimi qui sotto.",
-    ],
+    connecting: ["Just a moment.", "Preparing the voice conversation."],
+    unavailable: ["Ready for the first step.", "Set up voice or type below."],
     permission_required: [
-      "La voce aspetta te.",
-      "Concedi i permessi dalla sezione Voce.",
+      "Voice is waiting for you.",
+      "Grant permissions in the Voice section.",
     ],
-    locked: ["Sessione protetta.", "L’ascolto riprende dopo lo sblocco."],
+    locked: ["Session protected.", "Listening resumes after unlock."],
   };
   const [title, detail] = descriptions[state] || descriptions.unavailable;
   return (

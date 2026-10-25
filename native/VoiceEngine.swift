@@ -96,8 +96,14 @@ final class VoiceEngine: NSObject {
   func configure(_ values: [String: Any]) {
     let previousLanguage = settings["language"] as? String
     let previousProvider = settings["desktop_voice_provider"] as? String
+    let previousResponseLanguage = settings["response_language"] as? String
     settings = values
     if previousProvider != nil && previousProvider != values["desktop_voice_provider"] as? String {
+      closeLive()
+    }
+    if previousResponseLanguage != nil
+      && previousResponseLanguage != values["response_language"] as? String
+    {
       closeLive()
     }
     if let privacy = values["private_session"] as? Bool,
@@ -138,7 +144,7 @@ final class VoiceEngine: NSObject {
       return [
         "state": "permission_required",
         "error":
-          "Concedi Microfono e Riconoscimento vocale in Impostazioni di Sistema → Privacy e sicurezza.",
+          "Grant Microphone and Speech Recognition access in System Settings → Privacy & Security.",
       ]
     }
     enabled = true
@@ -146,7 +152,7 @@ final class VoiceEngine: NSObject {
     UserDefaults.standard.set(false, forKey: "microphoneMuted")
     restartCapture()
     if state == "unavailable" {
-      return ["state": state, "error": lastError ?? "Riconoscimento locale non disponibile."]
+      return ["state": state, "error": lastError ?? "Local speech recognition is unavailable."]
     }
     return ["state": state]
   }
@@ -162,14 +168,14 @@ final class VoiceEngine: NSObject {
   func unmute() throws {
     guard settings["voice_enabled"] as? Bool != false else {
       throw ServiceClient.ClientError.server(
-        "La voce è disattivata nelle impostazioni o dall'arresto di emergenza.")
+        "Voice is disabled in Settings or by emergency stop.")
     }
     guard
       enabled
         || (AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
           && SFSpeechRecognizer.authorizationStatus() == .authorized)
     else {
-      throw ServiceClient.ClientError.server("Abilita prima la voce e concedi i permessi.")
+      throw ServiceClient.ClientError.server("Enable voice and grant permissions first.")
     }
     enabled = true
     muted = false
@@ -177,7 +183,7 @@ final class VoiceEngine: NSObject {
     restartCapture()
     if capture?.isRunning != true {
       throw ServiceClient.ClientError.server(
-        lastError ?? "Microfono o riconoscimento locale non disponibile.")
+        lastError ?? "Microphone or local recognition is unavailable.")
     }
   }
 
@@ -188,7 +194,7 @@ final class VoiceEngine: NSObject {
     if muted || capture?.isRunning != true { try unmute() }
     guard capture?.isRunning == true else {
       throw ServiceClient.ClientError.server(
-        lastError ?? "Abilita prima il microfono e il riconoscimento locale.")
+        lastError ?? "Enable the microphone and local recognition first.")
     }
     stopSpeaking()
     beginTurn("")
@@ -230,7 +236,7 @@ final class VoiceEngine: NSObject {
     else {
       setState(
         "permission_required",
-        error: "Concedi Microfono e Riconoscimento vocale a Jarvis in Privacy e sicurezza.")
+        error: "Grant Jarvis Microphone and Speech Recognition access in Privacy & Security.")
       return
     }
     let language = settings["language"] as? String ?? "it-IT"
@@ -240,7 +246,7 @@ final class VoiceEngine: NSObject {
       setState(
         "unavailable",
         error:
-          "Il riconoscimento on-device non è disponibile per questa lingua sul Mac. Nessun fallback cloud."
+          "On-device recognition is unavailable for this language on this Mac. Cloud fallback is disabled."
       )
       return
     }
@@ -256,7 +262,7 @@ final class VoiceEngine: NSObject {
       "Capture format: rate=\(format.sampleRate, privacy: .public) channels=\(format.channelCount, privacy: .public)"
     )
     guard format.sampleRate > 0 && format.channelCount > 0 else {
-      setState("unavailable", error: "Microfono non disponibile.")
+      setState("unavailable", error: "Microphone is unavailable.")
       return
     }
     input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
@@ -282,7 +288,7 @@ final class VoiceEngine: NSObject {
       setState("armed")
     } catch {
       input.removeTap(onBus: 0)
-      setState("unavailable", error: "Avvio audio fallito: controlla il dispositivo e i permessi.")
+      setState("unavailable", error: "Audio startup failed: check the device and permissions.")
     }
   }
 
@@ -537,7 +543,7 @@ final class VoiceEngine: NSObject {
               self.activeTaskID = event["id"] as? String
             }
           case "error":
-            self.closeLive(error: event["message"] as? String ?? "Voce OpenAI non disponibile.")
+            self.closeLive(error: event["message"] as? String ?? "OpenAI voice is unavailable.")
             return
           case "closed":
             self.closeLive(drain: true)
@@ -548,7 +554,7 @@ final class VoiceEngine: NSObject {
       } catch {
         if self.liveGeneration == generation && !Task.isCancelled {
           self.closeLive(
-            error: "Connessione vocale interrotta. Premi Parla con Jarvis per riprovare.")
+            error: "Voice connection interrupted. Press Talk to Jarvis to retry.")
         }
       }
     }
@@ -566,7 +572,7 @@ final class VoiceEngine: NSObject {
         }
       } catch {
         if self.liveGeneration == generation && !Task.isCancelled {
-          self.closeLive(error: "Il flusso audio si è interrotto. Riapri la conversazione vocale.")
+          self.closeLive(error: "The audio stream stopped. Reopen the voice conversation.")
         }
       }
     }
@@ -586,7 +592,7 @@ final class VoiceEngine: NSObject {
         pcmFormat: format, frameCapacity: AVAudioFrameCount(bytes.count / 2)),
       let destination = pcm.int16ChannelData?[0]
     else {
-      throw ServiceClient.ClientError.server("Audio OpenAI non valido o riproduzione troppo lenta.")
+      throw ServiceClient.ClientError.server("Invalid OpenAI audio or playback is too slow.")
     }
     pcm.frameLength = AVAudioFrameCount(bytes.count / 2)
     _ = bytes.withUnsafeBytes { raw in memcpy(destination, raw.baseAddress!, bytes.count) }
@@ -674,7 +680,7 @@ final class VoiceEngine: NSObject {
       } catch {
         setState(
           "armed",
-          error: "Consegna non confermata: controlla l'attività prima di ripetere la richiesta.")
+          error: "Delivery is unconfirmed: check the task before repeating the request.")
       }
     }
     if restartRecognition { resetRecognition() }
@@ -688,7 +694,7 @@ final class VoiceEngine: NSObject {
       setState(
         "unavailable",
         error:
-          "Il microfono non sta fornendo audio. Apri il coperchio del MacBook o seleziona un microfono esterno, poi premi Parla con Jarvis."
+          "The microphone is not providing audio. Open the MacBook lid or select an external microphone, then press Talk to Jarvis."
       )
       return
     }
@@ -755,7 +761,9 @@ final class VoiceEngine: NSObject {
     let identifier = settings["tts_voice"] as? String ?? ""
     utterance.voice =
       identifier.isEmpty
-      ? AVSpeechSynthesisVoice(language: settings["language"] as? String ?? "it-IT")
+      ? AVSpeechSynthesisVoice(language: SpokenLanguage.select(
+        for: text, response: settings["response_language"] as? String ?? "auto",
+        fallback: settings["language"] as? String ?? "it-IT"))
       : AVSpeechSynthesisVoice(identifier: identifier)
     utterance.rate = AVSpeechUtteranceDefaultSpeechRate
     synth.write(utterance) { [weak self] buffer in
@@ -782,7 +790,7 @@ final class VoiceEngine: NSObject {
         } catch {
           self.stopSpeaking()
           self.setState(
-            self.muted ? "muted" : "armed", error: "Riproduzione audio non disponibile.")
+            self.muted ? "muted" : "armed", error: "Audio playback is unavailable.")
         }
       }
     }

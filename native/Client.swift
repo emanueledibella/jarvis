@@ -25,7 +25,7 @@ final class ServiceClient {
         let (data, response) = try await session.data(for: request)
         guard let response = response as? HTTPURLResponse, (200..<300).contains(response.statusCode) else {
             let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
-            throw ClientError.server(object?["detail"] as? String ?? "Il servizio non risponde correttamente.")
+            throw ClientError.server(object?["detail"] as? String ?? "The service is not responding correctly.")
         }
         return ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any]) ?? [:]
     }
@@ -35,7 +35,7 @@ final class ServiceClient {
         case server(String)
         var errorDescription: String? {
             switch self {
-            case .invalidURL: return "Indirizzo del servizio non valido."
+            case .invalidURL: return "Invalid service address."
             case .server(let text): return text
             }
         }

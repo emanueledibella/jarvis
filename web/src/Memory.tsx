@@ -58,7 +58,7 @@ export function Memory({ notify, openSettings }: Props) {
     setBusy(true);
     try {
       await post("/memory/remember", { text: note, scope });
-      notify("Fonte accodata. L’adozione verrà controllata separatamente.");
+      notify("Source queued. Adoption will be checked separately.");
       setAdding(false);
       setNote("");
       load();
@@ -71,13 +71,13 @@ export function Memory({ notify, openSettings }: Props) {
   return (
     <div className="page">
       <SectionTitle
-        eyebrow="CONTINUITÀ, CON LE SUE FONTI"
-        title="La tua memoria"
-        description="Preferenze, decisioni e contesto nel Second Brain che hai già creato."
+        eyebrow="CONTINUITY, WITH SOURCES"
+        title="Your memory"
+        description="Preferences, decisions, and context in the Second Brain you already created."
         action={
           <button className="btn primary" onClick={() => setAdding(true)}>
             <Plus size={15} />
-            Ricorda qualcosa
+            Remember something
           </button>
         }
       />
@@ -88,8 +88,7 @@ export function Memory({ notify, openSettings }: Props) {
         <div>
           <h2>Second Brain</h2>
           <p>
-            Il registro dei ricordi resta distinto dalla cronologia e dallo
-            stato dei task.
+            The memory ledger remains separate from chat history and task state.
           </p>
         </div>
         <Badge
@@ -99,23 +98,22 @@ export function Memory({ notify, openSettings }: Props) {
       {!status.configured ? (
         <Empty
           icon={Link2}
-          title="Collega la tua memoria"
+          title="Connect your memory"
           action={
             <button className="btn" onClick={() => openSettings("memory")}>
-              Configura Second Brain
+              Set up Second Brain
             </button>
           }
         >
-          Usa un endpoint e una credenziale dedicati. Nessun ricordo viene
-          simulato.
+          Use a dedicated endpoint and credential. Memories are never simulated.
         </Empty>
       ) : (
         <>
           <div className="search-memory">
             <Search size={18} />
             <input
-              aria-label="Cerca nei ricordi"
-              placeholder="Cosa avevamo deciso su…"
+              aria-label="Search memories"
+              placeholder="What did we decide about…"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => {
@@ -123,19 +121,19 @@ export function Memory({ notify, openSettings }: Props) {
               }}
             />
             <select
-              aria-label="Ambito dei ricordi"
+              aria-label="Memory scope"
               value={scope}
               onChange={(e) => setScope(e.target.value)}
             >
-              <option value="personal">Personale</option>
-              <option value="work">Lavoro</option>
+              <option value="personal">Personal</option>
+              <option value="work">Work</option>
             </select>
             <button
               className="btn"
               disabled={busy || !query.trim()}
               onClick={recall}
             >
-              {busy ? <LoaderCircle size={14} className="spin" /> : "Cerca"}
+              {busy ? <LoaderCircle size={14} className="spin" /> : "Search"}
             </button>
           </div>
           {result && (
@@ -148,10 +146,10 @@ export function Memory({ notify, openSettings }: Props) {
                         state={m.conflicts?.length ? "unknown" : "connected"}
                       >
                         {m.conflicts?.length
-                          ? "Fonti in conflitto"
+                          ? "Conflicting sources"
                           : m.epistemic === "inferred"
-                            ? "Deduzione"
-                            : "Fonte esplicita"}
+                            ? "Inference"
+                            : "Explicit source"}
                       </Badge>
                       <small>{m.scope}</small>
                     </div>
@@ -171,7 +169,7 @@ export function Memory({ notify, openSettings }: Props) {
                               .catch((error) => notify(error.message, true))
                           }
                         >
-                          {e.title || e.source_id} · revisione {e.revision}
+                          {e.title || e.source_id} · revision {e.revision}
                           <ArrowUpRight size={12} />
                         </button>
                         <code>{e.source_id}</code>
@@ -180,9 +178,9 @@ export function Memory({ notify, openSettings }: Props) {
                   </article>
                 ))
               ) : (
-                <Empty icon={Search} title="Nessun ricordo pertinente">
-                  Una ricerca senza risultati non dimostra che una decisione sia
-                  stata presa.
+                <Empty icon={Search} title="No relevant memory">
+                  A search without results does not prove that a decision was
+                  made.
                 </Empty>
               )}
             </section>
@@ -190,11 +188,11 @@ export function Memory({ notify, openSettings }: Props) {
         </>
       )}
       <div className="subsection-heading">
-        <h2>Fonti in elaborazione</h2>
+        <h2>Sources being processed</h2>
         <button
           className="icon-btn"
           onClick={load}
-          aria-label="Aggiorna stato memoria"
+          aria-label="Refresh memory status"
         >
           <RefreshCw size={15} />
         </button>
@@ -204,9 +202,9 @@ export function Memory({ notify, openSettings }: Props) {
           <table>
             <thead>
               <tr>
-                <th>Richiesta</th>
-                <th>Stato</th>
-                <th>Fonte / revisione</th>
+                <th>Request</th>
+                <th>Status</th>
+                <th>Source / revision</th>
                 <th />
               </tr>
             </thead>
@@ -215,7 +213,7 @@ export function Memory({ notify, openSettings }: Props) {
                 <tr key={o.id}>
                   <td>
                     {formatDate(o.created_at)}
-                    <small>{o.attempts} verifiche</small>
+                    <small>{o.attempts} checks</small>
                   </td>
                   <td>
                     <Badge state={o.state} />
@@ -224,8 +222,8 @@ export function Memory({ notify, openSettings }: Props) {
                     )}
                   </td>
                   <td>
-                    <code>{o.source_id || "Consegna non confermata"}</code>
-                    {o.revision && <small>Revisione {o.revision}</small>}
+                    <code>{o.source_id || "Unconfirmed delivery"}</code>
+                    {o.revision && <small>Revision {o.revision}</small>}
                   </td>
                   <td>
                     {["delivery_error", "needs_review"].includes(o.state) && (
@@ -237,7 +235,7 @@ export function Memory({ notify, openSettings }: Props) {
                             .catch((e) => notify(e.message, true))
                         }
                       >
-                        Ricontrolla
+                        Check again
                       </button>
                     )}
                   </td>
@@ -248,30 +246,30 @@ export function Memory({ notify, openSettings }: Props) {
         </div>
       ) : (
         <p className="muted">
-          Nessuna fonte in attesa. Le nuove scritture compariranno qui con il
-          loro stato reale.
+          No pending sources. New writes will appear here with their actual
+          state.
         </p>
       )}
       {adding && (
         <Modal
-          title="Una fonte per il Second Brain"
+          title="A source for Second Brain"
           onClose={() => setAdding(false)}
         >
           <div className="modal-body">
             <Field
-              label="Testo originale da ricordare"
+              label="Original text to remember"
               type="textarea"
               value={note}
               onChange={setNote}
-              help="Salva informazioni esplicite. Ipotesi e proposte non diventano fatti personali."
+              help="Save explicit information. Assumptions and proposals do not become personal facts."
             />
             <Field
-              label="Ambito"
+              label="Scope"
               value={scope}
               onChange={setScope}
               options={[
-                { value: "personal", label: "Personale" },
-                { value: "work", label: "Lavoro" },
+                { value: "personal", label: "Personal" },
+                { value: "work", label: "Work" },
               ]}
             />
             <button
@@ -284,19 +282,19 @@ export function Memory({ notify, openSettings }: Props) {
               ) : (
                 <Check size={14} />
               )}
-              Accoda fonte
+              Queue source
             </button>
           </div>
         </Modal>
       )}
       {source && (
         <Modal
-          title={source.title || "Fonte originale"}
+          title={source.title || "Original source"}
           onClose={() => setSource(null)}
         >
           <div className="modal-body">
             <small>
-              Fonte {source.source_id} · revisione {source.revision}
+              Source {source.source_id} · revision {source.revision}
             </small>
             <Text value={source.text || JSON.stringify(source, null, 2)} />
           </div>
@@ -344,7 +342,7 @@ export function Integrations({ notify, openSettings }: Props) {
       setAdding(false);
       load();
       notify(
-        "Server registrato. Connettilo per scoprire i tool, poi abilita quelli necessari.",
+        "Server registered. Connect to discover its tools, then enable the ones you need.",
       );
     } catch (e: any) {
       notify(e.message, true);
@@ -386,13 +384,13 @@ export function Integrations({ notify, openSettings }: Props) {
   return (
     <div className="page">
       <SectionTitle
-        eyebrow="STRUMENTI E PERMESSI"
-        title="Connessioni"
-        description="Tool locali e MCP, con provenienza e permessi espliciti."
+        eyebrow="TOOLS AND PERMISSIONS"
+        title="Connections"
+        description="Local and MCP tools, with explicit provenance and permissions."
         action={
           <button className="btn primary" onClick={() => setAdding(true)}>
             <Plus size={15} />
-            Aggiungi server MCP
+            Add MCP server
           </button>
         }
       />
@@ -402,20 +400,20 @@ export function Integrations({ notify, openSettings }: Props) {
             <Brain size={26} />
           </div>
           <h2>Second Brain</h2>
-          <p>Memoria personale con fonti e revisioni.</p>
+          <p>Personal memory with sources and revisions.</p>
           <button className="btn" onClick={() => openSettings("memory")}>
-            Configura memoria
+            Set up memory
           </button>
         </section>
         <section className="integration-card">
           <div className="integration-icon">
             <Database size={26} />
           </div>
-          <h2>Tool del Mac</h2>
-          <p>File, comandi, voce, calendario e task persistenti.</p>
-          <Badge state="connected">Gateway locale</Badge>
+          <h2>Mac tools</h2>
+          <p>Files, commands, voice, calendar, and persistent tasks.</p>
+          <Badge state="connected">Local gateway</Badge>
           <button className="text-btn" onClick={() => openSettings("security")}>
-            Workspace e autonomia <ArrowUpRight size={13} />
+            Workspaces and autonomy <ArrowUpRight size={13} />
           </button>
         </section>
         {items.map((item) => (
@@ -429,9 +427,7 @@ export function Integrations({ notify, openSettings }: Props) {
             <h2>{item.name}</h2>
             <p className="endpoint">{item.url || item.command}</p>
             <small>
-              {item.transport === "stdio"
-                ? "Processo locale"
-                : "Streamable HTTP"}{" "}
+              {item.transport === "stdio" ? "Local process" : "Streamable HTTP"}{" "}
               · {item.auth}
             </small>
             <button
@@ -439,7 +435,7 @@ export function Integrations({ notify, openSettings }: Props) {
               onClick={() =>
                 post("/integrations/" + item.name + "/connect")
                   .then(() => {
-                    notify("Connessione avviata.");
+                    notify("Connection started.");
                     load();
                   })
                   .catch((e) => notify(e.message, true))
@@ -450,16 +446,16 @@ export function Integrations({ notify, openSettings }: Props) {
               ) : (
                 <RefreshCw size={14} />
               )}
-              Connetti / verifica
+              Connect / verify
             </button>
             {item.status?.error && (
               <small className="error-text">
-                {item.status.error}. Verifica endpoint e autorizzazione.
+                {item.status.error}. Check the endpoint and authorization.
               </small>
             )}
             {item.status?.tools?.length > 0 && (
               <details>
-                <summary>{item.status.tools.length} tool scoperti</summary>
+                <summary>{item.status.tools.length} tools discovered</summary>
                 <div className="tools-policy">
                   {item.status.tools.map((tool: Json) => (
                     <label key={tool.name}>
@@ -484,9 +480,9 @@ export function Integrations({ notify, openSettings }: Props) {
                             policy(item, tool.name, e.target.value)
                           }
                         >
-                          <option value="off">Disabilitato</option>
-                          <option value="read">Lettura</option>
-                          <option value="write">Scrittura · controllata</option>
+                          <option value="off">Disabled</option>
+                          <option value="read">Read</option>
+                          <option value="write">Write · controlled</option>
                         </select>
                       )}
                     </label>
@@ -499,24 +495,24 @@ export function Integrations({ notify, openSettings }: Props) {
       </div>
       <div className="info-line">
         <ShieldCheck size={15} />
-        Un tool scoperto non riceve automaticamente il permesso di eseguire
-        azioni.
+        Discovering a tool does not automatically grant permission to execute
+        actions.
       </div>
       {adding && (
-        <Modal title="Collega un server MCP" onClose={() => setAdding(false)}>
+        <Modal title="Connect an MCP server" onClose={() => setAdding(false)}>
           <div className="modal-body">
             <Field
-              label="Nome del server"
+              label="Server name"
               value={name}
               onChange={setName}
-              help="Lettere, numeri, trattini. Second Brain ha una configurazione dedicata."
+              help="Letters, numbers, and hyphens. Second Brain has a dedicated configuration."
             />
             <Field
-              label="Configurazione"
+              label="Configuration"
               type="textarea"
               value={spec}
               onChange={setSpec}
-              help="URL HTTP oppure command assoluto con args. I segreti possono essere riferimenti env:NOME_VARIABILE; i tool vanno classificati dopo la scoperta."
+              help="An HTTP URL or an absolute command with args. Secrets may use env:VARIABLE_NAME references; classify tools after discovery."
             />
             <button
               className="btn primary"
@@ -528,7 +524,7 @@ export function Integrations({ notify, openSettings }: Props) {
               ) : (
                 <Link2 size={14} />
               )}
-              Registra server
+              Register server
             </button>
           </div>
         </Modal>

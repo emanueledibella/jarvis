@@ -17,22 +17,22 @@ def main():
     # Tracing is opt-in product work; never inherit an unrelated agent's tracing secrets.
     os.environ["LANGSMITH_TRACING"] = "false"
     os.environ["LANGCHAIN_TRACING_V2"] = "false"
-    parser = argparse.ArgumentParser(prog="jarvis", description="Assistente personale Jarvis")
+    parser = argparse.ArgumentParser(prog="jarvis", description="Jarvis personal assistant")
     parser.add_argument("--env-file")
     sub = parser.add_subparsers(dest="command", required=True)
-    sub.add_parser("serve", help="Avvia il servizio locale")
-    sub.add_parser("status", help="Stato del servizio")
-    sub.add_parser("doctor", help="Diagnostica e configurazione senza segreti")
-    sub.add_parser("open", help="Apri la dashboard nel browser")
+    sub.add_parser("serve", help="Start the local service")
+    sub.add_parser("status", help="Service status")
+    sub.add_parser("doctor", help="Diagnostics and configuration without secrets")
+    sub.add_parser("open", help="Open the dashboard in the browser")
     sub.add_parser("desktop-info", help=argparse.SUPPRESS)
-    sub.add_parser("mute", help="Disattiva il microfono della shell nativa")
-    sub.add_parser("unmute", help="Riattiva il microfono già autorizzato")
-    sub.add_parser("listen", help="Apri un turno vocale")
-    sub.add_parser("tasks", help="Elenca le attività")
-    ask = sub.add_parser("ask", help="Invia una richiesta e attendi il risultato")
+    sub.add_parser("mute", help="Mute the native app microphone")
+    sub.add_parser("unmute", help="Unmute the authorized microphone")
+    sub.add_parser("listen", help="Start a voice turn")
+    sub.add_parser("tasks", help="List tasks")
+    ask = sub.add_parser("ask", help="Submit a request and wait for the result")
     ask.add_argument("text")
     ask.add_argument("--profile", choices=["local_strict", "local_connected", "cloud", "hybrid"])
-    config_parser = sub.add_parser("config", help="Valida o aggiorna impostazioni")
+    config_parser = sub.add_parser("config", help="Validate or update settings")
     config_parser.add_argument("action", choices=["validate", "show", "set"])
     config_parser.add_argument("key", nargs="?")
     config_parser.add_argument("value", nargs="?")
@@ -60,17 +60,17 @@ def main():
     if args.command == "config":
         if args.action == "set":
             if not args.key or args.value is None:
-                parser.error("config set richiede chiave e valore")
+                parser.error("config set requires a key and value")
             try:
                 value = json.loads(args.value)
             except json.JSONDecodeError:
                 value = args.value
             config.update({args.key: value})
-            print("Impostazione salvata. Riavvia il servizio se è già attivo.")
+            print("Setting saved. Restart the service if it is already running.")
         elif args.action == "show":
             print(json.dumps(config.settings.public(), indent=2, ensure_ascii=False))
         else:
-            print("Configurazione valida.")
+            print("Configuration is valid.")
         return
     if args.command == "open":
         webbrowser.open(url + "/#token=" + config.token)
@@ -111,7 +111,7 @@ def main():
                         print(
                             row["result"]
                             or row["error"]
-                            or "Il task attende una decisione nella dashboard."
+                            or "The task is waiting for a decision in the dashboard."
                         )
                         return
                     await asyncio.sleep(0.3)
@@ -128,8 +128,7 @@ def main():
         asyncio.run(call())
     except (httpx.HTTPError, ValueError) as error:
         print(
-            "Operazione non riuscita: avvia Jarvis e verifica la configurazione. "
-            + type(error).__name__,
+            "Operation failed: start Jarvis and check the configuration. " + type(error).__name__,
             file=sys.stderr,
         )
         raise SystemExit(1) from None

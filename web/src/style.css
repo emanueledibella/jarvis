@@ -2797,3 +2797,11 @@ td code {
   border-radius: 8px;
   padding: 12px;
 }
+
+/* Shared app identity, also used for the macOS icon and browser favicon. */
+.brand-mark.brand-logo {
+  border: none;
+  border-radius: 0;
+  background: none;
+  object-fit: contain;
+}

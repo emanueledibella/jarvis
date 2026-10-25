@@ -18,7 +18,7 @@ output/
 web/.tsbuildinfo
 web/tsconfig.tsbuildinfo
 
-# Dati e credenziali locali
+# Local data and credentials
 *.sqlite*
 *.db
 *.db-*

@@ -67,7 +67,7 @@ class MCPHub:
         if profile == "local_strict":
             # An arbitrary stdio server can itself call the network: do not claim strict
             # offline isolation unless its process is separately constrained.
-            raise PermissionError("Il profilo locale rigoroso non abilita questo server MCP.")
+            raise PermissionError("The strict local profile does not allow this MCP server.")
 
     def client(self, name: str, profile: str, *, interactive=False) -> Client:
         from dotenv import dotenv_values
@@ -75,7 +75,7 @@ class MCPHub:
         environment = {**dotenv_values(self.config.env_file), **os.environ}
         spec = self.specs().get(name)
         if not spec:
-            raise ValueError("Server MCP non configurato.")
+            raise ValueError("MCP server is not configured.")
         self.allowed(spec, profile)
         if spec.get("command"):
             minimal = {
@@ -126,7 +126,7 @@ class MCPHub:
             if not interactive:
 
                 async def no_browser(*args, **kwargs):
-                    raise PermissionError("OAuth da completare in Impostazioni → Connetti.")
+                    raise PermissionError("Complete OAuth in Settings → Connect.")
 
                 auth.redirect_handler = no_browser
         elif spec.get("auth") == "bearer":
@@ -134,7 +134,7 @@ class MCPHub:
             if token.startswith("env:"):
                 token = environment.get(token[4:], "")
             if not token:
-                raise PermissionError("Configura il token dedicato di questo server MCP.")
+                raise PermissionError("Configure this MCP server's dedicated token.")
             auth = token
         return Client(spec["url"], auth=auth, timeout=30, init_timeout=180 if interactive else 10)
 
@@ -164,7 +164,7 @@ class MCPHub:
     async def call(self, server: str, tool: str, arguments: dict, profile: str) -> dict:
         spec = self.specs().get(server, {})
         if tool not in set(spec.get("read_tools", [])) | set(spec.get("write_tools", [])):
-            raise PermissionError("Tool MCP non incluso nella policy del server.")
+            raise PermissionError("MCP tool is not included in the server policy.")
         async with self.locks.setdefault(server, asyncio.Lock()):
             async with self.client(server, profile) as client:
                 result = await client.call_tool(
@@ -204,7 +204,7 @@ class NativeBridge:
         from .db import uid
 
         if not self.connected:
-            raise ValueError("Apri l'app Jarvis per utilizzare questa capacità nativa.")
+            raise ValueError("Open the Jarvis app to use this native capability.")
         key = uid()
         future = asyncio.get_running_loop().create_future()
         self.pending[key] = future

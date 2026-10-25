@@ -72,22 +72,22 @@ type Page =
   | "settings";
 const weatherNames = (code: number) =>
   code === 0
-    ? "Sereno"
+    ? "Clear"
     : code <= 2
-      ? "Parzialmente nuvoloso"
+      ? "Partly cloudy"
       : code === 3
-        ? "Nuvoloso"
+        ? "Cloudy"
         : code <= 48
-          ? "Nebbia"
+          ? "Fog"
           : code <= 67
-            ? "Pioggia"
+            ? "Rain"
             : code <= 77
-              ? "Neve"
+              ? "Snow"
               : code <= 82
-                ? "Rovesci"
+                ? "Showers"
                 : code <= 86
-                  ? "Neve"
-                  : "Temporali";
+                  ? "Snow"
+                  : "Thunderstorms";
 
 export default function App() {
   const [authenticated, setAuthenticated] = useState(hasToken()),
@@ -312,7 +312,7 @@ export default function App() {
   async function send(value = text) {
     if (!value.trim() || sending) return;
     if (!privacyReady) {
-      notify("Attendi il caricamento delle impostazioni di privacy.", true);
+      notify("Wait for privacy settings to load.", true);
       return;
     }
     setSending(true);
@@ -351,7 +351,7 @@ export default function App() {
     if (!status.native?.connected) {
       openSettings("voice");
       notify(
-        "Apri la shell macOS per il microfono e le capacità native.",
+        "Open the macOS app for microphone and native capabilities.",
         true,
       );
       return;
@@ -387,11 +387,11 @@ export default function App() {
           onChange={(e) => setText(e.target.value)}
           placeholder={
             privateMode
-              ? "Una richiesta privata, senza cronologia…"
-              : "Chiedimi qualcosa, oppure dimmi cosa vuoi fare…"
+              ? "A private request, without history…"
+              : "Ask a question, or tell me what you want to do…"
           }
           rows={text.split("\n").length > 2 ? 3 : 1}
-          aria-label="Messaggio per Jarvis"
+          aria-label="Message to Jarvis"
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
@@ -402,7 +402,7 @@ export default function App() {
         <div className="composer-bottom">
           <div className="composer-options">
             <button
-              title="Nuova conversazione"
+              title="New conversation"
               className="icon-btn"
               onClick={newChat}
             >
@@ -415,23 +415,23 @@ export default function App() {
               aria-pressed={privateMode}
             >
               <LockKeyhole size={13} />
-              {privateMode ? "Privata" : "Sessione privata"}
+              {privateMode ? "Private" : "Private session"}
             </button>
             <select
-              aria-label="Ambito della conversazione"
+              aria-label="Conversation scope"
               value={scope}
               disabled={!privacyReady}
               onChange={(e) => preference(privateMode, e.target.value)}
             >
-              <option value="personal">Personale</option>
-              <option value="work">Lavoro</option>
+              <option value="personal">Personal</option>
+              <option value="work">Work</option>
             </select>
           </div>
           <div className="composer-actions">
             {runningChat.length > 0 && (
               <button
                 className="icon-btn"
-                aria-label="Annulla il task corrente"
+                aria-label="Cancel the current task"
                 onClick={() =>
                   post(
                     "/tasks/" +
@@ -447,7 +447,7 @@ export default function App() {
             )}
             <button
               className="icon-btn"
-              aria-label="Parla con Jarvis"
+              aria-label="Talk to Jarvis"
               disabled={!privacyReady}
               onClick={() => native("listen")}
             >
@@ -457,7 +457,7 @@ export default function App() {
               className="send-btn"
               disabled={!text.trim() || sending || !privacyReady}
               onClick={() => send()}
-              aria-label="Invia messaggio"
+              aria-label="Send message"
             >
               {sending ? (
                 <LoaderCircle size={17} className="spin" />
@@ -471,7 +471,7 @@ export default function App() {
       <div className="composer-caption">
         <span>
           <span className="tiny-dot" />
-          {profileLabels[status.profile] || "Collegamento al servizio"}
+          {profileLabels[status.profile] || "Service connection"}
         </span>
         <label className="external-choice">
           <input
@@ -479,7 +479,7 @@ export default function App() {
             checked={external}
             onChange={(e) => setExternal(e.target.checked)}
           />
-          Autorizza azioni esterne per questa richiesta
+          Authorize external actions for this request
         </label>
       </div>
     </div>
@@ -487,18 +487,19 @@ export default function App() {
   if (!authenticated)
     return (
       <div className="connect-screen">
-        <div className="brand-mark">J</div>
-        <h1>Un collegamento privato.</h1>
+        <img className="brand-mark brand-logo" src="/jarvis.svg" alt="" />
+        <h1>A private connection.</h1>
         <p>
-          Apri la dashboard dalla shell macOS o con <code>jarvis open</code>.
+          Open the dashboard from the macOS app or with <code>jarvis open</code>
+          .
           <br />
-          Puoi anche inserire il token locale della tua installazione.
+          You can also enter this installation's local token.
         </p>
         <input
           type="password"
           autoComplete="off"
-          placeholder="Token locale"
-          aria-label="Token locale Jarvis"
+          placeholder="Local token"
+          aria-label="Jarvis local token"
           value={entryToken}
           onChange={(e) => setEntryToken(e.target.value)}
         />
@@ -511,9 +512,9 @@ export default function App() {
             setEntryToken("");
           }}
         >
-          Collega questo browser <ArrowRight size={16} />
+          Connect this browser <ArrowRight size={16} />
         </button>
-        <small>Il token autentica soltanto il servizio sul tuo Mac.</small>
+        <small>The token authenticates only the service on your Mac.</small>
       </div>
     );
   return (
@@ -522,9 +523,9 @@ export default function App() {
         <button
           className="brand"
           onClick={() => setPage("home")}
-          aria-label="Home Jarvis"
+          aria-label="Jarvis home"
         >
-          <span className="brand-mark">J</span>
+          <img className="brand-mark brand-logo" src="/jarvis.svg" alt="" />
           <div>
             <strong>JARVIS</strong>
             <span>PERSONAL INTELLIGENCE</span>
@@ -532,17 +533,17 @@ export default function App() {
         </button>
         <button className="new-chat" onClick={newChat}>
           <Plus size={15} />
-          Nuova conversazione<kbd>↵</kbd>
+          New conversation<kbd>↵</kbd>
         </button>
-        <nav aria-label="Navigazione principale">
+        <nav aria-label="Main navigation">
           {(
             [
-              { id: "home", label: "Panoramica", icon: LayoutDashboard },
-              { id: "chat", label: "Conversazione", icon: MessageSquare },
-              { id: "tasks", label: "Attività", icon: Workflow },
-              { id: "routines", label: "Routine", icon: CalendarClock },
-              { id: "memory", label: "Memoria", icon: Brain },
-              { id: "integrations", label: "Connessioni", icon: Link2 },
+              { id: "home", label: "Overview", icon: LayoutDashboard },
+              { id: "chat", label: "Conversation", icon: MessageSquare },
+              { id: "tasks", label: "Tasks", icon: Workflow },
+              { id: "routines", label: "Routines", icon: CalendarClock },
+              { id: "memory", label: "Memory", icon: Brain },
+              { id: "integrations", label: "Connections", icon: Link2 },
             ] as { id: Page; label: string; icon: any }[]
           ).map((item) => (
             <button
@@ -562,10 +563,10 @@ export default function App() {
           ))}
         </nav>
         <div className="recent-heading">
-          <span>CONVERSAZIONI RECENTI</span>
+          <span>RECENT CONVERSATIONS</span>
           <button
             className="icon-btn"
-            aria-label="Nuova conversazione"
+            aria-label="New conversation"
             onClick={newChat}
           >
             <Plus size={13} />
@@ -584,9 +585,7 @@ export default function App() {
               <span>{c.title}</span>
             </button>
           ))}
-          {!conversations.length && (
-            <p>Il contesto comincia con una conversazione.</p>
-          )}
+          {!conversations.length && <p>Context starts with a conversation.</p>}
         </div>
         <div className="sidebar-bottom">
           <div className="brain-state">
@@ -595,10 +594,10 @@ export default function App() {
               <strong>Second Brain</strong>
               <span>
                 {status.memory?.connection === "connected"
-                  ? "Collegato · fonti e revisioni"
+                  ? "Connected · sources and revisions"
                   : status.memory?.configured
-                    ? "Configurato · da collegare"
-                    : "Da configurare"}
+                    ? "Configured · not connected"
+                    : "Needs setup"}
               </span>
             </div>
             <span
@@ -613,15 +612,15 @@ export default function App() {
             onClick={() => openSettings("models")}
           >
             <Settings2 size={16} />
-            Impostazioni
+            Settings
           </button>
           <div className="owner">
             <span className="owner-avatar">
               <Computer size={16} />
             </span>
             <div>
-              <strong>Il tuo workspace</strong>
-              <small>Mac personale</small>
+              <strong>Your workspace</strong>
+              <small>Personal Mac</small>
             </div>
             <ShieldCheck size={14} />
           </div>
@@ -634,13 +633,13 @@ export default function App() {
             <span>
               {
                 {
-                  home: "Panoramica",
-                  chat: "Conversazione",
-                  tasks: "Attività",
-                  routines: "Routine",
-                  memory: "Memoria",
-                  integrations: "Connessioni",
-                  settings: "Impostazioni",
+                  home: "Overview",
+                  chat: "Conversation",
+                  tasks: "Tasks",
+                  routines: "Routines",
+                  memory: "Memory",
+                  integrations: "Connections",
+                  settings: "Settings",
                 }[page]
               }
             </span>
@@ -648,21 +647,21 @@ export default function App() {
           <div className="topbar-controls">
             <button
               className="icon-btn"
-              aria-label="Impostazioni"
+              aria-label="Settings"
               onClick={() => openSettings("models")}
             >
               <Settings2 size={16} />
             </button>
             <button
               className="icon-btn emergency-button"
-              aria-label="Arresto di emergenza"
+              aria-label="Emergency stop"
               disabled={status.emergency_stop}
-              title="Ferma task, strumenti, voce e telefonate"
+              title="Stop tasks, tools, voice, and calls"
               onClick={() =>
                 post("/control/emergency", { stopped: true })
                   .then(() => {
                     refresh();
-                    notify("Arresto di emergenza attivo.");
+                    notify("Emergency stop is active.");
                   })
                   .catch((e) => notify(e.message, true))
               }
@@ -675,12 +674,12 @@ export default function App() {
               }
             >
               <span className="tiny-dot" />
-              {connection === "connected" ? "Servizio locale" : "Riconnessione"}
+              {connection === "connected" ? "Local service" : "Reconnecting"}
             </span>
             <button
               className="icon-btn"
               aria-label={
-                theme === "dark" ? "Usa tema chiaro" : "Usa tema scuro"
+                theme === "dark" ? "Use light theme" : "Use dark theme"
               }
               onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
             >
@@ -688,7 +687,7 @@ export default function App() {
             </button>
             <button
               className="icon-btn notification-button"
-              aria-label="Notifiche"
+              aria-label="Notifications"
               onClick={() => {
                 setShowNotifications(true);
                 post("/notifications/read")
@@ -703,7 +702,7 @@ export default function App() {
             {voiceState === "speaking" && (
               <button className="btn" onClick={() => native("stop")}>
                 <Square size={13} />
-                Interrompi voce
+                Stop speaking
               </button>
             )}
             <button
@@ -712,24 +711,22 @@ export default function App() {
               }
               onClick={() => native(status.native?.muted ? "unmute" : "mute")}
               aria-label={
-                status.native?.muted
-                  ? "Riattiva microfono"
-                  : "Disattiva microfono"
+                status.native?.muted ? "Unmute microphone" : "Mute microphone"
               }
             >
               {status.native?.muted ? <MicOff size={14} /> : <Mic size={14} />}
               <span>
                 {status.native?.connected
                   ? status.native?.muted
-                    ? "Microfono spento"
+                    ? "Microphone off"
                     : ["unavailable", "permission_required"].includes(
                           voiceState,
                         )
-                      ? "Voce indisponibile"
+                      ? "Voice unavailable"
                       : voiceState === "recovering"
-                        ? "Ripristino voce…"
-                        : "Voce attiva"
-                  : "Voce da attivare"}
+                        ? "Recovering voice…"
+                        : "Voice active"
+                  : "Voice needs activation"}
               </span>
             </button>
           </div>
@@ -737,7 +734,7 @@ export default function App() {
         {status.emergency_stop && (
           <div className="emergency-banner" role="alert">
             <span>
-              Arresto di emergenza attivo. Task e strumenti sono sospesi.
+              Emergency stop is active. Tasks and tools are suspended.
             </span>
             <button
               className="btn"
@@ -747,7 +744,7 @@ export default function App() {
                   .catch((e) => notify(e.message, true))
               }
             >
-              Riabilita il servizio
+              Re-enable service
             </button>
           </div>
         )}
@@ -758,15 +755,13 @@ export default function App() {
             <div className="dashboard">
               <div className="dashboard-title">
                 <div>
-                  <span className="eyebrow">
-                    IL TUO SPAZIO, SEMPRE CONNESSO
-                  </span>
-                  <h1>Un pensiero. Un’azione.</h1>
-                  <p>Il contesto giusto, gli strumenti per andare avanti.</p>
+                  <span className="eyebrow">YOUR SPACE, ALWAYS CONNECTED</span>
+                  <h1>A thought. An action.</h1>
+                  <p>The right context and the tools to move forward.</p>
                 </div>
                 <div className="date-chip">
                   <CalendarDays size={15} />
-                  {new Intl.DateTimeFormat("it-IT", {
+                  {new Intl.DateTimeFormat("en-GB", {
                     weekday: "short",
                     day: "numeric",
                     month: "long",
@@ -778,10 +773,10 @@ export default function App() {
                   <div>
                     <Computer size={20} />
                     <span>
-                      <strong>Cominciamo dal tuo modello.</strong>
+                      <strong>Start with your model.</strong>
                       <small>
-                        Ollama, LM Studio oppure un provider cloud: scegli come
-                        pensa Jarvis.
+                        Ollama, LM Studio, or a cloud provider: choose how
+                        Jarvis thinks.
                       </small>
                     </span>
                   </div>
@@ -789,7 +784,7 @@ export default function App() {
                     className="btn"
                     onClick={() => openSettings("models")}
                   >
-                    Configura <ArrowRight size={14} />
+                    Configure <ArrowRight size={14} />
                   </button>
                 </div>
               )}
@@ -799,11 +794,11 @@ export default function App() {
                     <div className="widget-heading">
                       <span>
                         <CloudSun size={16} />
-                        IL METEO
+                        WEATHER
                       </span>
                       <small>
                         {dashboard.weather?.stale
-                          ? "Da aggiornare"
+                          ? "Needs refresh"
                           : dashboard.weather?.state === "ready"
                             ? "Open-Meteo"
                             : ""}
@@ -822,7 +817,7 @@ export default function App() {
                         <p>{dashboard.weather.location}</p>
                         <div className="weather-metrics">
                           <span>
-                            Percepita{" "}
+                            Feels like{" "}
                             <strong>
                               {Math.round(
                                 dashboard.weather.current.apparent_temperature,
@@ -831,7 +826,7 @@ export default function App() {
                             </strong>
                           </span>
                           <span>
-                            Vento{" "}
+                            Wind{" "}
                             <strong>
                               {Math.round(
                                 dashboard.weather.current.wind_speed_10m,
@@ -856,18 +851,18 @@ export default function App() {
                         <CloudSun size={34} strokeWidth={1} />
                         <h3>
                           {dashboard.weather?.state === "loading"
-                            ? "Controllo il meteo…"
-                            : "Il meteo, nella tua città."}
+                            ? "Checking the weather…"
+                            : "The weather in your city."}
                         </h3>
                         <p>
                           {dashboard.weather?.message ||
-                            "Imposta una località per avere informazioni reali e aggiornate."}
+                            "Set a location for real, current information."}
                         </p>
                         <button
                           className="text-btn"
                           onClick={() => openSettings("productivity")}
                         >
-                          Scegli località <ArrowRight size={12} />
+                          Choose location <ArrowRight size={12} />
                         </button>
                       </div>
                     )}
@@ -876,12 +871,12 @@ export default function App() {
                     <div className="widget-heading">
                       <span>
                         <CalendarDays size={15} />
-                        LA TUA AGENDA
+                        YOUR AGENDA
                       </span>
                       <button
                         className="icon-btn"
                         onClick={() => openSettings("productivity")}
-                        aria-label="Configura calendario"
+                        aria-label="Set up calendar"
                       >
                         <ArrowUpRight size={14} />
                       </button>
@@ -891,7 +886,7 @@ export default function App() {
                         {upcoming.map((e: Json, i: number) => (
                           <div className="agenda-event" key={e.id + "-" + i}>
                             <span>
-                              {e.all_day ? "Giorno" : formatDate(e.start, true)}
+                              {e.all_day ? "Day" : formatDate(e.start, true)}
                             </span>
                             <div>
                               <h3>{e.title}</h3>
@@ -909,20 +904,20 @@ export default function App() {
                       <div className="widget-unconfigured">
                         <h3>
                           {dashboard.calendar?.state === "ready"
-                            ? "Un po’ di spazio libero."
-                            : "I prossimi impegni, qui."}
+                            ? "Some room to breathe."
+                            : "Your next events, right here."}
                         </h3>
                         <p>
                           {dashboard.calendar?.state === "ready"
-                            ? "Nessun evento nel periodo consultato."
+                            ? "No events in the selected period."
                             : dashboard.calendar?.message ||
-                              "Collega il calendario per vedere la giornata."}
+                              "Connect your calendar to see your day."}
                         </p>
                         <button
                           className="text-btn"
                           onClick={() => openSettings("productivity")}
                         >
-                          Calendario <ArrowRight size={12} />
+                          Calendar <ArrowRight size={12} />
                         </button>
                       </div>
                     )}
@@ -936,50 +931,50 @@ export default function App() {
                   <div className="voice-actions">
                     <button className="btn" onClick={() => native("listen")}>
                       <Mic size={14} />
-                      Parla con Jarvis<kbd>⌘ ⇧ J</kbd>
+                      Talk to Jarvis<kbd>⌘ ⇧ J</kbd>
                     </button>
                     {!status.native?.connected && (
                       <button
                         className="text-btn"
                         onClick={() => openSettings("voice")}
                       >
-                        Configura la voce
+                        Set up voice
                       </button>
                     )}
                   </div>
                   <div className="quick-requests">
-                    <span className="eyebrow">DA DOVE COMINCIAMO?</span>
+                    <span className="eyebrow">WHERE SHALL WE START?</span>
                     <button
                       onClick={() =>
                         send(
-                          "Che giornata mi aspetta? Controlla i miei impegni e le attività.",
+                          "What does my day look like? Check my events and tasks.",
                         )
                       }
                     >
                       <CalendarDays size={14} />
-                      Uno sguardo alla giornata
+                      A look at your day
                       <ArrowUpRight size={12} />
                     </button>
                     <button
                       onClick={() => {
-                        setText("Fai una ricerca approfondita su ");
+                        setText("Research in depth: ");
                         setPage("chat");
                         input.current?.focus();
                       }}
                     >
                       <Search size={14} />
-                      Esploriamo un argomento
+                      Explore a topic
                       <ArrowUpRight size={12} />
                     </button>
                     <button
                       onClick={() => {
-                        setText("Aiutami a lavorare sul progetto ");
+                        setText("Help me work on the project ");
                         setPage("chat");
                         input.current?.focus();
                       }}
                     >
                       <Code2 size={14} />
-                      Lavoriamo sul codice
+                      Work on code
                       <ArrowUpRight size={12} />
                     </button>
                   </div>
@@ -989,11 +984,11 @@ export default function App() {
                     <div className="widget-heading">
                       <span>
                         <Workflow size={15} />
-                        IL LAVORO IN CORSO
+                        WORK IN PROGRESS
                       </span>
                       <button
                         className="icon-btn"
-                        aria-label="Apri attività"
+                        aria-label="Open tasks"
                         onClick={() => setPage("tasks")}
                       >
                         <ArrowUpRight size={14} />
@@ -1021,14 +1016,14 @@ export default function App() {
                       </div>
                     ) : (
                       <div className="widget-unconfigured">
-                        <h3>Pronto a fare spazio.</h3>
+                        <h3>Ready to make room.</h3>
                         <p>
-                          Ricerche, codice e verifiche continuano in background
-                          mentre fai altro.
+                          Research, coding, and checks continue in the
+                          background while you do something else.
                         </p>
                         <span className="quiet-status">
                           <span className="tiny-dot" />
-                          Nessuna attività aperta
+                          No open tasks
                         </span>
                       </div>
                     )}
@@ -1037,27 +1032,27 @@ export default function App() {
                     <div className="widget-heading">
                       <span>
                         <Brain size={15} />
-                        UNA MEMORIA CHE CONTINUA
+                        MEMORY THAT CONTINUES
                       </span>
                     </div>
-                    <h3>Non ripartiamo da zero.</h3>
+                    <h3>Pick up where we left off.</h3>
                     <p>
-                      Preferenze, progetti e decisioni rimangono nel tuo Second
+                      Preferences, projects, and decisions stay in your Second
                       Brain.
                     </p>
                     <button
                       className="text-btn"
                       onClick={() => setPage("memory")}
                     >
-                      Esplora la memoria <ArrowRight size={12} />
+                      Explore memory <ArrowRight size={12} />
                     </button>
                   </section>
                   <div className="local-note">
                     <ShieldCheck size={15} />
                     <p>
-                      Il servizio vive sul tuo Mac.
+                      The service lives on your Mac.
                       <br />
-                      Sei tu a scegliere cosa collegare.
+                      You choose what to connect.
                     </p>
                   </div>
                   {approvals.length > 0 && (
@@ -1066,7 +1061,7 @@ export default function App() {
                       onClick={() => setPage("tasks")}
                     >
                       <span className="attention-dot" />
-                      {approvals.length} decisioni in attesa
+                      {approvals.length} pending decisions
                       <ArrowRight size={13} />
                     </button>
                   )}
@@ -1078,11 +1073,9 @@ export default function App() {
                   <span className="tiny-dot" />
                   {status.models?.local ||
                     status.models?.cloud ||
-                    "Modello da configurare"}
+                    "Model needs setup"}
                 </span>
-                <span>
-                  Il Mac deve essere sveglio per eseguire attività e chiamate.
-                </span>
+                <span>Your Mac must be awake to run tasks and calls.</span>
               </footer>
             </div>
           )}
@@ -1091,33 +1084,37 @@ export default function App() {
               <div className="chat-heading">
                 <div>
                   <span className="eyebrow">
-                    UNA CONVERSAZIONE, MOLTE POSSIBILITÀ
+                    ONE CONVERSATION, MANY POSSIBILITIES
                   </span>
                   <h1>
                     {privateMode
-                      ? "Una sessione privata."
+                      ? "A private session."
                       : conversations.find((c) => c.id === conversation)
-                          ?.title || "Cosa facciamo insieme?"}
+                          ?.title || "What shall we work on?"}
                   </h1>
                 </div>
                 <button className="btn ghost" onClick={newChat}>
                   <Plus size={14} />
-                  Nuova
+                  New
                 </button>
               </div>
               <div className="message-list">
                 {!visibleMessages.length && !runningChat.length && (
                   <div className="chat-welcome">
-                    <span className="brand-mark">J</span>
-                    <h2>Dimmi l’obiettivo.</h2>
+                    <img
+                      className="brand-mark brand-logo"
+                      src="/jarvis.svg"
+                      alt=""
+                    />
+                    <h2>Tell me the goal.</h2>
                     <p>
-                      Posso cercare, ricordare, programmare e usare gli
-                      strumenti che hai collegato.
+                      I can search, remember, code, and use your connected
+                      tools.
                     </p>
                     {privateMode && (
                       <span className="privacy-label">
-                        <LockKeyhole size={13} />I contenuti non vengono
-                        conservati.
+                        <LockKeyhole size={13} />
+                        Content is not retained.
                       </span>
                     )}
                   </div>
@@ -1125,11 +1122,11 @@ export default function App() {
                 {visibleMessages.map((m: Json) => (
                   <article className={"message message-" + m.role} key={m.id}>
                     <div className="message-avatar">
-                      {m.role === "assistant" ? "J" : "TU"}
+                      {m.role === "assistant" ? "J" : "YOU"}
                     </div>
                     <div className="message-body">
                       <span className="message-author">
-                        {m.role === "assistant" ? "Jarvis" : "Tu"}
+                        {m.role === "assistant" ? "Jarvis" : "You"}
                       </span>
                       <Text value={m.content} />
                     </div>
@@ -1142,8 +1139,8 @@ export default function App() {
                       <div className="message-working">
                         <LoaderCircle size={13} className="spin" />
                         {t.state === "queued"
-                          ? "In attesa del motore"
-                          : "Sto lavorando alla richiesta"}
+                          ? "Waiting for the engine"
+                          : "Working on your request"}
                       </div>
                       {deltas[t.id] && <Text value={deltas[t.id]} />}
                     </div>
@@ -1156,14 +1153,14 @@ export default function App() {
                       <Badge state={t.state} />
                       <p>
                         {t.error ||
-                          "Ho preparato una proposta concreta. Verificala prima di proseguire."}
+                          "I prepared a concrete proposal. Review it before continuing."}
                       </p>
                       {t.state === "waiting_user" && (
                         <button
                           className="text-btn"
                           onClick={() => setPage("tasks")}
                         >
-                          Apri decisione <ArrowRight size={13} />
+                          Open decision <ArrowRight size={13} />
                         </button>
                       )}
                     </div>
@@ -1216,7 +1213,7 @@ export default function App() {
           <span>{toast.message}</span>
           <button
             className="icon-btn"
-            aria-label="Chiudi messaggio"
+            aria-label="Dismiss message"
             onClick={() => setToast(null)}
           >
             <X size={13} />
@@ -1225,7 +1222,7 @@ export default function App() {
       )}
       {showNotifications && (
         <Modal
-          title="Le tue notifiche"
+          title="Your notifications"
           onClose={() => setShowNotifications(false)}
         >
           <div className="modal-body">
@@ -1241,9 +1238,8 @@ export default function App() {
                 </article>
               ))
             ) : (
-              <Empty icon={Bell} title="Tutto tranquillo">
-                Le notifiche compariranno quando c’è un risultato o una
-                decisione utile.
+              <Empty icon={Bell} title="All quiet">
+                Notifications appear when there is a useful result or decision.
               </Empty>
             )}
           </div>

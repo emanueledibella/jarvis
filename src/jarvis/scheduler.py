@@ -26,7 +26,7 @@ class MonitorSpec(BaseModel):
     def valid(self):
         public_url(self.url)
         if self.operator != "changed" and self.expected is None:
-            raise ValueError("La condizione richiede un valore atteso.")
+            raise ValueError("The condition requires an expected value.")
         return self
 
 
@@ -50,19 +50,19 @@ class ScheduleInput(BaseModel):
         try:
             ZoneInfo(self.timezone)
         except KeyError:
-            raise ValueError("Fuso orario IANA non riconosciuto.") from None
+            raise ValueError("Unrecognized IANA time zone.") from None
         if self.notify == "phone" and not self.call_authorized:
-            raise ValueError("Le chiamate richiedono autorizzazione esplicita della routine.")
+            raise ValueError("Calls require explicit authorization in the routine.")
         if self.notify == "phone" and self.profile == "local_strict":
-            raise ValueError("La telefonia non è disponibile nel profilo locale rigoroso.")
+            raise ValueError("Telephony is unavailable in the strict local profile.")
         if self.mode == "monitor" and not self.monitor:
-            raise ValueError("Configura URL e condizione del monitor.")
+            raise ValueError("Configure the monitor URL and condition.")
         if self.mode == "monitor" and self.profile == "local_strict":
-            raise ValueError("Un monitor web non è compatibile con locale rigorso.")
+            raise ValueError("A web monitor is incompatible with the strict local profile.")
         if self.kind == "interval" and not 60 <= int(self.expression) <= 31_536_000:
-            raise ValueError("Intervallo ammesso: da 60 secondi a un anno.")
+            raise ValueError("Allowed interval: 60 seconds to one year.")
         if self.kind == "cron" and not croniter.is_valid(self.expression):
-            raise ValueError("Espressione cron non valida.")
+            raise ValueError("Invalid cron expression.")
         return self
 
 
@@ -85,7 +85,7 @@ def next_due(kind: str, expression: str, timezone: str, base: datetime | None = 
     )
     if not value:
         raise ValueError(
-            "Data non riconosciuta. Usa una data ISO con fuso o una frase come 'tra 20 minuti'."
+            "Unrecognized date. Use an ISO date with a time zone or a phrase such as 'in 20 minutes'."
         )
     return value.astimezone(UTC)
 
@@ -118,7 +118,7 @@ class Scheduler:
     async def create(self, data: ScheduleInput) -> dict:
         due = next_due(data.kind, data.expression, data.timezone)
         if due < datetime.now(UTC):
-            raise ValueError("La scadenza è già trascorsa.")
+            raise ValueError("The due date is in the past.")
         key = uid()
         await self.db.execute(
             "INSERT INTO schedules(id,title,prompt,kind,expression,timezone,next_run_at,mode,monitor,profile,scope,misfire_policy,grace_seconds,notify,call_authorized,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
@@ -181,7 +181,7 @@ class Scheduler:
                     (row["id"], due.isoformat()),
                 )
                 await self.db.notification(
-                    "Attività non eseguita durante lo stop",
+                    "Task missed while the Mac was asleep",
                     row["title"],
                     f"missed:{row['id']}:{due.isoformat()}",
                 )
@@ -192,7 +192,7 @@ class Scheduler:
                     or row["notify"] == "phone"
                     or row["profile"] in {"cloud", "hybrid"}
                 ):
-                    raise PermissionError("Routine sospesa dal profilo locale rigoroso.")
+                    raise PermissionError("Routine suspended by the strict local profile.")
                 if row["mode"] == "agent":
                     task = await self.runtime.tasks.create(
                         row["prompt"] or row["title"],
@@ -221,7 +221,7 @@ class Scheduler:
                     (row["id"], due.isoformat()),
                 )
                 await self.db.notification(
-                    "Routine da verificare",
+                    "Routine needs review",
                     f"{row['title']}: {type(error).__name__}",
                     f"schedule-error:{row['id']}:{type(error).__name__}",
                 )
@@ -251,7 +251,7 @@ class Scheduler:
 
     async def deliver(self, row: dict, summary: str, fingerprint: str):
         if row["notify"] == "phone" and row["profile"] == "local_strict":
-            raise PermissionError("Il profilo della routine non consente telefonate.")
+            raise PermissionError("The routine profile does not allow calls.")
         await self.db.notification(row["title"], summary, fingerprint)
         if row["notify"] == "voice":
             await self.db.emit("speech.requested", {"text": speech_text(summary)})

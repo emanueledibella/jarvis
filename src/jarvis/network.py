@@ -23,19 +23,19 @@ def loopback_url(url: str) -> bool:
 def public_url(url: str) -> str:
     parts = urlsplit(url)
     if parts.scheme not in {"https", "http"} or not parts.hostname:
-        raise ValueError("Sono ammessi soltanto URL HTTP/HTTPS.")
+        raise ValueError("Only HTTP/HTTPS URLs are allowed.")
     if parts.username or parts.password or parts.port not in {None, 80, 443}:
-        raise ValueError("URL con credenziali o porta non standard non ammesso.")
+        raise ValueError("URLs with credentials or a nonstandard port are not allowed.")
     host = parts.hostname.lower().rstrip(".")
     if host in {"localhost", "metadata.google.internal"} or host.endswith((".local", ".internal")):
-        raise ValueError("Destinazione interna non ammessa al tool web.")
+        raise ValueError("The web tool cannot access internal destinations.")
     try:
         address = ipaddress.ip_address(host)
     except ValueError:
         pass
     else:
         if not address.is_global:
-            raise ValueError("Indirizzo non pubblico.")
+            raise ValueError("Nonpublic address.")
     return urlunsplit((parts.scheme, parts.netloc, parts.path or "/", parts.query, ""))
 
 
@@ -43,7 +43,7 @@ class PublicResolver(DefaultResolver):
     async def resolve(self, host, port=0, family=socket.AF_INET):
         rows = await super().resolve(host, port, family)
         if not rows or any(not ipaddress.ip_address(row["host"]).is_global for row in rows):
-            raise ValueError("Il nome risolve a una destinazione non pubblica.")
+            raise ValueError("The name resolves to a nonpublic destination.")
         return rows
 
 
@@ -71,6 +71,6 @@ async def fetch_public(url: str, *, max_bytes=2_000_000, headers=None) -> tuple[
                 async for chunk in response.content.iter_chunked(65536):
                     chunks.extend(chunk)
                     if len(chunks) > max_bytes:
-                        raise ValueError("Documento oltre il limite di dimensione.")
+                        raise ValueError("Document exceeds the size limit.")
                 return str(response.url), bytes(chunks), response.headers.get("Content-Type", "")
-    raise ValueError("Troppi reindirizzamenti.")
+    raise ValueError("Too many redirects.")
