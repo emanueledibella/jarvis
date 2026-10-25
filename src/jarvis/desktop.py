@@ -22,13 +22,18 @@ def existing_service(config) -> bool:
     """Authenticate an existing listener without sending it the bearer token."""
     challenge = secrets.token_urlsafe(24)
     try:
-        with httpx.Client(timeout=1, trust_env=False) as client:
+        # Windows can take over a second to reject a closed loopback port.
+        with httpx.Client(timeout=httpx.Timeout(2, connect=5), trust_env=False) as client:
             response = client.get(
                 f"http://127.0.0.1:{config.settings.api_port}/health",
                 params={"challenge": challenge},
             )
     except httpx.ConnectError:
         return False
+    except httpx.TimeoutException as error:
+        raise RuntimeError(
+            "Timed out verifying the local Jarvis port. Check JARVIS_API_PORT and the local listener; no token was sent."
+        ) from error
     try:
         response.raise_for_status()
         received = response.json().get("proof", "")

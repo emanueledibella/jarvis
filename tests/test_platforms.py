@@ -1,9 +1,11 @@
 import hashlib
 import os
 import shlex
+import socket
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import httpx
 import pytest
@@ -82,6 +84,17 @@ def test_launcher_does_not_send_token_to_an_unverified_listener(config, monkeypa
         existing_service(config)
     assert config.token not in str(observed[0].url)
     assert "authorization" not in observed[0].headers
+
+
+def test_launcher_starts_when_no_service_is_listening():
+    # Release an ephemeral port; exercise native TCP refusal on each OS.
+    with socket.socket() as unused:
+        unused.bind(("127.0.0.1", 0))
+        port = unused.getsockname()[1]
+    config = SimpleNamespace(
+        settings=SimpleNamespace(api_port=port), token="launcher-test-token"
+    )
+    assert existing_service(config) is False
 
 
 async def test_approved_commands_are_portable_and_do_not_receive_secrets(tmp_path, monkeypatch):
