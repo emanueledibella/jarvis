@@ -242,18 +242,30 @@ class Workspace:
                 "TMPDIR": scratch,
                 "LANG": "en_US.UTF-8",
                 "PYTHONNOUSERSITE": "1",
+                "PYTHONIOENCODING": "utf-8",
             }
             env["TEMP"] = env["TMP"] = scratch
             if os.name == "nt":
                 from .windows import system_executable
 
+                shell = system_executable("WindowsPowerShell/v1.0/powershell.exe")
+                # Avoid inherited/user module discovery and its first-run cache work.
+                env["PSModulePath"] = str(Path(shell).parent / "Modules")
+                env["PSModuleAnalysisCachePath"] = "NUL"
+                script = (
+                    "[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); "
+                    "$OutputEncoding = [Console]::OutputEncoding; "
+                    "$ProgressPreference = 'SilentlyContinue'; " + command
+                )
                 args = [
-                    system_executable("WindowsPowerShell/v1.0/powershell.exe"),
+                    shell,
                     "-NoLogo",
                     "-NoProfile",
                     "-NonInteractive",
+                    "-OutputFormat",
+                    "Text",
                     "-EncodedCommand",
-                    base64.b64encode(command.encode("utf-16le")).decode("ascii"),
+                    base64.b64encode(script.encode("utf-16le")).decode("ascii"),
                 ]
             else:
                 args = (
@@ -296,6 +308,7 @@ class Workspace:
                 *args,
                 cwd=root / relative,
                 env=env,
+                stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
                 **process_options,

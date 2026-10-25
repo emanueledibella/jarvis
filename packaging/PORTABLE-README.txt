@@ -22,9 +22,9 @@ An explicit --env-file can be supplied before the command. In a frozen build,
 the default .env is inside that private data directory, not the launch folder.
 
 Examples:
-  Jarvis.exe --help
-  Jarvis.exe config validate
-  Jarvis.exe --env-file C:\path\jarvis.env desktop
+  .\Jarvis.exe --help
+  .\Jarvis.exe config validate
+  .\Jarvis.exe --env-file C:\path\jarvis.env desktop
   ./Jarvis --env-file /path/jarvis.env desktop --no-browser
 
 These Windows/Linux builds include the service, agents, dashboard, local/cloud

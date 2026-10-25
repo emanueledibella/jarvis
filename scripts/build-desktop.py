@@ -22,8 +22,21 @@ def main():
         npm = shutil.which("npm")
         if not npm:
             raise SystemExit("Install Node.js 22.12+ and npm to build the dashboard.")
-        subprocess.run([npm, "ci", "--no-audit", "--no-fund"], cwd=ROOT / "web", check=True)
-        subprocess.run([npm, "run", "build"], cwd=ROOT / "web", check=True)
+        if sys.platform == "win32":
+            # Execute npm's JS entrypoint directly, without cmd.exe quoting/.cmd rules.
+            node = shutil.which("node")
+            entrypoint = Path(npm).parent / "node_modules/npm/bin/npm-cli.js"
+            if not node or not entrypoint.is_file():
+                raise SystemExit(
+                    "Use a standard Node.js installation, or build web and pass --skip-web."
+                )
+            npm_command = [node, str(entrypoint)]
+        else:
+            npm_command = [npm]
+        subprocess.run(
+            [*npm_command, "ci", "--no-audit", "--no-fund"], cwd=ROOT / "web", check=True
+        )
+        subprocess.run([*npm_command, "run", "build"], cwd=ROOT / "web", check=True)
     if not (ROOT / "web/dist/index.html").is_file():
         raise SystemExit("web/dist is missing; build the dashboard first.")
     subprocess.run(

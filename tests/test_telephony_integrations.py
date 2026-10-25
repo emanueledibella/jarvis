@@ -311,13 +311,15 @@ async def test_phone_dtmf_approves_only_the_proposal_read_back(runtime, tmp_path
             )
             assert not await runtime.db.fetchall("SELECT * FROM effects")
             yield json.dumps({"event": "dtmf", "dtmf": {"digit": "1"}})
-            for _ in range(200):
-                task = await runtime.db.fetchone(
-                    "SELECT * FROM tasks WHERE id=?", (row["task_id"],)
-                )
-                if task["state"] == "succeeded":
-                    break
-                await asyncio.sleep(0.01)
+            # Includes native shell startup, which can exceed two seconds on Windows.
+            async with asyncio.timeout(30):
+                while True:
+                    task = await runtime.db.fetchone(
+                        "SELECT * FROM tasks WHERE id=?", (row["task_id"],)
+                    )
+                    if task["state"] in {"succeeded", "failed", "cancelled"}:
+                        break
+                    await asyncio.sleep(0.02)
             assert task["state"] == "succeeded", task["error"]
             yield json.dumps({"event": "stop"})
 

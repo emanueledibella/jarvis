@@ -249,7 +249,7 @@ def test_workspace_secrets_symlinks_and_optimistic_write(tmp_path):
 async def test_commands_do_not_inherit_provider_secrets(tmp_path, monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "never-inherit-this")
     result = await Workspace([str(tmp_path)]).command(
-        "Get-ChildItem Env:" if os.name == "nt" else "env", ".", "approval", 10
+        "Get-ChildItem Env:" if os.name == "nt" else "env", ".", "approval", 30
     )
     assert result["exit_code"] == 0, result["output"]
     assert "never-inherit-this" not in result["output"]

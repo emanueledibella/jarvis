@@ -87,12 +87,20 @@ def test_launcher_does_not_send_token_to_an_unverified_listener(config, monkeypa
 async def test_approved_commands_are_portable_and_do_not_receive_secrets(tmp_path, monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "do-not-inherit")
     result = await Workspace([str(tmp_path)]).command(
-        python_command("import os; print('worker-ok'); assert 'OPENAI_API_KEY' not in os.environ"),
+        python_command(
+            "import os; print('worker-ok'); print('città'); "
+            "assert 'OPENAI_API_KEY' not in os.environ"
+        ),
         ".",
         "approval",
-        10,
+        30,
     )
     assert result["exit_code"] == 0 and "worker-ok" in result["output"], result["output"]
+    assert "città" in result["output"], result["output"]
+    # PowerShell's own output also needs explicit UTF-8 when redirected to a pipe.
+    if os.name == "nt":
+        text = await Workspace([str(tmp_path)]).command("'città'", ".", "approval", 30)
+        assert text["exit_code"] == 0 and "città" in text["output"], text["output"]
 
 
 async def test_unavailable_confinement_has_no_host_fallback(tmp_path):
