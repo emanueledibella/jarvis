@@ -11,6 +11,8 @@ from zoneinfo import ZoneInfo
 from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
+from .voice_style import ITALIAN_COMPANION
+
 ROOT = Path(__file__).resolve().parents[2]
 Profile = Literal["local_strict", "local_connected", "cloud", "hybrid"]
 
@@ -62,6 +64,7 @@ class Settings(BaseSettings):
     desktop_voice_provider: Literal["apple", "openai_live"] = "apple"
     desktop_voice_model: str = "gpt-live-1"
     desktop_voice_name: str = "cedar"
+    desktop_voice_style: str = Field(default=ITALIAN_COMPANION, max_length=2000)
     desktop_voice_duplex: Literal["gated", "full"] = "gated"
     desktop_voice_api_key: SecretStr = SecretStr("")
     desktop_voice_max_session_seconds: int = Field(default=120, ge=15, le=900)

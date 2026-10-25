@@ -73,6 +73,7 @@ async def test_responses_stream_accepts_content_blocks_without_streaming_reasoni
 async def test_actual_deep_agent_executes_a_tool(runtime, monkeypatch):
     from jarvis import agent
     from jarvis.language import language_instructions
+    from jarvis.voice_style import SOURCE_POLICY
 
     captured = []
     create_agent = agent.create_deep_agent
@@ -89,6 +90,7 @@ async def test_actual_deep_agent_executes_a_tool(runtime, monkeypatch):
     assert row["state"] == "succeeded", row["error"]
     assert "timezone" in row["result"]
     assert language_instructions("auto", "it-IT") in captured[0]
+    assert SOURCE_POLICY in captured[0]
     assert await runtime.db.fetchone("SELECT * FROM events WHERE type='tool.completed'")
 
 

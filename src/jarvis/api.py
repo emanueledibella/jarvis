@@ -175,6 +175,7 @@ def create_app(
                 "desktop_voice_provider",
                 "desktop_voice_model",
                 "desktop_voice_name",
+                "desktop_voice_style",
                 "desktop_voice_duplex",
             )
         ):

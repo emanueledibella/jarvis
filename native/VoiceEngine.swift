@@ -18,7 +18,10 @@ final class VoiceEngine: NSObject {
   private let output = AVAudioEngine()
   private let player = AVAudioPlayerNode()
   private let synth = AVSpeechSynthesizer()
-  private let playbackFormat = AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 1)!
+  private let playbackConverter = PlaybackPCMConverter()
+  private var playbackFormat: AVAudioFormat { playbackConverter.format }
+  private var playbackBuffer = PlaybackBufferState()
+  private var playbackStart: Task<Void, Never>?
   private let liveAudio = LiveAudioBuffer()
   private var liveSocket: URLSessionWebSocketTask?
   private var liveReader: Task<Void, Never>?
@@ -596,27 +599,25 @@ final class VoiceEngine: NSObject {
     }
     pcm.frameLength = AVAudioFrameCount(bytes.count / 2)
     _ = bytes.withUnsafeBytes { raw in memcpy(destination, raw.baseAddress!, bytes.count) }
-    guard let converted = convert(pcm) else { return }
-    if !output.isRunning { try output.start() }
+    let converted = try playbackConverter.convert(pcm)
     if Self.rms(converted) > 0.01 {
       lastLiveSpeech = Date()
       if settings["desktop_voice_duplex"] as? String != "full" { liveAudio.setGated(true) }
       if state != "speaking" { setState("speaking") }
     }
-    let generation = speechGeneration
-    pendingBuffers += 1
-    player.scheduleBuffer(converted, completionCallbackType: .dataPlayedBack) { [weak self] _ in
-      DispatchQueue.main.async {
-        guard let self = self, self.speechGeneration == generation else { return }
-        self.pendingBuffers -= 1
-        self.finishPlaybackIfNeeded()
-      }
-    }
-    if !player.isPlaying { player.play() }
+    try enqueuePlayback(converted, realtime: true)
   }
 
   private func closeLive(error: String? = nil, drain: Bool = false) {
     guard let socket = liveSocket else { return }
+    if drain {
+      do {
+        for tail in try playbackConverter.finish() { try enqueuePlayback(tail, realtime: true) }
+      } catch {
+        closeLive(error: "Could not finish voice playback.")
+        return
+      }
+    }
     liveSocket = nil
     liveGeneration = UUID()
     liveReady = false
@@ -633,12 +634,14 @@ final class VoiceEngine: NSObject {
     if drain && pendingBuffers > 0 {
       endingLive = true
       finalBufferSeen = true
+      startPlayback(force: true)
       return
     }
     speechGeneration = UUID()
     player.stop()
     output.stop()
     pendingBuffers = 0
+    resetPlayback()
     outputLevel = 0
     if let error = error {
       setState("unavailable", error: error)
@@ -761,32 +764,27 @@ final class VoiceEngine: NSObject {
     let identifier = settings["tts_voice"] as? String ?? ""
     utterance.voice =
       identifier.isEmpty
-      ? AVSpeechSynthesisVoice(language: SpokenLanguage.select(
-        for: text, response: settings["response_language"] as? String ?? "auto",
-        fallback: settings["language"] as? String ?? "it-IT"))
+      ? AVSpeechSynthesisVoice(
+        language: SpokenLanguage.select(
+          for: text, response: settings["response_language"] as? String ?? "auto",
+          fallback: settings["language"] as? String ?? "it-IT"))
       : AVSpeechSynthesisVoice(identifier: identifier)
     utterance.rate = AVSpeechUtteranceDefaultSpeechRate
     synth.write(utterance) { [weak self] buffer in
       guard let pcm = buffer as? AVAudioPCMBuffer else { return }
       DispatchQueue.main.async {
         guard let self = self, self.speechGeneration == generation else { return }
-        if pcm.frameLength == 0 {
-          self.finalBufferSeen = true
-          self.finishPlaybackIfNeeded()
-          return
-        }
-        guard let converted = self.convert(pcm) else { return }
         do {
-          if !self.output.isRunning { try self.output.start() }
-          self.pendingBuffers += 1
-          self.player.scheduleBuffer(converted, completionCallbackType: .dataPlayedBack) { _ in
-            DispatchQueue.main.async {
-              guard self.speechGeneration == generation else { return }
-              self.pendingBuffers -= 1
-              self.finishPlaybackIfNeeded()
+          if pcm.frameLength == 0 {
+            for tail in try self.playbackConverter.finish() {
+              try self.enqueuePlayback(tail, realtime: false)
             }
+            self.finalBufferSeen = true
+            self.startPlayback(force: true)
+            self.finishPlaybackIfNeeded()
+            return
           }
-          if !self.player.isPlaying { self.player.play() }
+          try self.enqueuePlayback(self.playbackConverter.convert(pcm), realtime: false)
         } catch {
           self.stopSpeaking()
           self.setState(
@@ -796,25 +794,52 @@ final class VoiceEngine: NSObject {
     }
   }
 
-  private func convert(_ input: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
-    guard let converter = AVAudioConverter(from: input.format, to: playbackFormat),
-      let result = AVAudioPCMBuffer(
-        pcmFormat: playbackFormat,
-        frameCapacity: AVAudioFrameCount(
-          Double(input.frameLength) * 48000 / input.format.sampleRate) + 64)
-    else { return nil }
-    var supplied = false
-    var error: NSError?
-    converter.convert(to: result, error: &error) { _, status in
-      if supplied {
-        status.pointee = .noDataNow
-        return nil
-      }
-      supplied = true
-      status.pointee = .haveData
-      return input
+  private func enqueuePlayback(_ buffer: AVAudioPCMBuffer, realtime: Bool) throws {
+    let frames = Int(buffer.frameLength)
+    guard frames > 0 else { return }
+    if realtime && playbackBuffer.queuedFrames + frames > Int(playbackFormat.sampleRate * 8) {
+      throw ServiceClient.ClientError.server("Voice playback exceeded its bounded buffer.")
     }
-    return error == nil ? result : nil
+    if !output.isRunning { try output.start() }
+    playbackBuffer.enqueue(frames)
+    pendingBuffers += 1
+    let generation = speechGeneration
+    player.scheduleBuffer(buffer, completionCallbackType: .dataPlayedBack) { [weak self] _ in
+      DispatchQueue.main.async {
+        guard let self = self, self.speechGeneration == generation else { return }
+        self.pendingBuffers -= 1
+        self.playbackBuffer.completed(frames)
+        if self.playbackBuffer.queuedFrames == 0 { self.player.pause() }
+        self.finishPlaybackIfNeeded()
+      }
+    }
+    if playbackBuffer.ready || !playbackBuffer.buffering {
+      startPlayback()
+    } else if playbackStart == nil {
+      playbackStart = Task { [weak self] in
+        do { try await Task.sleep(nanoseconds: 120_000_000) } catch { return }
+        guard let self = self, self.speechGeneration == generation else { return }
+        self.playbackStart = nil
+        self.startPlayback(force: true)
+      }
+    }
+  }
+
+  private func startPlayback(force: Bool = false) {
+    guard playbackBuffer.queuedFrames > 0,
+      force || playbackBuffer.ready || !playbackBuffer.buffering
+    else { return }
+    playbackStart?.cancel()
+    playbackStart = nil
+    playbackBuffer.started()
+    if !player.isPlaying { player.play() }
+  }
+
+  private func resetPlayback() {
+    playbackStart?.cancel()
+    playbackStart = nil
+    playbackBuffer.reset()
+    playbackConverter.reset()
   }
 
   private func finishPlaybackIfNeeded() {
@@ -843,6 +868,7 @@ final class VoiceEngine: NSObject {
     player.stop()
     output.stop()
     pendingBuffers = 0
+    resetPlayback()
     finalBufferSeen = false
     outputLevel = 0
     if state == "speaking" { setState(muted ? "muted" : "armed") }

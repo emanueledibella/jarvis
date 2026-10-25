@@ -464,13 +464,18 @@ export default function Settings({
                 { value: "full", label: "Headphones · listen during playback" },
               ],
             )}
-            {field("desktop_voice_name", "OpenAI voice", "text", undefined, [
-              { value: "cedar", label: "Cedar" },
-              { value: "marin", label: "Marin" },
-              { value: "ash", label: "Ash" },
-              { value: "verse", label: "Verse" },
-              { value: "coral", label: "Coral" },
-            ])}
+            {field(
+              "desktop_voice_name",
+              "OpenAI voice name or custom ID",
+              "text",
+              "Use a built-in name such as cedar, marin, ash, ballad or verse, or the voice_… ID of a saved GPT-Live voice.",
+            )}
+            {field(
+              "desktop_voice_style",
+              "Vocal style",
+              "textarea",
+              "Describe timbre, pacing and delivery. For a saved custom voice, keep its original description here.",
+            )}
             {field(
               "desktop_voice_api_key",
               "OpenAI voice API key, optional",

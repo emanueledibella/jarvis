@@ -18,9 +18,11 @@ from .config import Profile
 from .db import uid
 from .language import language_instructions
 from .speech import speech_text
+from .voice_style import SOURCE_POLICY, voice_reference
 
 LIVE_PROMPT = """You are Jarvis, the Mac owner's AI voice assistant.
-Speak naturally, calmly, and directly. Use one or two sentences for simple questions.
+Use fluid, conversational phrasing and a warm, composed manner. Vary emphasis and brief pauses naturally.
+For a simple request, answer in one or two sentences without a stock preamble or a formal completion announcement.
 Backchannel policy: Briefly acknowledge that you are listening without talking over the user.
 Interruption policy: Let the user speak when they interrupt. Do not mistake your own voice for a new request.
 Delegation policy:
@@ -363,6 +365,9 @@ class LiveVoice:
                             "store": False,
                             "instructions": LIVE_PROMPT
                             + language_instructions(settings.response_language, settings.language)
+                            + SOURCE_POLICY
+                            + "\nVocal qualities: "
+                            + settings.desktop_voice_style
                             + (
                                 "\nWhen using speakers, wait until the user finishes before speaking. Avoid spoken backchannels while they are still making their request."
                                 if settings.desktop_voice_duplex == "gated"
@@ -370,7 +375,7 @@ class LiveVoice:
                             ),
                             "audio": {
                                 "format": {"type": "audio/pcm", "rate": 24000},
-                                "output": {"voice": settings.desktop_voice_name},
+                                "output": {"voice": voice_reference(settings.desktop_voice_name)},
                             },
                             "delegation": {"type": "client"},
                         }

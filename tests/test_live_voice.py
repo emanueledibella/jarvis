@@ -123,8 +123,9 @@ def factory(connection):
     return construct
 
 
-async def test_live_delegation_uses_deep_agent_once_and_accounts_audio(runtime, monkeypatch):
-    configure(runtime)
+@pytest.mark.parametrize("voice", ["cedar", "voice_contract_test"])
+async def test_live_delegation_uses_deep_agent_once_and_accounts_audio(runtime, monkeypatch, voice):
+    configure(runtime, desktop_voice_name=voice)
     monkeypatch.setattr(runtime.tasks, "model", model_factory())
     connection, peer = Connection(), Peer()
     await asyncio.wait_for(
@@ -137,8 +138,14 @@ async def test_live_delegation_uses_deep_agent_once_and_accounts_audio(runtime, 
     assert connection.configuration["store"] is False
     assert connection.configuration["delegation"] == {"type": "client"}
     from jarvis.language import language_instructions
+    from jarvis.voice_style import SOURCE_POLICY
 
     assert language_instructions("auto", "it-IT") in connection.configuration["instructions"]
+    assert SOURCE_POLICY in connection.configuration["instructions"]
+    assert runtime.config.settings.desktop_voice_style in connection.configuration["instructions"]
+    assert connection.configuration["audio"]["output"]["voice"] == (
+        {"id": voice} if voice.startswith("voice_") else voice
+    )
     assert not await runtime.db.fetchone("SELECT * FROM events WHERE type='speech.requested'")
     usage = await runtime.db.fetchone("SELECT * FROM model_usage")
     assert usage["state"] == "complete" and usage["actual_usd"] == pytest.approx(2 * 0.05 / 60)
