@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import contextlib
 import json
 import os
@@ -246,7 +247,14 @@ class Workspace:
             if os.name == "nt":
                 from .windows import system_executable
 
-                args = [system_executable("cmd.exe"), "/d", "/s", "/c", command]
+                args = [
+                    system_executable("WindowsPowerShell/v1.0/powershell.exe"),
+                    "-NoLogo",
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-EncodedCommand",
+                    base64.b64encode(command.encode("utf-16le")).decode("ascii"),
+                ]
             else:
                 args = (
                     ["/bin/zsh", "-f", "-c", command]
@@ -274,6 +282,7 @@ class Workspace:
                         "/opt/homebrew",
                         "/Library/Developer",
                         sys.base_prefix,
+                        sys.prefix,
                         root,
                         scratch,
                     ]

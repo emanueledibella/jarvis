@@ -16,7 +16,11 @@ from jarvis.workspace import Workspace
 
 def python_command(script):
     args = [sys.executable, "-c", script]
-    return subprocess.list2cmdline(args) if os.name == "nt" else shlex.join(args)
+    return (
+        "& " + " ".join("'" + value.replace("'", "''") + "'" for value in args)
+        if os.name == "nt"
+        else shlex.join(args)
+    )
 
 
 def assert_private_file(path):
@@ -88,7 +92,7 @@ async def test_approved_commands_are_portable_and_do_not_receive_secrets(tmp_pat
         "approval",
         10,
     )
-    assert result["exit_code"] == 0 and "worker-ok" in result["output"]
+    assert result["exit_code"] == 0 and "worker-ok" in result["output"], result["output"]
 
 
 async def test_unavailable_confinement_has_no_host_fallback(tmp_path):

@@ -399,7 +399,7 @@ class TaskManager:
         system = (
             SYSTEM
             + SOURCE_POLICY
-            + f"\nHost capabilities: {capabilities()}. Approved commands use cmd.exe on Windows, /bin/sh on Linux, or /bin/zsh on macOS. Use commands appropriate to this host.\n"
+            + f"\nHost capabilities: {capabilities()}. Approved commands use Windows PowerShell with no profile on Windows, /bin/sh on Linux, or /bin/zsh on macOS. Use commands appropriate to this host.\n"
             + language_instructions(
                 self.config.settings.response_language, self.config.settings.language
             )
