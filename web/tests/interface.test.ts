@@ -77,6 +77,52 @@ after(async () => {
   await vite?.close();
 });
 
+test("microphone choices preserve a disconnected selection and escape device labels", async () => {
+  const { AudioInputPicker } = await vite.ssrLoadModule("/src/Microphone.tsx");
+  const devices = [
+    {
+      uid: "fixture-default",
+      name: "Fixture headset",
+      is_default: true,
+      bluetooth: true,
+    },
+    {
+      uid: "fixture-built-in",
+      name: '<script>alert("fixture")</script>',
+      is_default: false,
+      bluetooth: false,
+    },
+  ];
+  const render = (value: string, disabled = false) =>
+    renderToStaticMarkup(
+      React.createElement(AudioInputPicker, {
+        value,
+        disabled,
+        devices,
+        onChange() {
+          throw new Error("Rendering cannot change the device");
+        },
+      }),
+    );
+  locale.setInterfaceLanguage("en");
+  const chosen = render("fixture-built-in");
+  assert.ok(chosen.includes('value="fixture-built-in" selected=""'));
+  assert.ok(chosen.includes("Follow macOS default input"));
+  assert.ok(chosen.includes("&lt;script&gt;") && !chosen.includes("<script>"));
+  const absent = render("fixture-disconnected");
+  assert.ok(absent.includes('value="fixture-disconnected" selected=""'));
+  assert.ok(absent.includes("Saved microphone · not currently available"));
+  assert.ok(!absent.includes('value="fixture-default" selected=""'));
+  assert.ok(render("", true).includes('disabled=""'));
+  locale.setInterfaceLanguage("it");
+  const italian = render("");
+  assert.ok(
+    italian.includes("Microfono") &&
+      italian.includes("Segui l’ingresso predefinito di macOS"),
+  );
+  assert.ok(italian.includes("Predefinito di sistema"));
+});
+
 test("actual dashboard, settings tabs, tasks, routines and memory render in both languages", async () => {
   const { default: App } = await vite.ssrLoadModule("/src/App.tsx");
   const { default: Settings } = await vite.ssrLoadModule("/src/Settings.tsx");

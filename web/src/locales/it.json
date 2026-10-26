@@ -788,5 +788,20 @@
   "Return to Jarvis immediately: find and select your lamp, connect, and confirm the macOS pairing request if it appears.": "Torna subito a Jarvis: cerca e seleziona la tua lampada, collegala e conferma l’eventuale richiesta di abbinamento di macOS.",
   "This opens a temporary pairing window and keeps the phone's Hue configuration. Repeat Make Discoverable if the window expires.": "La procedura apre una finestra temporanea di abbinamento e mantiene la configurazione Hue del telefono. Ripeti Rendi individuabile se la finestra scade.",
   "Same voice as the desktop": "Stessa voce dell’interfaccia",
-  "Calls use the voice, vocal style, conversation language and OpenAI key configured for desktop voice.": "Le chiamate usano la voce, lo stile, la lingua della conversazione e la chiave OpenAI configurati per la voce dell’interfaccia."
+  "Calls use the voice, vocal style, conversation language and OpenAI key configured for desktop voice.": "Le chiamate usano la voce, lo stile, la lingua della conversazione e la chiave OpenAI configurati per la voce dell’interfaccia.",
+  "Choose the input for Jarvis only. Other apps keep their own audio settings. Save changes to apply; an active voice conversation will end.": "Scegli il microfono solo per Jarvis. Le altre app mantengono le proprie impostazioni audio. Salva le modifiche per applicarle; un’eventuale conversazione vocale attiva verrà terminata.",
+  "Could not list microphones. Refresh the list or reopen the Mac app.": "Impossibile elencare i microfoni. Aggiorna l’elenco o riapri l’app sul Mac.",
+  "Could not select this microphone. Refresh the microphone list or choose another input in Voice settings.": "Impossibile selezionare questo microfono. Aggiorna l’elenco o scegli un altro ingresso nelle impostazioni Voce.",
+  "Follow macOS default input": "Segui l’ingresso predefinito di macOS",
+  "Microphone": "Microfono",
+  "Microphone selection requires the native Mac app.": "La selezione del microfono richiede l’app nativa per Mac.",
+  "No default microphone is available. Connect a microphone or choose one in Voice settings.": "Nessun microfono predefinito disponibile. Collega un microfono o scegline uno nelle impostazioni Voce.",
+  "Open the Jarvis Mac app to list microphones.": "Apri l’app Jarvis sul Mac per visualizzare i microfoni.",
+  "Refresh microphones": "Aggiorna microfoni",
+  "Saved microphone · not currently available": "Microfono salvato · al momento non disponibile",
+  "System default": "Predefinito di sistema",
+  "The microphone identifier contains invalid characters.": "L’identificativo del microfono contiene caratteri non validi.",
+  "The selected microphone is disconnected. Jarvis waits for it to return; it will not switch to another input.": "Il microfono selezionato è scollegato. Jarvis attende che torni disponibile, senza passare a un altro ingresso.",
+  "The selected microphone is disconnected. Reconnect it or choose another microphone in Voice settings.": "Il microfono selezionato è scollegato. Ricollegalo o scegli un altro microfono nelle impostazioni Voce.",
+  "Update the Jarvis Mac app to choose a microphone.": "Aggiorna l’app Jarvis sul Mac per scegliere un microfono."
 }

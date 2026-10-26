@@ -19,6 +19,7 @@ from pydantic import BaseModel, Field, ValidationError
 from .config import ConfigStore, Profile
 from .db import now
 from .lighting import LightChange, LightRegistration
+from .platforms import capabilities
 from .runtime import Runtime
 from .scheduler import ScheduleInput, next_due
 
@@ -59,11 +60,25 @@ class NativeStatus(BaseModel):
     recognition_task: Literal["idle", "starting", "running", "finishing", "canceling", "completed", "unknown"] = "idle"
     recognition_recoveries: int = Field(default=0, ge=0)
     wake_recovery_supported: bool = False
+    audio_input_selection_supported: bool = False
+    input_device_state: Literal["system_default", "selected", "missing", "unknown"] = "unknown"
+    capture_running: bool = False
     capture_input_level: float = Field(default=0, ge=0, le=1, allow_inf_nan=False)
     recognition_input_level: float = Field(default=0, ge=0, le=1, allow_inf_nan=False)
     echo_cancellation: Literal["active", "fallback", "off"] = "off"
     barge_in: bool = False
     interruptions: int = Field(default=0, ge=0)
+
+
+class AudioInputDevice(BaseModel):
+    uid: str = Field(min_length=1, max_length=512)
+    name: str = Field(min_length=1, max_length=256)
+    is_default: bool = False
+    bluetooth: bool = False
+
+
+class AudioInputs(BaseModel):
+    devices: list[AudioInputDevice] = Field(default_factory=list, max_length=128)
 
 
 class LightGrant(BaseModel):
@@ -217,6 +232,7 @@ def create_app(
                 "desktop_voice_name",
                 "desktop_voice_style",
                 "desktop_voice_duplex",
+                "microphone_device_uid",
             )
         ):
             runtime.live_voice.stop_all()
@@ -632,6 +648,19 @@ def create_app(
             note=str(data.get("note", "")),
         )
 
+    @app.get("/api/voice/inputs")
+    async def voice_inputs():
+        # Device names/UIDs are private local settings data, never persisted as
+        # events or forwarded to a reasoning/voice provider.
+        if not capabilities()["native_voice"]:
+            return {"state": "unsupported", "devices": []}
+        if not runtime.native.connected:
+            return {"state": "app_required", "devices": []}
+        if not runtime.native.status.get("audio_input_selection_supported"):
+            return {"state": "update_required", "devices": []}
+        result = await runtime.native.invoke("audio.inputs", {}, timeout=8)
+        return {"state": "ready", **AudioInputs.model_validate(result).model_dump()}
+
     @app.post("/api/voice/control")
     async def voice_control(data: dict):
         operation = data.get("action")
@@ -776,6 +805,7 @@ def create_app(
                 "wake_phrase": config.settings.wake_phrase,
                 "wake_enabled": config.settings.wake_enabled,
                 "voice_enabled": config.settings.voice_enabled and not runtime.gateway.blocked,
+                "microphone_device_uid": config.settings.microphone_device_uid,
                 "lighting_enabled": config.settings.lighting_enabled and not runtime.gateway.blocked,
                 "private_session": runtime.voice_session["private"],
                 "voice_scope": runtime.voice_session["scope"],

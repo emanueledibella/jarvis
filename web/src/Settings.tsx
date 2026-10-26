@@ -1,4 +1,5 @@
 import Lighting from "./Lighting";
+import MicrophoneSettings from "./Microphone";
 import {
   t as tr,
   useI18n,
@@ -506,6 +507,14 @@ export default function Settings({
             )}
             {toggle("voice_enabled", tr("Enable voice"))}
             {toggle("wake_enabled", tr("Voice activation"))}
+            <MicrophoneSettings
+              value={values.microphone_device_uid || ""}
+              disabled={locked.includes("microphone_device_uid")}
+              onChange={(uid) => change("microphone_device_uid", uid)}
+              nativeAvailable={platform?.native_voice !== false}
+              connected={Boolean(nativeVoice?.connected)}
+              inputMissing={nativeVoice?.input_device_state === "missing"}
+            />
             {field(
               "wake_phrase",
               tr("Wake phrase"),

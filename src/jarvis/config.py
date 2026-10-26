@@ -71,6 +71,7 @@ class Settings(BaseSettings):
     memory_capture: Literal["explicit_only", "explicit_facts", "off"] = "explicit_only"
     memory_recall_token_budget: int = Field(default=2000, ge=256, le=10000)
     voice_enabled: bool = True
+    microphone_device_uid: str = Field(default="", max_length=512, strict=True)
     desktop_voice_provider: Literal["apple", "openai_live"] = "apple"
     desktop_voice_model: str = "gpt-live-1"
     desktop_voice_name: str = "cedar"
@@ -140,6 +141,13 @@ class Settings(BaseSettings):
             ZoneInfo(value)
         except KeyError:
             raise ValueError("Unknown time zone: use an IANA name such as Europe/Rome.") from None
+        return value
+
+    @field_validator("microphone_device_uid")
+    @classmethod
+    def valid_microphone_uid(cls, value):
+        if any(ord(character) < 32 or ord(character) == 127 for character in value):
+            raise ValueError("The microphone identifier contains invalid characters.")
         return value
 
     @field_validator("api_host")

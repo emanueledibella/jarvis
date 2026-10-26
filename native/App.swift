@@ -258,6 +258,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         var result: [String: Any]
         do {
             switch operation {
+            case "audio.inputs":
+                result = ["devices": Array(AudioInputDevices.list().prefix(128)).map { $0.catalogEntry }]
             case "control.enable":
                 result = await voice.authorize()
                 if result["state"] as? String != "permission_required" {

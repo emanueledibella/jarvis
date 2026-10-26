@@ -1,6 +1,6 @@
 # Jarvis — analysis and implementation
 
-Analysis started **October 24, 2026**, with subsequent voice, language, interface, portable build, and security updates. Version **0.1.0** includes the native Mac app and a portable Windows/Linux service/dashboard preview. Start with the [project README](../README.md) and [operations guide](11-implementazione-e-verifica.md). Chapters 01–09 preserve the initial dossier; 10–23 describe implemented choices and verification.
+Analysis started **October 24, 2026**, with subsequent voice, language, interface, portable build, and security updates. Version **0.1.0** includes the native Mac app and a portable Windows/Linux service/dashboard preview. Start with the [project README](../README.md) and [operations guide](11-implementazione-e-verifica.md). Chapters 01–09 preserve the initial dossier; 10–24 describe implemented choices and verification.
 
 ## Confirmed decisions
 
@@ -47,6 +47,7 @@ This selection follows documented comparisons/product constraints. Pipecat and L
 | [21 — Lighting integrations](21-lighting-integrations.md) | Configurable models and connections, native Hue Bluetooth, MCP field mapping, scoped grants and state verification |
 | [22 — Default memory retrieval](22-default-memory-retrieval.md) | Automatic Second Brain reads, personal-question prefetch, shared text/voice policy, scope and privacy boundaries |
 | [23 — Automatic wake recovery](23-automatic-wake-recovery.md) | Local watchdog, guarded native audio restarts, backoff, mute/lock/activity protections and publication checks |
+| [24 — Microphone selection](24-microphone-selection.md) | Per-app input choice, persistent local UIDs, device changes, reconnect behavior and private metadata |
 | [16 — Cross-platform builds](16-cross-platform-builds.md) | Windows/Linux portable packages, OS boundaries, universal dependencies, native CI, build and verification procedures |
 
 The catalog has **132 functional requirements**: 96 P0, 34 P1, two P2. Priorities describe product completeness; the roadmap distinguishes first demo from later delivery. Existing numbered filenames are stable to preserve links.

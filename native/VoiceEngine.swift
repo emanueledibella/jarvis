@@ -13,6 +13,9 @@ final class VoiceEngine: NSObject {
   private var recovery = RecognitionRecovery()
   private var recognitionLiveness = RecognitionLiveness()
   private var recognitionRecoveries = 0
+  private var inputRouteWatch = AudioInputRouteWatch()
+  private var lastInputRouteCheck = Date.distantPast
+  private var inputDeviceMissing = false
   private let logger = Logger(subsystem: "it.jarvis.personal", category: "recognition")
   private var recognizer: SFSpeechRecognizer?
   private let requestLock = NSLock()
@@ -147,6 +150,7 @@ final class VoiceEngine: NSObject {
     let previousProfile = settings["profile"] as? String
     let previousResponseLanguage = settings["response_language"] as? String
     let previousDuplex = settings["desktop_voice_duplex"] as? String
+    let previousInput = settings["microphone_device_uid"] as? String
     settings = values
     if previousProvider != nil && previousProvider != values["desktop_voice_provider"] as? String {
       closeLive()
@@ -169,6 +173,7 @@ final class VoiceEngine: NSObject {
       return
     }
     let captureChanged = (previousLanguage != nil && previousLanguage != values["language"] as? String)
+      || (previousInput != nil && previousInput != values["microphone_device_uid"] as? String)
       || (previousDuplex != nil && previousDuplex != values["desktop_voice_duplex"] as? String)
       || (previousProvider != nil && previousProvider != values["desktop_voice_provider"] as? String)
       || (previousProfile != nil && previousProfile != values["profile"] as? String)
@@ -338,6 +343,16 @@ final class VoiceEngine: NSObject {
       return
     }
     self.recognizer = recognizer
+    let selectedUID = settings["microphone_device_uid"] as? String ?? ""
+    let selectedInput = AudioInputSelection.resolve(selectedUID, devices: AudioInputDevices.list())
+    _ = inputRouteWatch.observe(selectedUID, device: selectedInput)
+    inputDeviceMissing = selectedInput == nil
+    guard let selectedInput = selectedInput else {
+      setState("unavailable", error: selectedUID.isEmpty
+        ? "No default microphone is available. Connect a microphone or choose one in Voice settings."
+        : "The selected microphone is disconnected. Reconnect it or choose another microphone in Voice settings.")
+      return
+    }
     var engine = wantsAutomaticInterruption && allowEchoCancellation ? output : AVAudioEngine()
     var input = engine.inputNode
     let cloudAudio = liveAudio
@@ -346,6 +361,7 @@ final class VoiceEngine: NSObject {
         // Both sides share VoiceProcessingIO, including the actual player. A
         // capture-only processing graph has no valid far-end echo reference.
         try input.setVoiceProcessingEnabled(true)
+        if !selectedUID.isEmpty { try AudioInputDevices.select(selectedInput, on: input) }
         guard input.isVoiceProcessingEnabled else {
           throw ServiceClient.ClientError.server("Echo cancellation is unavailable.")
         }
@@ -360,6 +376,14 @@ final class VoiceEngine: NSObject {
         input = engine.inputNode
         echoCancellationEnabled = false
       }
+    }
+    do {
+      if !selectedUID.isEmpty { try AudioInputDevices.select(selectedInput, on: input) }
+    } catch {
+      if engine === output { replacePlaybackGraph() }
+      echoCancellationEnabled = false
+      setState("unavailable", error: "Could not select this microphone. Refresh the microphone list or choose another input in Voice settings.")
+      return
     }
     let format = input.outputFormat(forBus: 0)
     logger.info(
@@ -1038,6 +1062,17 @@ final class VoiceEngine: NSObject {
 
   private func tick() {
     let current = Date()
+    if enabled && !muted && settings["voice_enabled"] as? Bool != false
+      && !(locked && settings["voice_on_lock_screen"] as? Bool != true)
+      && current.timeIntervalSince(lastInputRouteCheck) >= 2 {
+      lastInputRouteCheck = current
+      let uid = settings["microphone_device_uid"] as? String ?? ""
+      let device = AudioInputSelection.resolve(uid, devices: AudioInputDevices.list())
+      if inputRouteWatch.observe(uid, device: device) {
+        restartCapture()
+        return
+      }
+    }
     if !muted && capture?.isRunning == true && current.timeIntervalSince(lastInputBuffer) > 5 {
       closeLive()
       stopCapture()
@@ -1275,6 +1310,9 @@ final class VoiceEngine: NSObject {
       "recognition_task": recognitionTaskState.rawValue,
       "recognition_recoveries": recognitionRecoveries,
       "wake_recovery_supported": true,
+      "audio_input_selection_supported": true,
+      "input_device_state": inputDeviceMissing ? "missing" : ((settings["microphone_device_uid"] as? String ?? "").isEmpty ? "system_default" : "selected"),
+      "capture_running": capture?.isRunning == true,
       "capture_input_level": captureInputLevel,
       "recognition_input_level": inputLevel,
       "echo_cancellation": echoCancellationEnabled ? "active" : (wantsAutomaticInterruption ? "fallback" : "off"),
