@@ -307,6 +307,8 @@ async def test_lighting_api_saves_and_edits_unicode_model_labels(config, monkeyp
         assert edited.json()["model"] == registration["model"]
         restored = Lighting(runtime).list()
         assert len(restored) == 1 and restored[0]["model"] == registration["model"]
+        saved = json.loads(runtime.lighting.path.read_text(encoding="utf-8"))
+        assert saved[0]["registration"]["model"] == registration["model"]
         before = runtime.lighting.path.read_bytes()
         for invalid in ("Fixture\nmodel", "Fixture\x00model", "Fixture\u202emodel", "X" * 101):
             rejected = await client.put("/api/lights/" + device["id"], json={**registration, "model": invalid})

@@ -157,7 +157,7 @@ class Lighting:
         self.native_lock = asyncio.Lock()
         if self.path.exists():
             protect_path(self.path)
-            saved = json.loads(self.path.read_text())
+            saved = json.loads(self.path.read_text(encoding="utf-8"))
             if not isinstance(saved, list) or len(saved) > 50:
                 raise ValueError("Invalid local lighting configuration.")
             for item in saved:
@@ -171,7 +171,7 @@ class Lighting:
     def _save(self):
         temp = self.path.with_suffix(".tmp")
         fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "w") as stream:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
             json.dump(self.devices, stream, ensure_ascii=False, indent=2)
             stream.flush()
             os.fsync(stream.fileno())
