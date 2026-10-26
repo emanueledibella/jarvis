@@ -6,6 +6,7 @@ import json
 import os
 import sys
 import webbrowser
+from functools import partial
 
 import httpx
 from pydantic import ValidationError
@@ -103,13 +104,23 @@ def main():
             print("Configuration is valid.")
         return
     if args.command == "open":
+        from .desktop import existing_service
+
+        try:
+            if not existing_service(config):
+                raise RuntimeError("Start Jarvis before opening the dashboard.")
+        except (RuntimeError, httpx.HTTPError) as error:
+            print(str(error), file=sys.stderr)
+            raise SystemExit(1) from None
         webbrowser.open(url + "/#token=" + config.token)
         return
 
     async def call():
+        from .desktop import authorize_local_request
+
         async with httpx.AsyncClient(
             base_url=url,
-            headers={"Authorization": "Bearer " + config.token},
+            event_hooks={"request": [partial(authorize_local_request, config=config)]},
             timeout=130,
             trust_env=False,
         ) as client:

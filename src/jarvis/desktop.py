@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import secrets
 import threading
 import time
@@ -24,27 +25,61 @@ def existing_service(config) -> bool:
     try:
         # Windows can take over a second to reject a closed loopback port.
         with httpx.Client(timeout=httpx.Timeout(2, connect=5), trust_env=False) as client:
-            response = client.get(
-                f"http://127.0.0.1:{config.settings.api_port}/health",
+            with client.stream(
+                "GET", f"http://127.0.0.1:{config.settings.api_port}/health",
                 params={"challenge": challenge},
-            )
+            ) as response:
+                response.raise_for_status()
+                body = bytearray()
+                for chunk in response.iter_bytes():
+                    body.extend(chunk)
+                    if len(body) > 4096:
+                        raise ValueError("Local service proof exceeds its size limit.")
+                received = json.loads(body).get("proof", "")
+                expected = health_proof(config.token, config.settings.api_port, challenge)
+                if isinstance(received, str) and hmac.compare_digest(
+                    received.encode(), expected.encode()
+                ):
+                    return True
     except httpx.ConnectError:
         return False
     except httpx.TimeoutException as error:
         raise RuntimeError(
             "Timed out verifying the local Jarvis port. Check JARVIS_API_PORT and the local listener; no token was sent."
         ) from error
-    try:
-        response.raise_for_status()
-        received = response.json().get("proof", "")
-        expected = health_proof(config.token, config.settings.api_port, challenge)
-        if isinstance(received, str) and hmac.compare_digest(received, expected):
-            return True
-    except (httpx.HTTPError, ValueError):
+    except (httpx.HTTPError, ValueError, AttributeError):
         pass
     raise RuntimeError(
         "The configured port is occupied by an unverified service. Stop it or configure another JARVIS_API_PORT; no token was sent."
     )
+
+
+async def authorize_local_request(request: httpx.Request, *, config):
+    """Verify a fresh peer proof before adding credentials to every CLI request."""
+    port = config.settings.api_port
+    if (request.url.scheme, request.url.host, request.url.port) != ("http", "127.0.0.1", port):
+        raise ValueError("A local service request cannot leave its configured origin.")
+    nonce = secrets.token_urlsafe(24)
+    async with httpx.AsyncClient(timeout=6, trust_env=False) as probe:
+        async with probe.stream(
+            "GET", f"http://127.0.0.1:{port}/health", params={"challenge": nonce}
+        ) as response:
+            response.raise_for_status()
+            body = bytearray()
+            async for chunk in response.aiter_bytes():
+                body.extend(chunk)
+                if len(body) > 4096:
+                    raise ValueError("Local service proof exceeds its size limit.")
+    try:
+        proof = json.loads(body).get("proof", "")
+        valid = isinstance(proof, str) and hmac.compare_digest(
+            proof.encode(), health_proof(config.token, port, nonce).encode()
+        )
+    except (ValueError, AttributeError):
+        valid = False
+    if not valid:
+        raise ValueError("Local service verification failed; no token was sent.")
+    request.headers["Authorization"] = "Bearer " + config.token
 
 
 def open_dashboard(config):

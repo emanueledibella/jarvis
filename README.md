@@ -179,7 +179,7 @@ Read the [security policy](SECURITY.md) and [audit/remediation record](docs/17-s
 
 The [dossier](docs/README.md) contains GitHub research, 132 requirements, architecture, and decisions. The [implementation design](docs/10-progetto-esecutivo.md) records implemented choices. The [operations/coverage guide](docs/11-implementazione-e-verifica.md) distinguishes automated tests, real experiments, and integrations awaiting authorization. Existing document filenames are retained to preserve links.
 
-Cross-platform verification collects **106 Python tests**, with platform-specific skips, plus **34 Swift regression scenarios** on macOS. It also checks TypeScript/Vite, Python lint, Mac bundle compilation/signing, and actual Windows/Linux executables. See [platform verification evidence](docs/16-cross-platform-builds.md#verification-results).
+Cross-platform verification collects **110 Python tests**, with platform-specific skips, plus **34 Swift regression scenarios** on macOS. It also checks TypeScript/Vite, Python lint, Mac bundle compilation/signing, and actual Windows/Linux executables. See [platform verification evidence](docs/16-cross-platform-builds.md#verification-results).
 
 Account-specific integration tests should be recorded privately. Public regression tests use synthetic fixtures and never need a personal provider key, calendar, phone number, or memory corpus.
 

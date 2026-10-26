@@ -168,3 +168,42 @@ def test_platform_capabilities_do_not_promise_apple_apis_elsewhere():
     value = capabilities()
     assert value["dashboard"] and value["agents"] and value["workspace_tools"]
     assert value["native_voice"] == (sys.platform == "darwin")
+
+
+@pytest.mark.parametrize("proof_kind", ["valid", "forged", "unicode", "oversized"])
+def test_cli_verifies_the_listener_before_sending_credentials(config, monkeypatch, proof_kind):
+    from jarvis.cli import main
+
+    observed = []
+
+    def handle(request):
+        observed.append(request)
+        if request.url.path == "/health":
+            assert "authorization" not in request.headers
+            nonce = request.url.params["challenge"]
+            proof = health_proof(config.token, config.settings.api_port, nonce)
+            if proof_kind == "forged":
+                proof = "forged"
+            elif proof_kind == "unicode":
+                proof = "非認証"
+            elif proof_kind == "oversized":
+                proof = "x" * 5000
+            return httpx.Response(200, json={"proof": proof})
+        assert request.headers["authorization"] == "Bearer " + config.token
+        return httpx.Response(200, json={"status": "ok"})
+
+    real_client = httpx.AsyncClient
+    monkeypatch.setattr(
+        "httpx.AsyncClient",
+        lambda **kwargs: real_client(transport=httpx.MockTransport(handle), **kwargs),
+    )
+    monkeypatch.setattr("jarvis.cli.ConfigStore", lambda *args: config)
+    monkeypatch.setattr(sys, "argv", ["jarvis", "status"])
+    if proof_kind == "valid":
+        main()
+        assert [r.url.path for r in observed] == ["/health", "/api/status"]
+    else:
+        with pytest.raises(SystemExit) as result:
+            main()
+        assert result.value.code == 1
+        assert [r.url.path for r in observed] == ["/health"]
