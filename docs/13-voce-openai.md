@@ -10,7 +10,7 @@ Convert microphone input to mono 24 kHz PCM16. A 1.5-second pre-roll preserves t
 
 Play response audio as it arrives, deriving orb levels from actual buffers. This is AI-generated speech. OpenAI errors do not silently fall back to Apple synthesis; show the error.
 
-Default `gated` mode suppresses microphone audio during playback and a short trailing interval, preventing speaker echo from generating another request. Already-captured command audio is preserved. ⌘⇧J lets the owner take the floor again. Isolating headphones can use `full` for listening during speech; verify acoustic isolation on the actual device.
+Default `echo_cancelled` mode uses a shared native audio graph for echo cancellation and local speech classification. Its uplink stays protected during playback; detected user speech stops the answer and preserves the request onset for a fresh voice connection. Unsupported processing retains gated protection. Existing `gated` mode uses ⌘⇧J for manual interruption. Isolating headphones can use `full` for input during speech. See [spoken interruption](20-spoken-interruption.md) for lifecycle, RAM context, and device validation.
 
 Keep the MacBook lid open for the built-in microphone. Closed-lid use requires external input. Apple Silicon laptops physically disconnect that microphone: [Apple documentation](https://support.apple.com/en-gb/guide/security/secbbd20b00b/1/web/1).
 

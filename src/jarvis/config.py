@@ -75,7 +75,7 @@ class Settings(BaseSettings):
     desktop_voice_model: str = "gpt-live-1"
     desktop_voice_name: str = "cedar"
     desktop_voice_style: str = Field(default=ITALIAN_COMPANION, max_length=2000)
-    desktop_voice_duplex: Literal["gated", "full"] = "gated"
+    desktop_voice_duplex: Literal["echo_cancelled", "gated", "full"] = "echo_cancelled"
     desktop_voice_api_key: SecretStr = SecretStr("")
     desktop_voice_max_session_seconds: int = Field(default=120, ge=15, le=900)
     desktop_voice_idle_seconds: int = Field(default=30, ge=5, le=120)

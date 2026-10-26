@@ -679,5 +679,13 @@
   "The model runs on your computer.": "Il modello viene eseguito sul tuo computer.",
   "The token authenticates only the service on your computer.": "Il token autentica solo il servizio sul tuo computer.",
   "Execution requires an awake computer. The selected recovery rule applies after wake.": "Il computer deve essere attivo. Dopo il risveglio si applica la regola di recupero selezionata.",
-  "Verified not created": "Creazione esclusa dopo verifica"
+  "Verified not created": "Creazione esclusa dopo verifica",
+  "Automatic · interrupt by speaking": "Automatico · interrompi parlando",
+  "Automatic interruption uses local echo cancellation to distinguish your speech from Jarvis. Unsupported devices keep input protected during playback. ⌘⇧J always lets you take the floor.": "L’interruzione automatica usa la cancellazione locale dell’eco per distinguere la tua voce da Jarvis. Sui dispositivi non supportati l’ingresso resta protetto durante la riproduzione. Con ⌘⇧J puoi sempre riprendere la parola.",
+  "Speech interruption is unavailable. Echo protection remains active; use ⌘⇧J.": "L’interruzione vocale non è disponibile. La protezione dall’eco resta attiva; usa ⌘⇧J.",
+  "Press ⌘⇧J to stop playback and speak.": "Premi ⌘⇧J per fermare la riproduzione e parlare.",
+  "Automatic interruption is unavailable on this audio device. Echo protection remains on; use ⌘⇧J to speak.": "L’interruzione automatica non è disponibile su questo dispositivo audio. La protezione dall’eco resta attiva; usa ⌘⇧J per parlare.",
+  "Enable voice to activate echo cancellation and spoken interruption.": "Abilita la voce per attivare la cancellazione dell’eco e l’interruzione vocale.",
+  "Echo cancellation and spoken interruption are active.": "La cancellazione dell’eco e l’interruzione vocale sono attive.",
+  "Local echo cancellation is active.": "La cancellazione locale dell’eco è attiva."
 }

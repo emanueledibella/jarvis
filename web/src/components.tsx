@@ -261,10 +261,12 @@ export function Orb({
   state = "unavailable",
   level = 0,
   small = false,
+  interruptible = false,
 }: {
   state?: string;
   level?: number;
   small?: boolean;
+  interruptible?: boolean;
 }) {
   useI18n();
   const descriptions: Record<string, [string, string]> = {
@@ -275,7 +277,12 @@ export function Orb({
       "Voice input is active; your configured provider processes the conversation.",
     ],
     processing: ["Working on it.", "Follow the steps in Tasks."],
-    speaking: ["An answer, with context.", "You can interrupt while I speak."],
+    speaking: [
+      "An answer, with context.",
+      interruptible
+        ? "You can interrupt while I speak."
+        : "Press ⌘⇧J to stop playback and speak.",
+    ],
     followup: ["Go ahead.", "Continue without repeating “Jarvis”."],
     muted: ["Ready when you are.", "The microphone is muted."],
     recovering: [

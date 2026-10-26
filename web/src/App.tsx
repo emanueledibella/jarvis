@@ -953,6 +953,7 @@ export default function App() {
           {page === "settings" && (
             <Settings
               platform={status.platform}
+              nativeVoice={status.native}
               key={settingsSection}
               initial={settingsSection}
               notify={notify}

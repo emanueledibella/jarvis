@@ -1,6 +1,6 @@
 # Jarvis — analysis and implementation
 
-Analysis started **October 24, 2026**, with subsequent voice, language, interface, portable build, and security updates. Version **0.1.0** includes the native Mac app and a portable Windows/Linux service/dashboard preview. Start with the [project README](../README.md) and [operations guide](11-implementazione-e-verifica.md). Chapters 01–09 preserve the initial dossier; 10–19 describe implemented choices and verification.
+Analysis started **October 24, 2026**, with subsequent voice, language, interface, portable build, and security updates. Version **0.1.0** includes the native Mac app and a portable Windows/Linux service/dashboard preview. Start with the [project README](../README.md) and [operations guide](11-implementazione-e-verifica.md). Chapters 01–09 preserve the initial dossier; 10–20 describe implemented choices and verification.
 
 ## Confirmed decisions
 
@@ -43,6 +43,7 @@ This selection follows documented comparisons/product constraints. Pipecat and L
 | [17 — Security audit](17-security-audit.md) | Publication privacy, corrected security boundaries, regression evidence and residual trust limits |
 | [18 — Interface language](18-interface-language.md) | English/Italian UI, persistence, native menus, independent voice language |
 | [19 — Wake response timing](19-wake-response-timing.md) | Local listening cues, cancellation during requests, expired greetings, bounded audio, verification limits |
+| [20 — Spoken interruption](20-spoken-interruption.md) | Shared echo cancellation, local speech detection, protected fallback, fresh playback generation and RAM-only conversation handoff |
 | [16 — Cross-platform builds](16-cross-platform-builds.md) | Windows/Linux portable packages, OS boundaries, universal dependencies, native CI, build and verification procedures |
 
 The catalog has **132 functional requirements**: 96 P0, 34 P1, two P2. Priorities describe product completeness; the roadmap distinguishes first demo from later delivery. Existing numbered filenames are stable to preserve links.

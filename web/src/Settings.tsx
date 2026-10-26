@@ -31,12 +31,14 @@ import {
 
 type Props = {
   platform?: Json;
+  nativeVoice?: Json;
   notify: (text: string, error?: boolean) => void;
   onSaved: () => void;
   initial?: string;
 };
 export default function Settings({
   platform,
+  nativeVoice,
   notify,
   onSaved,
   initial = "interface",
@@ -553,9 +555,13 @@ export default function Settings({
               tr("Microphone during playback"),
               "text",
               tr(
-                "With speakers, input audio is gated during playback to prevent commands caused by echo. Press ⌘⇧J to take the floor again.",
+                "Automatic interruption uses local echo cancellation to distinguish your speech from Jarvis. Unsupported devices keep input protected during playback. ⌘⇧J always lets you take the floor.",
               ),
               [
+                {
+                  value: "echo_cancelled",
+                  label: tr("Automatic · interrupt by speaking"),
+                },
                 { value: "gated", label: tr("Speakers · echo protection") },
                 {
                   value: "full",
@@ -563,6 +569,26 @@ export default function Settings({
                 },
               ],
             )}
+            {values.desktop_voice_duplex === "echo_cancelled" &&
+              values.desktop_voice_provider === "openai_live" &&
+              platform?.native_voice !== false && (
+                <p className="info-line" role="status">
+                  {nativeVoice?.barge_in
+                    ? tr(
+                        "Echo cancellation and spoken interruption are active.",
+                      )
+                    : nativeVoice?.echo_cancellation === "active"
+                      ? tr("Local echo cancellation is active.")
+                      : nativeVoice?.microphone === "authorized" &&
+                          !nativeVoice?.muted
+                        ? tr(
+                            "Automatic interruption is unavailable on this audio device. Echo protection remains on; use ⌘⇧J to speak.",
+                          )
+                        : tr(
+                            "Enable voice to activate echo cancellation and spoken interruption.",
+                          )}
+                </p>
+              )}
             {field(
               "desktop_voice_name",
               tr("OpenAI voice name or custom ID"),

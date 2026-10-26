@@ -59,7 +59,7 @@ The monthly ledger covers cloud LLM requests and recorded OpenAI desktop voice s
 | `JARVIS_DESKTOP_VOICE_MODEL` | string | `gpt-live-1` |  |
 | `JARVIS_DESKTOP_VOICE_NAME` | string | `cedar` | Built-in name or saved voice_… ID |
 | `JARVIS_DESKTOP_VOICE_STYLE` | string | Italian companion vocal profile | maxLength: 2000; full description in chapter 14 |
-| `JARVIS_DESKTOP_VOICE_DUPLEX` | gated, full | `gated` |  |
+| `JARVIS_DESKTOP_VOICE_DUPLEX` | echo_cancelled, gated, full | `echo_cancelled` | Local echo cancellation and spoken interruption on native Mac; protected fallback. See chapter 20. |
 | `JARVIS_DESKTOP_VOICE_API_KEY` | string | `secret, empty` |  |
 | `JARVIS_DESKTOP_VOICE_MAX_SESSION_SECONDS` | integer | `120` | minimum: 15, maximum: 900 |
 | `JARVIS_DESKTOP_VOICE_IDLE_SECONDS` | integer | `30` | minimum: 5, maximum: 120 |

@@ -253,6 +253,7 @@ export default function CommandCenter({
                     : orbState
                 }
                 level={level}
+                interruptible={Boolean(status.native?.barge_in)}
               />
             </div>
           </div>

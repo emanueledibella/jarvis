@@ -346,3 +346,98 @@ async def test_private_prefix_is_not_persisted(runtime, monkeypatch):
     assert not await runtime.db.fetchall("SELECT * FROM messages")
     row = await runtime.db.fetchone("SELECT * FROM tasks")
     assert row["prompt"] == row["result"] == ""
+
+
+@pytest.mark.parametrize("private", [False, True])
+async def test_interrupted_voice_resumes_with_bounded_ram_history_and_no_action_replay(runtime, private):
+    configure(runtime)
+    if private:
+        await runtime.set_voice_session(True, "personal")
+
+    class Speaking(Connection):
+        async def start(self, *, session):
+            await super().start(session=session)
+            await self.events.put({
+                "type": "session.input_transcript.delta", "delta": "Tell me a story",
+                "start_ms": 0, "end_ms": 1000,
+            })
+            await self.events.put({"type": "session.output_transcript.delta", "delta": "Once upon a time"})
+
+    class InterruptedPeer(Peer):
+        async def send_json(self, event):
+            await super().send_json(event)
+            if event["type"] == "output_text":
+                await self.incoming.put({"type": "close", "handoff": True})
+
+    first = InterruptedPeer()
+    await asyncio.wait_for(runtime.live_voice.serve(
+        first, start(runtime, private=private), client_factory=factory(Speaking(delegate=False))
+    ), 5)
+    resume_id = next(event["resume_id"] for event in first.events if event["type"] == "ready")
+    assert resume_id in runtime.live_voice.contexts.entries
+
+    async def done(peer):
+        await peer.incoming.put({"type": "close"})
+
+    second = Connection(delegate=False)
+    await asyncio.wait_for(runtime.live_voice.serve(
+        Peer(on_ready=done), start(runtime, private=private, resume_id=resume_id),
+        client_factory=factory(second),
+    ), 5)
+    assert [item["role"] for item in second.configuration["input"]] == ["user", "assistant"]
+    assert second.configuration["input"][-1] == {
+        "role": "assistant", "status": "incomplete",
+        "content": [{"type": "output_text", "text": "Once upon a time"}],
+    }
+    assert "not proof it was heard" in second.configuration["instructions"]
+    assert not await runtime.db.fetchall("SELECT * FROM tasks")
+    assert not await runtime.db.fetchall("SELECT * FROM messages")
+    assert not runtime.live_voice.contexts.entries
+    assert not runtime.live_voice.sessions
+    assert len(await runtime.db.fetchall("SELECT * FROM model_usage")) == 2
+
+
+async def test_normal_voice_close_leaves_no_resumable_history(runtime):
+    configure(runtime)
+
+    async def done(peer):
+        await peer.incoming.put({"type": "close"})
+
+    await asyncio.wait_for(runtime.live_voice.serve(
+        Peer(on_ready=done), start(runtime), client_factory=factory(Connection(delegate=False))
+    ), 5)
+    assert not runtime.live_voice.contexts.entries
+
+
+async def test_interruption_preserves_accepted_task_identity_without_resubmitting(runtime, monkeypatch):
+    configure(runtime)
+    monkeypatch.setattr(runtime.tasks, "model", model_factory())
+
+    class InterruptedTaskPeer(Peer):
+        async def send_json(self, event):
+            self.events.append(event)
+            if event["type"] == "task" and event["state"] == "succeeded":
+                await self.incoming.put({"type": "close", "handoff": True})
+
+    first = InterruptedTaskPeer()
+    await asyncio.wait_for(runtime.live_voice.serve(
+        first, start(runtime), client_factory=factory(Connection())
+    ), 5)
+    resume_id = next(event["resume_id"] for event in first.events if event["type"] == "ready")
+    accepted = await runtime.db.fetchone("SELECT * FROM tasks")
+    assert runtime.live_voice.contexts.entries[resume_id].conversation_id == accepted["conversation_id"]
+
+    async def forbidden(*args, **kwargs):
+        raise AssertionError("Restoring voice context must not resubmit an accepted action")
+
+    monkeypatch.setattr(runtime.tasks, "create", forbidden)
+
+    async def done(peer):
+        await peer.incoming.put({"type": "close"})
+
+    await asyncio.wait_for(runtime.live_voice.serve(
+        Peer(on_ready=done), start(runtime, resume_id=resume_id),
+        client_factory=factory(Connection(delegate=False)),
+    ), 5)
+    assert len(await runtime.db.fetchall("SELECT * FROM tasks")) == 1
+    assert not runtime.live_voice.contexts.entries

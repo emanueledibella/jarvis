@@ -16,8 +16,14 @@ final class VoiceEngine: NSObject {
   private let requestLock = NSLock()
   private var speechRequest: SFSpeechAudioBufferRecognitionRequest?
   private var speechAudioStartFrame: Int64?
-  private let output = AVAudioEngine()
-  private let player = AVAudioPlayerNode()
+  private var recognitionSeed: (frame: Int64, data: Data)?
+  private var activityDetector: SpeechActivityDetector?
+  private var detectionGeneration = UUID()
+  private var echoCancellationEnabled = false
+  private var bargeIn = BargeInPolicy()
+  private var interruptionCount = 0
+  private var output = AVAudioEngine()
+  private var player = AVAudioPlayerNode()
   private let synth = AVSpeechSynthesizer()
   private let playbackConverter = PlaybackPCMConverter()
   private var playbackFormat: AVAudioFormat { playbackConverter.format }
@@ -33,6 +39,8 @@ final class VoiceEngine: NSObject {
   private var lastLiveSpeech = Date.distantPast
   private var lastPlaybackSound = Date.distantPast
   private var initialLiveSpeech: String?
+  private var liveResumeID: String?
+  private var nextResumeID: String?
   private var liveInputPrepared = false
   private var wakeReply = WakeAcknowledgement()
   private var wakeReplyPlayer: AVAudioPlayer?
@@ -84,6 +92,13 @@ final class VoiceEngine: NSObject {
   init(client: ServiceClient) {
     self.client = client
     super.init()
+    configurePlaybackGraph()
+    timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+      Task { @MainActor in self?.tick() }
+    }
+  }
+
+  private func configurePlaybackGraph() {
     output.attach(player)
     output.connect(player, to: output.mainMixerNode, format: playbackFormat)
     output.mainMixerNode.installTap(onBus: 0, bufferSize: 1024, format: nil) {
@@ -94,9 +109,25 @@ final class VoiceEngine: NSObject {
         if level > 0.01 { self?.lastPlaybackSound = Date() }
       }
     }
-    timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
-      Task { @MainActor in self?.tick() }
-    }
+  }
+
+  private func replacePlaybackGraph() {
+    output.stop()
+    output.mainMixerNode.removeTap(onBus: 0)
+    output.detach(player)
+    output = AVAudioEngine()
+    player = AVAudioPlayerNode()
+    configurePlaybackGraph()
+  }
+
+  private func stopOutputIfSeparate() {
+    // A shared voice-processing engine must keep pulling microphone input when
+    // only speech playback is stopped. Mute releases the entire graph instead.
+    if capture !== output { output.stop() }
+  }
+
+  private var wantsAutomaticInterruption: Bool {
+    usesOpenAIVoice && settings["desktop_voice_duplex"] as? String == "echo_cancelled"
   }
 
   nonisolated private static func rms(_ buffer: AVAudioPCMBuffer) -> Float {
@@ -111,6 +142,7 @@ final class VoiceEngine: NSObject {
     let previousProvider = settings["desktop_voice_provider"] as? String
     let previousProfile = settings["profile"] as? String
     let previousResponseLanguage = settings["response_language"] as? String
+    let previousDuplex = settings["desktop_voice_duplex"] as? String
     settings = values
     if previousProvider != nil && previousProvider != values["desktop_voice_provider"] as? String {
       closeLive()
@@ -132,9 +164,11 @@ final class VoiceEngine: NSObject {
       mute()
       return
     }
-    if previousLanguage != nil && previousLanguage != values["language"] as? String && enabled
-      && !muted
-    {
+    let captureChanged = (previousLanguage != nil && previousLanguage != values["language"] as? String)
+      || (previousDuplex != nil && previousDuplex != values["desktop_voice_duplex"] as? String)
+      || (previousProvider != nil && previousProvider != values["desktop_voice_provider"] as? String)
+      || (previousProfile != nil && previousProfile != values["profile"] as? String)
+    if captureChanged && enabled && !muted {
       restartCapture()
     }
     // Existing grants can resume at login. First-time requests are made only by
@@ -225,6 +259,9 @@ final class VoiceEngine: NSObject {
       conversationID = nil
       sessionGeneration = UUID()
       closeLive()
+      liveAudio.clear()
+      recognitionSeed = nil
+      if !muted && !locked { resetRecognition() }
     }
   }
 
@@ -239,8 +276,8 @@ final class VoiceEngine: NSObject {
     }
   }
 
-  func restartCapture() {
-    closeLive()
+  func restartCapture(allowEchoCancellation: Bool = true) {
+    stopSpeaking()
     stopCapture()
     guard
       enabled && !muted && settings["voice_enabled"] as? Bool != false
@@ -268,30 +305,51 @@ final class VoiceEngine: NSObject {
       return
     }
     self.recognizer = recognizer
-    let engine = AVAudioEngine()
-    let input = engine.inputNode
+    var engine = wantsAutomaticInterruption && allowEchoCancellation ? output : AVAudioEngine()
+    var input = engine.inputNode
     let cloudAudio = liveAudio
-    // Capture and playback use separate graphs. Enabling VoiceProcessingIO
-    // here gives it no playback reference and can fail continuously in its
-    // downlink renderer (!i/o). Use the hardware microphone stream directly.
+    if wantsAutomaticInterruption && allowEchoCancellation {
+      do {
+        // Both sides share VoiceProcessingIO, including the actual player. A
+        // capture-only processing graph has no valid far-end echo reference.
+        try input.setVoiceProcessingEnabled(true)
+        guard input.isVoiceProcessingEnabled else {
+          throw ServiceClient.ClientError.server("Echo cancellation is unavailable.")
+        }
+        input.isVoiceProcessingAGCEnabled = false
+        input.voiceProcessingOtherAudioDuckingConfiguration = .init(
+          enableAdvancedDucking: false, duckingLevel: .min)
+        echoCancellationEnabled = true
+      } catch {
+        // Never silently switch speaker interruption to an unprotected mic.
+        replacePlaybackGraph()
+        engine = AVAudioEngine()
+        input = engine.inputNode
+        echoCancellationEnabled = false
+      }
+    }
     let format = input.outputFormat(forBus: 0)
     logger.info(
       "Capture format: rate=\(format.sampleRate, privacy: .public) channels=\(format.channelCount, privacy: .public)"
     )
     guard format.sampleRate > 0 && format.channelCount > 0 else {
+      if engine === output { replacePlaybackGraph() }
+      echoCancellationEnabled = false
       setState("unavailable", error: "Microphone is unavailable.")
       return
     }
     input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
       guard let self = self else { return }
       let firstFrame = cloudAudio.position()
-      cloudAudio.append(buffer)
+      guard let converted = cloudAudio.append(buffer) else { return }
       self.requestLock.lock()
       if self.speechRequest != nil && self.speechAudioStartFrame == nil {
         self.speechAudioStartFrame = firstFrame
       }
-      self.speechRequest?.append(buffer)
+      self.speechRequest?.append(converted)
+      let detector = self.activityDetector
       self.requestLock.unlock()
+      detector?.append(converted, atFrame: firstFrame)
       let level = Self.rms(buffer)
       DispatchQueue.main.async {
         self.inputBuffers += 1
@@ -315,18 +373,30 @@ final class VoiceEngine: NSObject {
       setState("armed")
     } catch {
       input.removeTap(onBus: 0)
+      let retryWithoutProcessing = echoCancellationEnabled
+      if engine === output { replacePlaybackGraph() }
+      echoCancellationEnabled = false
+      if retryWithoutProcessing {
+        restartCapture(allowEchoCancellation: false)
+        return
+      }
       setState("unavailable", error: "Audio startup failed: check the device and permissions.")
     }
   }
 
   private func stopCapture() {
     cancelOpeningTurn()
+    stopSpeechDetection()
     cancelRecognition()
+    recognitionSeed = nil
+    let shared = capture === output
     if let engine = capture {
       engine.stop()
       engine.inputNode.removeTap(onBus: 0)
     }
     capture = nil
+    if shared { replacePlaybackGraph() }
+    echoCancellationEnabled = false
     inputLevel = 0
     liveAudio.clear()
   }
@@ -386,6 +456,11 @@ final class VoiceEngine: NSObject {
     speechRequest?.endAudio()
     speechRequest = request
     speechAudioStartFrame = nil
+    if let seed = recognitionSeed, let audio = LiveAudioBuffer.buffer(seed.data) {
+      speechAudioStartFrame = seed.frame
+      request.append(audio)
+    }
+    recognitionSeed = nil
     requestLock.unlock()
     lastTranscript = ""
     prefix = ""
@@ -518,7 +593,8 @@ final class VoiceEngine: NSObject {
     }
   }
 
-  private func beginTurn(_ text: String, wakeEndFrame: Int64? = nil, acknowledge: Bool = false) {
+  private func beginTurn(_ text: String, wakeEndFrame: Int64? = nil, acknowledge: Bool = false,
+                         audioSeed: Data? = nil) {
     turnPrivate = privateSession
     turnScope = voiceScope
     turnProfile = settings["profile"] as? String ?? "local_connected"
@@ -530,7 +606,7 @@ final class VoiceEngine: NSObject {
     if usesOpenAIVoice {
       stopWakeReply()
       wakeReplyPlayed = false
-      liveAudio.begin(afterFrame: wakeEndFrame, deferred: true)
+      liveAudio.begin(afterFrame: wakeEndFrame, deferred: true, seed: audioSeed)
       liveInputPrepared = true
       if acknowledge {
         let age = wakeEndFrame.map { Double(max(0, liveAudio.position() - $0)) / 24000 } ?? 0
@@ -588,6 +664,63 @@ final class VoiceEngine: NSObject {
       && settings["profile"] as? String != "local_strict"
   }
 
+  private func stopSpeechDetection() {
+    detectionGeneration = UUID()
+    requestLock.lock()
+    let previous = activityDetector
+    activityDetector = nil
+    requestLock.unlock()
+    previous?.cancel()
+    bargeIn.reset()
+  }
+
+  private func startSpeechDetection() {
+    stopSpeechDetection()
+    guard wantsAutomaticInterruption, echoCancellationEnabled, !muted,
+      capture?.isRunning == true else { return }
+    let generation = detectionGeneration
+    do {
+      let detector = try SpeechActivityDetector(
+        onSpeech: { [weak self] start, end, confidence in
+          Task { @MainActor in
+            guard let self = self, self.detectionGeneration == generation else { return }
+            self.handleSpeechActivity(start: start, end: end, confidence: confidence)
+          }
+        }, onFailure: { [weak self] in
+          Task { @MainActor in
+            guard let self = self, self.detectionGeneration == generation else { return }
+            self.stopSpeechDetection()
+            self.setState(self.state, error: "Speech interruption is unavailable. Echo protection remains active; use ⌘⇧J.")
+          }
+        })
+      requestLock.lock()
+      activityDetector = detector
+      requestLock.unlock()
+    } catch {
+      setState(state, error: "Speech interruption is unavailable. Echo protection remains active; use ⌘⇧J.")
+    }
+  }
+
+  private func handleSpeechActivity(start: Int64, end: Int64, confidence: Double) {
+    guard !muted, !(locked && settings["voice_on_lock_screen"] as? Bool != true),
+      liveSocket != nil || endingLive,
+      bargeIn.take(startFrame: start, endFrame: end, confidence: confidence,
+        currentFrame: liveAudio.position(), echoProtected: echoCancellationEnabled,
+        playing: pendingBuffers > 0 || player.isPlaying) else { return }
+    let seed = liveAudio.snapshot(afterFrame: max(0, start - 2400))
+    guard !seed.data.isEmpty else { return }
+    let resume = liveResumeID ?? nextResumeID
+    interruptionCount += 1
+    // Stop locally before any network work. Invalidating the old connection
+    // prevents queued or late packets from restarting the interrupted answer.
+    stopSpeaking(handoff: true)
+    beginTurn("", audioSeed: seed.data)
+    nextResumeID = resume
+    cancelRecognition()
+    recognitionSeed = seed
+    startRecognition()
+  }
+
   private func startLive(speech: String? = nil, initialText: String = "") {
     guard liveSocket == nil, settings["voice_enabled"] as? Bool != false else { return }
     let prepared = liveInputPrepared
@@ -605,6 +738,7 @@ final class VoiceEngine: NSObject {
     let generation = UUID()
     let session = sessionGeneration
     liveGeneration = generation
+    startSpeechDetection()
     if !muted && !prepared { liveAudio.begin() }
     var address = URLComponents(url: client.base, resolvingAgainstBaseURL: true)!
     address.scheme = "ws"
@@ -621,6 +755,8 @@ final class VoiceEngine: NSObject {
       "privacy_revision": settings["privacy_revision"] as? Int ?? 0,
     ]
     if !initialText.isEmpty { metadata["initial_text"] = initialText }
+    if let resume = nextResumeID { metadata["resume_id"] = resume }
+    nextResumeID = nil
     command = ""
     prefix = ""
     if let id = conversationID { metadata["conversation_id"] = id }
@@ -650,6 +786,7 @@ final class VoiceEngine: NSObject {
           switch event["type"] as? String {
           case "ready":
             self.liveReady = true
+            self.liveResumeID = event["resume_id"] as? String
             self.setState("listening")
             if let text = self.initialLiveSpeech {
               self.initialLiveSpeech = nil
@@ -721,6 +858,7 @@ final class VoiceEngine: NSObject {
     _ = bytes.withUnsafeBytes { raw in memcpy(destination, raw.baseAddress!, bytes.count) }
     let converted = try playbackConverter.convert(pcm)
     if Self.rms(converted) > 0.01 {
+      bargeIn.begin(atFrame: liveAudio.position())
       lastLiveSpeech = Date()
       if settings["desktop_voice_duplex"] as? String != "full" { liveAudio.setGated(true) }
       if state != "speaking" { setState("speaking") }
@@ -728,10 +866,13 @@ final class VoiceEngine: NSObject {
     try enqueuePlayback(converted, realtime: true)
   }
 
-  private func closeLive(error: String? = nil, drain: Bool = false) {
+  private func closeLive(error: String? = nil, drain: Bool = false, handoff: Bool = false) {
     let opening = liveInputPrepared
     cancelOpeningTurn()
+    liveResumeID = nil
+    nextResumeID = nil
     guard let socket = liveSocket else {
+      stopSpeechDetection()
       if opening {
         command = ""
         prefix = ""
@@ -758,18 +899,21 @@ final class VoiceEngine: NSObject {
     liveSender = nil
     liveAudio.clear()
     Task {
-      try? await socket.send(.string("{\"type\":\"close\"}"))
+      try? await socket.send(.string("{\"type\":\"close\",\"handoff\":\(handoff)}"))
       socket.cancel(with: .normalClosure, reason: nil)
     }
     if drain && pendingBuffers > 0 {
       endingLive = true
+      // A provider-ended session has already released its handoff handle.
+      // Its playback tail can still be stopped, starting a fresh conversation.
       finalBufferSeen = true
       startPlayback(force: true)
       return
     }
+    stopSpeechDetection()
     speechGeneration = UUID()
     player.stop()
-    output.stop()
+    stopOutputIfSeparate()
     pendingBuffers = 0
     resetPlayback()
     outputLevel = 0
@@ -847,14 +991,16 @@ final class VoiceEngine: NSObject {
       }
     }
     if liveSocket != nil {
-      if state == "speaking" && current.timeIntervalSince(lastLiveSpeech) > 0.6 {
+      if state == "speaking" && pendingBuffers == 0 && current.timeIntervalSince(lastLiveSpeech) > 0.6 {
         setState("listening")
       }
       if settings["desktop_voice_duplex"] as? String != "full"
+        && pendingBuffers == 0
         && current.timeIntervalSince(lastLiveSpeech) > 0.6
         && current.timeIntervalSince(lastPlaybackSound) > 0.4
       {
         liveAudio.setGated(false)
+        bargeIn.reset()
       }
     } else if state == "listening" {
       let silence = max(lastTextAt, lastSoundAt)
@@ -992,6 +1138,8 @@ final class VoiceEngine: NSObject {
     outputLevel = 0
     if endingLive {
       endingLive = false
+      nextResumeID = nil
+      stopSpeechDetection()
       liveAudio.clear()
       setState(muted ? "muted" : "armed")
       if !muted { scheduleRecognition(after: 0.4) }
@@ -1006,12 +1154,13 @@ final class VoiceEngine: NSObject {
     }
   }
 
-  func stopSpeaking() {
-    closeLive()
+  func stopSpeaking(handoff: Bool = false) {
+    closeLive(handoff: handoff)
+    endingLive = false
     speechGeneration = UUID()
     synth.stopSpeaking(at: .immediate)
     player.stop()
-    output.stop()
+    stopOutputIfSeparate()
     pendingBuffers = 0
     resetPlayback()
     finalBufferSeen = false
@@ -1036,6 +1185,9 @@ final class VoiceEngine: NSObject {
       "on_device": recognizer?.supportsOnDeviceRecognition ?? false, "muted": muted,
       "locked": locked, "input_buffers": inputBuffers,
       "recognition_callbacks": recognitionCallbacks, "wake_matches": wakeMatches,
+      "echo_cancellation": echoCancellationEnabled ? "active" : (wantsAutomaticInterruption ? "fallback" : "off"),
+      "barge_in": activityDetector != nil && echoCancellationEnabled,
+      "interruptions": interruptionCount,
     ]
     if let error = lastError { body["error"] = error }
     Task { _ = try? await client.request("/api/native/status", method: "POST", body: body) }

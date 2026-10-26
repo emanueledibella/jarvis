@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import binascii
+import copy
 import hmac
 import re
 import string
@@ -20,6 +21,7 @@ from .config import Profile
 from .db import uid
 from .language import language_instructions
 from .speech import speech_text
+from .voice_context import VoiceContextStore
 from .voice_style import SOURCE_POLICY, voice_reference
 
 LIVE_PROMPT = """You are Jarvis, the Mac owner's AI voice assistant.
@@ -52,6 +54,7 @@ class LiveStart(BaseModel):
     privacy_revision: int = Field(ge=0)
     conversation_id: str | None = None
     initial_text: str = Field(default="", max_length=2000)
+    resume_id: str | None = Field(default=None, max_length=64)
 
 
 def join_prefix(prefix: str, transcript: str) -> str:
@@ -79,10 +82,12 @@ class LiveVoice:
     def __init__(self, runtime):
         self.runtime = runtime
         self.sessions: set[asyncio.Event] = set()
+        self.contexts = VoiceContextStore()
 
     def stop_all(self):
         for stop in list(self.sessions):
             stop.set()
+        self.contexts.clear()
 
     def key(self):
         settings = self.runtime.config.settings
@@ -166,6 +171,10 @@ class LiveVoice:
     async def serve(self, websocket, metadata: LiveStart, *, client_factory=AsyncOpenAI):
         self.validate(metadata)
         key = self.key()
+        previous = self.contexts.resume(metadata.resume_id, metadata) if metadata.resume_id else None
+        if previous and len(self.sessions) >= 2:
+            await asyncio.wait_for(previous.closed.wait(), 6)
+            self.validate(metadata)
         if len(self.sessions) >= 2:
             raise ValueError("A voice conversation is already open. Close it before trying again.")
         settings = self.runtime.config.settings
@@ -173,6 +182,7 @@ class LiveVoice:
         rate = settings.desktop_voice_rate_usd_per_minute
         reservation = uid()
         stop, closed = asyncio.Event(), asyncio.Event()
+        context_id, context = self.contexts.create(metadata, stop, previous)
         self.sessions.add(stop)
         write_lock = asyncio.Lock()
         disconnected = False
@@ -183,11 +193,12 @@ class LiveVoice:
         processed_ids: set[str] = set()
         last_offset = -1
         opening_prefix = metadata.initial_text.strip()
-        conversation_id = metadata.conversation_id
+        conversation_id = context.conversation_id
         delegations: set[asyncio.Task] = set()
         tasks: list[asyncio.Task] = []
         completed_normally = False
         delegation_error = None
+        retain_context = False
 
         async def send(data):
             nonlocal disconnected
@@ -255,6 +266,7 @@ class LiveVoice:
                             channel="live",
                         )
                         conversation_id = task["conversation_id"]
+                        context.conversation_id = conversation_id
                         await send({"type": "task", **task})
                         while not stop.is_set():
                             row = await self.runtime.db.fetchone(
@@ -294,6 +306,7 @@ class LiveVoice:
                                         "type": "ready",
                                         "model": settings.desktop_voice_model,
                                         "voice": settings.desktop_voice_name,
+                                        "resume_id": context_id,
                                     }
                                 )
                             elif kind == "session.output_audio.delta":
@@ -301,6 +314,7 @@ class LiveVoice:
                                 await send({"type": "audio", "audio": event["delta"]})
                             elif kind == "session.input_transcript.delta":
                                 last_activity = time.monotonic()
+                                context.append("user", event["delta"])
                                 if (
                                     sum(len(p["delta"]) for p in fragments) + len(event["delta"])
                                     > 50000
@@ -314,6 +328,7 @@ class LiveVoice:
                                 await send({"type": "input_text", "text": event["delta"]})
                             elif kind == "session.output_transcript.delta":
                                 last_activity = time.monotonic()
+                                context.append("assistant", event["delta"])
                                 await send({"type": "output_text", "text": event["delta"]})
                             elif (
                                 kind == "session.delegation.created"
@@ -350,12 +365,13 @@ class LiveVoice:
                             raise ConnectionError("OpenAI session closed without a final event.")
 
                     async def receive_native():
-                        nonlocal disconnected
+                        nonlocal disconnected, retain_context
                         try:
                             while not stop.is_set():
                                 data = await websocket.receive_json()
                                 self.validate(metadata)
                                 if data.get("type") == "close":
+                                    retain_context = data.get("handoff") is True
                                     stop.set()
                                     return
                                 if data.get("type") == "say" and isinstance(data.get("text"), str):
@@ -397,18 +413,25 @@ class LiveVoice:
                         session={
                             "model": settings.desktop_voice_model,
                             "store": False,
-                            "input": [
+                            "input": copy.deepcopy(context.history) + [
                                 {
                                     "role": "user",
                                     "status": "incomplete",
                                     "content": [{"type": "input_text", "text": opening_prefix}],
                                 }
-                            ] if opening_prefix else [],
+                            ] if opening_prefix else copy.deepcopy(context.history),
                             "instructions": LIVE_PROMPT
                             + language_instructions(settings.response_language, settings.language)
                             + SOURCE_POLICY
                             + "\nVocal qualities: "
                             + settings.desktop_voice_style
+                            + (
+                                "\nThe previous voice answer was interrupted. Earlier assistant text is context, "
+                                "not proof it was heard. Wait for the current user request; do not resume the "
+                                "old answer, repeat an action, or issue a new greeting. Accepted backend work "
+                                "may still be running; never assume it was cancelled."
+                                if previous else ""
+                            )
                             + (
                                 "\nWhen using speakers, wait until the user finishes before speaking. Avoid spoken backchannels while they are still making their request."
                                 if settings.desktop_voice_duplex == "gated"
@@ -446,6 +469,9 @@ class LiveVoice:
                 task.cancel()
             await asyncio.gather(*cleanup, return_exceptions=True)
             self.sessions.discard(stop)
+            self.contexts.close(context_id, context)
+            if not retain_context:
+                self.contexts.discard(context_id)
             await self.runtime.budget.finish_voice(reservation, final_seconds, rate)
             if completed_normally:
                 await send({"type": "closed"})

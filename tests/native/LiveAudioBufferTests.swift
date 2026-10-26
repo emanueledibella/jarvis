@@ -101,6 +101,30 @@ struct LiveAudioBufferTests {
     for _ in 0..<10 { buffer.append(audio) }
     let afterFuture = try buffer.drain()
     expect(!afterFuture.isEmpty, "A future timestamp cannot discard subsequent microphone samples")
-    print("10 native audio buffering scenarios passed")
+
+    buffer.clear()
+    buffer.begin()
+    buffer.setGated(true)
+    let onset = buffer.position()
+    for _ in 0..<30 { buffer.append(audio) }
+    let seed = buffer.snapshot(afterFrame: onset)
+    expect(!seed.data.isEmpty && seed.data.contains { $0 != 0 },
+      "The local processed-input pre-roll retains user speech while provider uploads are gated")
+    let wire = try buffer.drain()
+    expect(wire.allSatisfy { $0 == 0 }, "The same gated samples must remain silent on the old provider connection")
+    buffer.clear()
+    buffer.begin(deferred: true, seed: seed.data)
+    let seeded = try buffer.drain()
+    expect(seeded == Data(seed.data.prefix(4800)), "A fresh connection starts with the user's preserved onset")
+    expect(LiveAudioBuffer.buffer(seed.data)?.frameLength == AVAudioFrameCount(seed.data.count / 2),
+      "The local recognizer receives the same PCM16 onset before live input resumes")
+    expect(LiveAudioBuffer.buffer(Data([0])) == nil && LiveAudioBuffer.buffer(Data(count: 72002)) == nil,
+      "Recognition seed decoding rejects incomplete or oversized samples")
+    for _ in 0..<400 { buffer.append(audio) }
+    expect(buffer.snapshot(afterFrame: 0).data.count <= 72000,
+      "The interruption history remains bounded even throughout active streaming")
+    buffer.clear()
+    expect(buffer.snapshot(afterFrame: 0).data.isEmpty, "Mute and privacy changes clear interruption history as well")
+    print("17 native audio buffering scenarios passed")
   }
 }

@@ -110,6 +110,8 @@ Choose **Settings → Interface → Interface language** (or **Impostazioni → 
 
 Text chat, authorized workspace tools, and reminders work without completing every connection.
 
+**Interrupt by speaking:** with OpenAI Live on the Mac, select **Settings → Voice → Microphone during playback → Automatic · interrupt by speaking**. Local echo cancellation protects the microphone while a speech detector stops playback when you speak. Unsupported processing keeps the manual ⌘⇧J fallback. Existing installations retain their saved mode until changed. See the [spoken interruption guide](docs/20-spoken-interruption.md) for conversation continuity and device validation.
+
 Keep the **MacBook lid open** for its built-in microphone. Apple Silicon physically disconnects it when closed, even with an external display and granted permissions. For closed-lid use, select external input in Sound → Input. Source: [Apple hardware security](https://support.apple.com/en-gb/guide/security/secbbd20b00b/1/web/1).
 
 ## Environment configuration
@@ -181,7 +183,7 @@ Read the [security policy](SECURITY.md) and [audit/remediation record](docs/17-s
 
 The [dossier](docs/README.md) contains GitHub research, 132 requirements, architecture, and decisions. The [implementation design](docs/10-progetto-esecutivo.md) records implemented choices. The [operations/coverage guide](docs/11-implementazione-e-verifica.md) distinguishes automated tests, real experiments, and integrations awaiting authorization. Existing document filenames are retained to preserve links.
 
-The current regression suite collects **127 Python tests**, with platform-specific skips, plus **60 Swift regression scenarios** on macOS. Validation also checks TypeScript/Vite, Python lint, Mac bundle compilation/signing, and actual Windows/Linux executables. See [platform verification evidence](docs/16-cross-platform-builds.md#verification-results) for the earlier portable baseline and [wake timing verification](docs/19-wake-response-timing.md#verification-and-practical-limits) for the added voice cases.
+The current regression suite collects **138 Python tests**, with platform-specific skips, plus **81 Swift regression scenarios** on macOS. Validation also checks TypeScript/Vite, Python lint, Mac bundle compilation/signing, and actual Windows/Linux executables. See [platform verification evidence](docs/16-cross-platform-builds.md#verification-results) for the earlier portable baseline, [wake timing](docs/19-wake-response-timing.md), and [spoken interruption](docs/20-spoken-interruption.md) for the added voice cases.
 
 Account-specific integration tests should be recorded privately. Public regression tests use synthetic fixtures and never need a personal provider key, calendar, phone number, or memory corpus.
 

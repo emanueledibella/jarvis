@@ -19,3 +19,5 @@ swiftc -swift-version 5 native/InterfaceLanguage.swift tests/native/InterfaceLan
 
 swiftc -swift-version 5 native/WakeAcknowledgement.swift tests/native/WakeAcknowledgementTests.swift -o "$JARVIS_NATIVE_TEST_DIR/wake-tests"
 "$JARVIS_NATIVE_TEST_DIR/wake-tests"
+swiftc -swift-version 5 native/BargeInPolicy.swift tests/native/BargeInPolicyTests.swift -o "$JARVIS_NATIVE_TEST_DIR/barge-in-tests"
+"$JARVIS_NATIVE_TEST_DIR/barge-in-tests"
