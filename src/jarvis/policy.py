@@ -120,6 +120,8 @@ class Gateway:
                 "Emergency stop is active. Re-enable the service from the dashboard."
             )
         ctx = active_task.get()
+        if risk == "lighting_direct" and name != "light_set":
+            raise PermissionError("A direct lighting grant cannot authorize another tool.")
         if name in {"memory_remember", "memory_change"} and (ctx.private or ctx.memory_blocked):
             raise PermissionError("This session does not allow memory writes.")
         was_sensitive = ctx.sensitive_context
@@ -133,6 +135,7 @@ class Gateway:
             "list_mcp_tools",
             "lights_list",
             "light_state",
+            "light_set",
         }:
             ctx.sensitive_context = True
         if name in {
@@ -161,6 +164,9 @@ class Gateway:
             )
             or (ctx.untrusted_context and risk in {"workspace", "schedule", "task", "memory"})
         )
+        # lighting_direct is supplied only after matching the complete current
+        # owner request to this registered light and its exact normalized change.
+        # Conversation history cannot revoke that narrow, already configured grant.
         # A broad owner grant cannot let later tool/page content authorize its
         # own effects, or authorize private data export through a new query.
         preauthorized = (

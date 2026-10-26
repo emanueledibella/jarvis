@@ -83,13 +83,23 @@ def build_tools(runtime):
         def decorate(function):
             async def run(**arguments):
                 operation_risk = risk
+                lighting_revision = None
                 if risk == "lighting":
                     try:
-                        operation_risk = runtime.lighting.tool_risk(arguments.get("device", ""), active_task.get().scope)
+                        ctx = active_task.get()
+                        change = LightChange(**{key: arguments.get(key) for key in LightChange.model_fields})
+                        operation_risk = runtime.lighting.tool_risk(arguments.get("device", ""), ctx.scope, prompt=ctx.prompt, change=change)
+                        if operation_risk == "lighting_direct":
+                            lighting_revision = runtime.lighting.revision
                     except (ValueError, PermissionError) as error:
                         raise ToolException(str(error)) from None
                 async def execute():
                     try:
+                        if lighting_revision is not None and (
+                            lighting_revision != runtime.lighting.revision
+                            or runtime.lighting.tool_risk(arguments.get("device", ""), ctx.scope, prompt=ctx.prompt, change=change) != "lighting_direct"
+                        ):
+                            raise PermissionError("The lighting operation was revoked or expired.")
                         async with asyncio.timeout(
                             runtime.config.settings.tool_timeout_seconds
                             if risk != "command"

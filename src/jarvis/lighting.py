@@ -16,6 +16,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from .db import uid
+from .light_intent import matches_light_target, requested_light_change
 from .platforms import protect_path
 from .policy import digest
 
@@ -207,14 +208,33 @@ class Lighting:
             raise ValueError("Choose a configured light by its exact name or ID. Nearby lights are not registered automatically.")
         return match[0]
 
-    def tool_risk(self, device: str, scope: str):
+    def tool_risk(self, device: str, scope: str, *, prompt: str = "", change: LightChange | None = None):
         self._guard()
-        return "lighting" if self.resolve(device, scope)["registration"]["voice_control"] else "external"
+        selected = self.resolve(device, scope)
+        if not selected["registration"]["voice_control"]:
+            return "external"
+        requested = requested_light_change(prompt, self.runtime.config.settings.wake_phrase)
+        if requested and change is not None:
+            target, fields = requested
+            choices = [item for item in self.devices if item["registration"]["scope"] == scope]
+            matches = [item for item in choices if matches_light_target(target, item["registration"]["name"], only_light=len(choices) == 1)]
+            try:
+                expected, actual = LightChange(**fields).normalized(), change.normalized()
+                if "color" in actual:
+                    actual["color"] = actual["color"].upper()
+                if len(matches) == 1 and matches[0]["id"] == selected["id"] and expected == actual:
+                    return "lighting_direct"
+            except ValidationError:
+                pass
+        return "lighting"
 
     async def _native(self, operation: str, arguments: dict, *, timeout=25):
         self._guard()
+        revision = self.revision
         async with self.native_lock:
             self._guard()
+            if revision != self.revision:
+                raise PermissionError("The lighting operation was revoked or expired.")
             nonce = uid()
             payload = {**arguments, "lighting_authorization": nonce, "lighting_revision": self.revision}
             self.authorizations[nonce] = digest([operation, payload])
