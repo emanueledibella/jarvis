@@ -19,10 +19,9 @@ from starlette.websockets import WebSocketDisconnect
 
 from .config import Profile
 from .db import uid
-from .language import language_instructions
 from .speech import speech_text
 from .voice_context import VoiceContextStore
-from .voice_style import SOURCE_POLICY, voice_reference
+from .voice_style import voice_api_key, voice_instructions, voice_reference
 
 LIVE_PROMPT = """You are Jarvis, the Mac owner's AI voice assistant.
 Use fluid, conversational phrasing and a warm, composed manner. Vary emphasis and brief pauses naturally.
@@ -94,14 +93,7 @@ class LiveVoice:
         self.contexts.clear()
 
     def key(self):
-        settings = self.runtime.config.settings
-        key = settings.secret("desktop_voice_api_key")
-        if (
-            not key
-            and settings.cloud_provider == "openai"
-            and settings.cloud_base_url.rstrip("/") in {"", "https://api.openai.com/v1"}
-        ):
-            key = settings.secret("cloud_api_key")
+        key = voice_api_key(self.runtime.config.settings)
         if not key:
             raise ValueError("Configure an OpenAI voice API key in Settings.")
         return key
@@ -425,10 +417,7 @@ class LiveVoice:
                                 }
                             ] if opening_prefix else copy.deepcopy(context.history),
                             "instructions": LIVE_PROMPT
-                            + language_instructions(settings.response_language, settings.language)
-                            + SOURCE_POLICY
-                            + "\nVocal qualities: "
-                            + settings.desktop_voice_style
+                            + voice_instructions(settings)
                             + (
                                 "\nThe previous voice answer was interrupted. Earlier assistant text is context, "
                                 "not proof it was heard. Wait for the current user request; do not resume the "

@@ -40,8 +40,13 @@ def signed(config, path, params):
     }
 
 
-async def test_phone_signature_pin_and_no_data_before_identity(config):
+@pytest.mark.parametrize("language,locale,prompt", [
+    ("auto", "it-IT", "Digita il tuo codice personale"),
+    ("en", "en-GB", "Enter your personal code"),
+])
+async def test_phone_signature_pin_and_no_data_before_identity(config, language, locale, prompt):
     phone_config(config)
+    config.update({"response_language": language})
     app = create_app(config, start_scheduler=False, process_lock=False)
     async with (
         app.router.lifespan_context(app),
@@ -56,6 +61,7 @@ async def test_phone_signature_pin_and_no_data_before_identity(config):
         )
         assert response.status_code == 200
         assert "<Gather" in response.text and "<Stream" not in response.text
+        assert f'language="{locale}"' in response.text and prompt in response.text
         runtime = app.state.runtime
         row = await runtime.db.fetchone("SELECT * FROM calls")
         path = "/telephony/voice?call_id=" + row["id"]
@@ -303,11 +309,11 @@ async def test_phone_dtmf_approves_only_the_proposal_read_back(runtime, tmp_path
                 await asyncio.sleep(0)
             for _ in range(200):
                 row = await runtime.db.fetchone("SELECT * FROM approvals WHERE state='pending'")
-                if row and any("Press one" in text for text in utterances):
+                if row and any("Premi uno" in text for text in utterances):
                     break
                 await asyncio.sleep(0.01)
             assert row and "echo approved" in next(
-                text for text in utterances if "Press one" in text
+                text for text in utterances if "Premi uno" in text
             )
             assert not await runtime.db.fetchall("SELECT * FROM effects")
             yield json.dumps({"event": "dtmf", "dtmf": {"digit": "1"}})

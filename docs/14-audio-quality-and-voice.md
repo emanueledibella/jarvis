@@ -28,6 +28,14 @@ A saved original voice can be selected by its ID in local settings. Voice IDs, a
 
 Live probes must keep paced input audio running, including silence for a greeting. Without an advancing input timeline, a context append can remain pending and fail when the session closes. See [Managing GPT-Live sessions](https://developers.openai.com/api/docs/guides/live-conversations#start-with-a-greeting).
 
+## The same voice on phone calls
+
+When desktop voice is OpenAI Live, Twilio conversations now use the same model, built-in or saved voice, vocal description, response-language instructions and API-key selection. A prompt-generated `voice_…` ID requires Live; copying it into the older `tts-1` speech endpoint cannot reproduce that voice. The phone audio settings identify the shared voice and hide separate legacy STT/TTS fields while Live is selected.
+
+The carrier verifies its signed webhook and PIN before opening any Live connection. Its initial PIN prompt uses an Italian or English carrier voice according to the response language, falling back to the recognition language in automatic mode. The conversation after verification uses the selected desktop voice. Phone μ-law audio passes through at 8 kHz with `audio/pcmu`; no second speech-recognition or synthesis model changes the voice or accent. Audio waits for `session.started` before being forwarded. See [OpenAI WebSocket audio formats](https://developers.openai.com/api/docs/guides/voice-websockets?api=live#choose-the-audio-format).
+
+Backend requests still run through the phone task channel and existing permission gateway. A keypad approval requires the exact proposed tool/arguments in the outgoing transcript and a Twilio playback mark acknowledgment; an interrupted or altered readback cannot authorize an effect. Keypad digits remain in application code. Profile/privacy changes and shutdown stop the bridge, while accepted tasks retain their normal lifecycle. Phone Live reserves the phone duration plus a closing margin in the monthly voice ledger, finalizes provider-reported seconds and retains the reservation when usage is unknown. Carrier reservations remain separate.
+
 ## Citations appropriate to the request
 
 The reasoning and voice models share `SOURCE_POLICY`:

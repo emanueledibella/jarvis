@@ -24,7 +24,9 @@ from twilio.request_validator import RequestValidator
 from twilio.twiml.voice_response import Connect, Gather, VoiceResponse
 
 from .db import now, uid
+from .phone_prompts import phone_language, phone_message
 from .speech import speech_text
+from .voice_style import voice_api_key
 
 
 def decode_mulaw(data: bytes) -> np.ndarray:
@@ -82,9 +84,12 @@ class Telephony:
                 r"\+[1-9][0-9]{6,14}", getattr(settings, name)
             ):
                 missing.append(name + "_e164")
-        if settings.phone_stt_provider == "openai" and not self.audio_key():
+        if self.uses_desktop_voice():
+            if not voice_api_key(settings):
+                missing.append("desktop_voice_api_key")
+        elif settings.phone_stt_provider == "openai" and not self.audio_key():
             missing.append("phone_api_key")
-        if settings.phone_stt_provider == "faster_whisper":
+        elif settings.phone_stt_provider == "faster_whisper":
             from importlib.util import find_spec
 
             if find_spec("faster_whisper") is None:
@@ -102,6 +107,12 @@ class Telephony:
     def audio_key(self) -> str:
         settings = self.config.settings
         return settings.secret("phone_api_key")
+
+    def uses_desktop_voice(self) -> bool:
+        return self.config.settings.desktop_voice_provider == "openai_live"
+
+    def message(self, name: str, **values) -> str:
+        return phone_message(self.config.settings, name, **values)
 
     async def reservation(self, *, inbound=False):
         settings = self.config.settings
@@ -458,14 +469,12 @@ class Telephony:
                         (task["id"], now()),
                     )
                     if len(proposals) != 1:
-                        await speak("The proposal requires review in the Mac dashboard.")
+                        await speak(self.message("dashboard"))
                         return
                     proposal = proposals[0]
                     brief = json.dumps(json.loads(proposal["arguments"]), ensure_ascii=False)
                     if len(brief) > 1000:
-                        await speak(
-                            "The proposal is too long for phone confirmation. Review it in the dashboard."
-                        )
+                        await speak(self.message("long_proposal"))
                         return
                     # Read the exact gateway proposal. Never let model prose authorize it.
                     pending_approval = {
@@ -473,19 +482,13 @@ class Telephony:
                         "task_id": task["id"],
                         "expires_at": proposal["expires_at"],
                     }
-                    await speak(
-                        f"Confirmation required for {proposal['tool']}. Parameters: {brief}. Press one to approve this action or two to reject it."
-                    )
+                    await speak(self.message("approval", tool=proposal["tool"], arguments=brief))
                     return
                 if row["state"] in {"failed", "cancelled"}:
-                    await speak(
-                        "I did not complete the operation. Details are available in the dashboard."
-                    )
+                    await speak(self.message("failed"))
                     return
                 await asyncio.sleep(0.2)
-            await speak(
-                "Work continues in the background. The result will be available on the Mac."
-            )
+            await speak(self.message("background"))
 
         async def respond(samples):
             nonlocal conversation_id
@@ -501,13 +504,11 @@ class Telephony:
                     "end the call",
                     "goodbye",
                 }:
-                    await speak("Goodbye.")
+                    await speak(self.message("goodbye"))
                     await websocket.close()
                     return
                 if pending_approval and pending_approval["expires_at"] > now():
-                    await speak(
-                        "Press one to approve the proposal you just heard or two to reject it."
-                    )
+                    await speak(self.message("pending"))
                     return
                 task = await self.runtime.tasks.create(
                     text,
@@ -521,11 +522,12 @@ class Telephony:
             except asyncio.CancelledError:
                 raise
             except Exception:
-                await speak("The voice request failed. Check connections in the dashboard.")
+                await speak(self.message("request_failed"))
 
         try:
             async with asyncio.timeout(self.config.settings.phone_max_call_seconds):
-                async for raw in websocket.iter_text():
+                events = websocket.iter_text()
+                async for raw in events:
                     if len(raw) > 100_000:
                         raise ValueError("Phone frame exceeds the size limit.")
                     event = json.loads(raw)
@@ -585,15 +587,30 @@ class Telephony:
                         await self.db.emit(
                             "call.status", {"id": key, "state": "connected"}, row["task_id"]
                         )
+                        if self.uses_desktop_voice():
+                            from .phone_live import PhoneLive
+
+                            try:
+                                await PhoneLive(
+                                    self, websocket, row, stream_sid, conversation_id, session_scope
+                                ).run(events)
+                            except Exception as error:
+                                await self.db.emit(
+                                    "call.voice_error", {"id": key, "code": type(error).__name__}
+                                )
+                                raise ValueError("The phone voice connection was interrupted.") from None
+                            finally:
+                                with contextlib.suppress(Exception):
+                                    await websocket.close()
+                            break
                         answer = asyncio.create_task(
                             speak(
-                                "I am Jarvis. Identity verified. "
+                                self.message("verified")
                                 + (
-                                    "I am calling about " + row["detail"][:400] + ". "
+                                    " " + self.message("reason", reason=row["detail"][:400])
                                     if row["detail"]
                                     else ""
                                 )
-                                + "Tell me how I can help."
                             )
                         )
                     elif event.get("event") == "dtmf" and stream_sid and pending_approval:
@@ -612,7 +629,7 @@ class Telephony:
                             answer = asyncio.create_task(wait_task({"id": task_id}))
                         except ValueError:
                             answer = asyncio.create_task(
-                                speak("This proposal has expired or has already been decided.")
+                                speak(self.message("expired"))
                             )
                     elif event.get("event") == "media" and stream_sid:
                         pcm = decode_mulaw(
@@ -755,9 +772,11 @@ class Telephony:
                         + key,
                         method="POST",
                     )
+                    italian = phone_language(settings).lower().startswith("it")
                     gather.say(
-                        "I am Jarvis. Enter your personal code to continue.",
-                        language="en-GB",
+                        self.message("pin"),
+                        language="it-IT" if italian else "en-GB",
+                        voice="Polly.Giorgio" if italian else "Polly.Brian",
                     )
                     result.append(gather)
                     result.hangup()

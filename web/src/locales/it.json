@@ -786,5 +786,7 @@
   "On your phone, open Hue → Settings → Voice Assistants → Amazon Alexa or Google Home → Make Discoverable.": "Sul telefono apri Hue → Impostazioni → Assistenti vocali → Amazon Alexa o Google Home → Rendi individuabile.",
   "Keep the lamp powered and near the Mac. After enabling discovery, leave the Hue app in the background.": "Lascia la lampada alimentata e vicina al Mac. Dopo averla resa individuabile, lascia l’app Hue in background.",
   "Return to Jarvis immediately: find and select your lamp, connect, and confirm the macOS pairing request if it appears.": "Torna subito a Jarvis: cerca e seleziona la tua lampada, collegala e conferma l’eventuale richiesta di abbinamento di macOS.",
-  "This opens a temporary pairing window and keeps the phone's Hue configuration. Repeat Make Discoverable if the window expires.": "La procedura apre una finestra temporanea di abbinamento e mantiene la configurazione Hue del telefono. Ripeti Rendi individuabile se la finestra scade."
+  "This opens a temporary pairing window and keeps the phone's Hue configuration. Repeat Make Discoverable if the window expires.": "La procedura apre una finestra temporanea di abbinamento e mantiene la configurazione Hue del telefono. Ripeti Rendi individuabile se la finestra scade.",
+  "Same voice as the desktop": "Stessa voce dell’interfaccia",
+  "Calls use the voice, vocal style, conversation language and OpenAI key configured for desktop voice.": "Le chiamate usano la voce, lo stile, la lingua della conversazione e la chiave OpenAI configurati per la voce dell’interfaccia."
 }

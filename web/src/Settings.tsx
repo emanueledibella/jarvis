@@ -972,40 +972,54 @@ export default function Settings({
           </section>
           <section className="settings-card">
             <h2>{tr("Call audio and limits")}</h2>
-            {field(
-              "phone_stt_provider",
-              tr("Phone speech recognition"),
-              "text",
-              undefined,
-              [
-                { value: "openai", label: tr("OpenAI · cloud audio") },
-                {
-                  value: "faster_whisper",
-                  label: tr("Local faster-whisper · voice extra required"),
-                },
-              ],
-            )}
-            {field(
-              "phone_api_key",
-              tr("OpenAI audio API key, if used"),
-              "password",
-              tr(
-                "Separate from the reasoning provider. Without a key, TTS uses the system voice.",
-              ),
+            {values.desktop_voice_provider === "openai_live" ? (
+              <div className="info-box">
+                <strong>{tr("Same voice as the desktop")}</strong>
+                <p>
+                  {tr(
+                    "Calls use the voice, vocal style, conversation language and OpenAI key configured for desktop voice.",
+                  )}
+                </p>
+              </div>
+            ) : (
+              <>
+                {field(
+                  "phone_stt_provider",
+                  tr("Phone speech recognition"),
+                  "text",
+                  undefined,
+                  [
+                    { value: "openai", label: tr("OpenAI · cloud audio") },
+                    {
+                      value: "faster_whisper",
+                      label: tr("Local faster-whisper · voice extra required"),
+                    },
+                  ],
+                )}
+                {field(
+                  "phone_api_key",
+                  tr("OpenAI audio API key, if used"),
+                  "password",
+                  tr(
+                    "Separate from the reasoning provider. Without a key, TTS uses the system voice.",
+                  ),
+                )}
+              </>
             )}
             {field(
               "phone_max_call_seconds",
               tr("Maximum duration, seconds"),
               "number",
             )}
-            {field(
-              "phone_local_tts_voice",
-              tr("Mac phone voice, optional name"),
-              "text",
-              tr(
-                "Example: Alice, if installed. This differs from the desktop voice ID.",
-              ),
-            )}
+            {values.desktop_voice_provider !== "openai_live" &&
+              field(
+                "phone_local_tts_voice",
+                tr("Mac phone voice, optional name"),
+                "text",
+                tr(
+                  "Example: Alice, if installed. This differs from the desktop voice ID.",
+                ),
+              )}
             {field(
               "phone_daily_budget_usd",
               tr("Maximum daily reservation, USD"),
