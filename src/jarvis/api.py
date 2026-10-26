@@ -214,8 +214,9 @@ def create_app(
                     await runtime.tasks.pause(key)
         if changes.get("profile") == "local_strict" or changes.get("telephony_enabled") is False:
             await runtime.telephony.stop_all()
-        runtime.productivity.weather_cache.clear()
-        runtime.productivity.calendar_cache.clear()
+        if set(changes) - {"ui_language"}:
+            runtime.productivity.weather_cache.clear()
+            runtime.productivity.calendar_cache.clear()
         await runtime.db.emit("settings.updated", {"fields": list(changes)})
         return {"values": config.settings.public(), "locked": config.locked_fields()}
 
@@ -718,6 +719,7 @@ def create_app(
             "cursor": cursor,
             "events": batch,
             "settings": {
+                "ui_language": config.settings.ui_language,
                 "language": config.settings.language,
                 "response_language": config.settings.response_language,
                 "wake_phrase": config.settings.wake_phrase,

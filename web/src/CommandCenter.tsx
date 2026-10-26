@@ -1,3 +1,4 @@
+import { t as tr, useI18n, uiLocale } from "./i18n";
 import React, { useEffect, useMemo, useState } from "react";
 import {
   ArrowRight,
@@ -22,6 +23,7 @@ import type { Json } from "./api";
 import { Badge, Orb, formatDate, profileLabels } from "./components";
 
 export function SystemClock({ timezone }: { timezone?: string }) {
+  const language = useI18n();
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
     const timer = setInterval(() => {
@@ -31,20 +33,20 @@ export function SystemClock({ timezone }: { timezone?: string }) {
   }, []);
   const formats = useMemo(
     () => ({
-      date: new Intl.DateTimeFormat("en-GB", {
+      date: new Intl.DateTimeFormat(uiLocale(), {
         timeZone: timezone,
         weekday: "short",
         day: "numeric",
         month: "short",
       }),
-      time: new Intl.DateTimeFormat("en-GB", {
+      time: new Intl.DateTimeFormat(uiLocale(), {
         timeZone: timezone,
         hour: "2-digit",
         minute: "2-digit",
         second: "2-digit",
       }),
     }),
-    [timezone],
+    [timezone, language],
   );
   return (
     <time className="system-clock" dateTime={now.toISOString()}>
@@ -55,6 +57,7 @@ export function SystemClock({ timezone }: { timezone?: string }) {
 }
 
 export function VoiceSignal({ level = 0 }: { level?: number }) {
+  useI18n();
   const amplitude = Math.max(
     0,
     Math.min(1, Number.isFinite(level) ? level : 0),
@@ -73,10 +76,10 @@ export function VoiceSignal({ level = 0 }: { level?: number }) {
 
 export function selectedModel(status: Json): string {
   if (status.profile === "cloud")
-    return status.models?.cloud || "Choose a cloud model";
+    return status.models?.cloud || tr("Choose a cloud model");
   if (status.profile === "hybrid" && status.models?.cloud_configured)
     return status.models.cloud;
-  return status.models?.local || "Choose a local model";
+  return status.models?.local || tr("Choose a local model");
 }
 
 function weatherName(code: number) {
@@ -140,6 +143,7 @@ export default function CommandCenter({
   onNewChat,
   onCompose,
 }: Props) {
+  useI18n();
   const activeTasks = tasks.filter((t) =>
     ["queued", "running", "waiting_user"].includes(t.state),
   );
@@ -173,61 +177,70 @@ export default function CommandCenter({
     <div className="command-center">
       <div className="command-heading">
         <div>
-          <span className="eyebrow">PERSONAL INTELLIGENCE / OVERVIEW</span>
+          <span className="eyebrow">
+            {tr("PERSONAL INTELLIGENCE / OVERVIEW")}
+          </span>
           <h1>
-            Your command center<span>.</span>
+            {tr("Your command center")}
+            <span>.</span>
           </h1>
         </div>
         <span className={"service-pill " + (online ? "is-online" : "")}>
           <span className="tiny-dot" />
           {status.emergency_stop
-            ? "Service suspended"
+            ? tr("Service suspended")
             : online
-              ? "Service online"
-              : "Connecting"}
+              ? tr("Service online")
+              : tr("Connecting")}
         </span>
       </div>
 
       <div className="command-grid">
         <section
           className="hud-panel core-panel"
-          aria-label="Jarvis voice core"
+          aria-label={tr("Jarvis voice core")}
         >
           <header className="hud-heading">
             <span>
               <AudioLines size={14} />{" "}
-              {portableText ? "ASSISTANT CORE" : "VOICE & PRESENCE"}
+              {portableText ? tr("ASSISTANT CORE") : tr("VOICE & PRESENCE")}
             </span>
-            <span className="panel-index">01 / CORE</span>
+            <span className="panel-index">{tr("01 / CORE")}</span>
           </header>
           <div className="core-body">
             <div className="core-copy">
               <span className="core-kicker">
                 <span className={"tiny-dot " + (!voiceReady ? "off" : "")} />
                 {portableText
-                  ? "TEXT CONVERSATION"
+                  ? tr("TEXT CONVERSATION")
                   : voiceReady
-                    ? "A VOICE WITHIN REACH"
-                    : "READY TO CONNECT"}
+                    ? tr("A VOICE WITHIN REACH")
+                    : tr("READY TO CONNECT")}
               </span>
               <h2>
-                A little more
-                <br /> possible<span>.</span>
+                {tr("A little more")}
+                <br />
+                {tr(" possible")}
+                <span>.</span>
               </h2>
               <p>
-                Your ideas, the right context,
-                <br className="desktop-break" /> and a way forward.
+                {tr("Your ideas, the right context,")}
+                <br className="desktop-break" />
+                {tr(" and a way forward.")}
               </p>
               <button
                 className="btn primary talk-button"
                 onClick={portableText ? onNewChat : onListen}
               >
                 {portableText ? <MessageSquare size={15} /> : <Mic size={15} />}{" "}
-                {portableText ? "Start a conversation" : "Talk to Jarvis"}{" "}
-                {!portableText && <span>⌘ ⇧ J</span>}
+                {portableText
+                  ? tr("Start a conversation")
+                  : tr("Talk to Jarvis")}{" "}
+                {!portableText && <span>{tr("⌘ ⇧ J")}</span>}
               </button>
               <button className="text-btn core-chat" onClick={onNewChat}>
-                Or start with a message <ArrowUpRight size={13} />
+                {tr("Or start with a message ")}
+                <ArrowUpRight size={13} />
               </button>
             </div>
             <div className="core-visual">
@@ -247,14 +260,14 @@ export default function CommandCenter({
             <span>
               <ShieldCheck size={12} />{" "}
               {status.native?.on_device
-                ? "Wake detection on your Mac"
-                : "Voice settings under your control"}
+                ? tr("Wake detection on your Mac")
+                : tr("Voice settings under your control")}
             </span>
             <VoiceSignal level={level} />
             <button
               onClick={() => onSettings(portableText ? "models" : "voice")}
             >
-              {portableText ? "Model settings" : "Voice settings"}{" "}
+              {portableText ? tr("Model settings") : tr("Voice settings")}{" "}
               <ChevronRight size={11} />
             </button>
           </div>
@@ -262,15 +275,16 @@ export default function CommandCenter({
 
         <section
           className="hud-panel day-panel"
-          aria-label="Weather and calendar"
+          aria-label={tr("Weather and calendar")}
         >
           <header className="hud-heading">
             <span>
-              <CalendarDays size={14} /> YOUR DAY
+              <CalendarDays size={14} />
+              {tr(" YOUR DAY")}
             </span>
             <button
               className="icon-btn"
-              aria-label="Configure weather and calendar"
+              aria-label={tr("Configure weather and calendar")}
               onClick={() => onSettings("productivity")}
             >
               <ArrowUpRight size={14} />
@@ -284,13 +298,16 @@ export default function CommandCenter({
                 <sup>°</sup>
               </strong>
               <div>
-                <h3>{weatherName(weather.current.weather_code)}</h3>
+                <h3>{tr(weatherName(weather.current.weather_code))}</h3>
                 <p>{weather.location}</p>
               </div>
               <span className="weather-detail">
-                Feels like {Math.round(weather.current.apparent_temperature)}° ·
-                Wind {Math.round(weather.current.wind_speed_10m)} km/h
-                {weather.stale ? " · Needs refresh" : ""}
+                {tr("Feels like ")}
+                {Math.round(weather.current.apparent_temperature)}
+                {tr("° · Wind ")}
+                {Math.round(weather.current.wind_speed_10m)}
+                {tr(" km/h")}
+                {weather.stale ? tr(" · Needs refresh") : ""}
               </span>
               <a
                 className="weather-attribution"
@@ -298,7 +315,8 @@ export default function CommandCenter({
                 target="_blank"
                 rel="noopener noreferrer"
               >
-                Open-Meteo · {formatDate(weather.updated_at, true)}{" "}
+                {tr("Open-Meteo · ")}
+                {formatDate(weather.updated_at, true)}{" "}
                 <ArrowUpRight size={10} />
               </a>
             </div>
@@ -308,28 +326,33 @@ export default function CommandCenter({
               <div>
                 <h3>
                   {weather.state === "loading"
-                    ? "Checking the weather…"
-                    : "A window to your day."}
+                    ? tr("Checking the weather…")
+                    : tr("A window to your day.")}
                 </h3>
                 <p>
-                  {weather.message || "Add your city for the local forecast."}
+                  {tr(
+                    weather.message || "Add your city for the local forecast.",
+                  )}
                 </p>
               </div>
               <button
                 className="text-btn"
                 onClick={() => onSettings("productivity")}
               >
-                Set weather location <ArrowRight size={12} />
+                {tr("Set weather location ")}
+                <ArrowRight size={12} />
               </button>
             </div>
           )}
           <div className="day-agenda">
-            <span className="eyebrow">UP NEXT</span>
+            <span className="eyebrow">{tr("UP NEXT")}</span>
             {upcoming.length > 0 ? (
               upcoming.map((event: Json, i: number) => (
                 <div className="day-event" key={event.id || i}>
                   <time>
-                    {event.all_day ? "All day" : formatDate(event.start, true)}
+                    {event.all_day
+                      ? tr("All day")
+                      : formatDate(event.start, true)}
                   </time>
                   <div>
                     <h3>{event.title}</h3>
@@ -345,14 +368,15 @@ export default function CommandCenter({
                 <div>
                   <h3>
                     {dashboard.calendar?.state === "ready"
-                      ? "A little room to breathe."
-                      : "Bring your calendar along."}
+                      ? tr("A little room to breathe.")
+                      : tr("Bring your calendar along.")}
                   </h3>
                   <p>
                     {dashboard.calendar?.state === "ready"
-                      ? "No upcoming events in this view."
-                      : dashboard.calendar?.message ||
-                        "Your next events, in one place."}
+                      ? tr("No upcoming events in this view.")
+                      : (dashboard.calendar?.message &&
+                          tr(dashboard.calendar.message)) ||
+                        tr("Your next events, in one place.")}
                   </p>
                 </div>
               </div>
@@ -362,8 +386,8 @@ export default function CommandCenter({
               onClick={() => onSettings("productivity")}
             >
               {dashboard.calendar?.state === "ready"
-                ? "Calendar settings"
-                : "Connect calendar"}{" "}
+                ? tr("Calendar settings")
+                : tr("Connect calendar")}{" "}
               <ArrowRight size={12} />
             </button>
           </div>
@@ -371,15 +395,16 @@ export default function CommandCenter({
 
         <section
           className="hud-panel missions-panel"
-          aria-label="Task activity"
+          aria-label={tr("Task activity")}
         >
           <header className="hud-heading">
             <span>
-              <Workflow size={14} /> TASK ACTIVITY
+              <Workflow size={14} />
+              {tr(" TASK ACTIVITY")}
             </span>
             <button
               className="icon-btn"
-              aria-label="View all tasks"
+              aria-label={tr("View all tasks")}
               onClick={() => onPage("tasks")}
             >
               <ArrowUpRight size={14} />
@@ -388,18 +413,18 @@ export default function CommandCenter({
           <div className="mission-metrics">
             <button onClick={() => onPage("tasks")}>
               <strong>{String(activeTasks.length).padStart(2, "0")}</strong>
-              <span>Active tasks</span>
+              <span>{tr("Active tasks")}</span>
             </button>
             <button
               className={approvals.length ? "has-decisions" : ""}
               onClick={() => onPage("tasks")}
             >
               <strong>{String(approvals.length).padStart(2, "0")}</strong>
-              <span>Decisions</span>
+              <span>{tr("Decisions")}</span>
             </button>
             <button onClick={() => onPage("routines")}>
               <strong>{String(routines.length).padStart(2, "0")}</strong>
-              <span>Routines on</span>
+              <span>{tr("Routines on")}</span>
             </button>
           </div>
           {activeTasks.length ? (
@@ -417,11 +442,14 @@ export default function CommandCenter({
                 <Check size={13} />
               </span>
               <p>
-                All clear.
+                {tr("All clear.")}
                 <br />
-                <strong>Ready for your next idea.</strong>
+                <strong>{tr("Ready for your next idea.")}</strong>
               </p>
-              <button aria-label="Start a new conversation" onClick={onNewChat}>
+              <button
+                aria-label={tr("Start a new conversation")}
+                onClick={onNewChat}
+              >
                 <ArrowUpRight size={16} />
               </button>
             </div>
@@ -430,11 +458,12 @@ export default function CommandCenter({
 
         <section
           className="hud-panel context-panel"
-          aria-label="Second Brain memory"
+          aria-label={tr("Second Brain memory")}
         >
           <header className="hud-heading">
             <span>
-              <Brain size={14} /> SECOND BRAIN
+              <Brain size={14} />
+              {tr(" SECOND BRAIN")}
             </span>
             <span
               className={
@@ -442,7 +471,7 @@ export default function CommandCenter({
               }
             >
               <span className="tiny-dot" />
-              {memoryConnected ? "Connected" : "Not connected"}
+              {memoryConnected ? tr("Connected") : tr("Not connected")}
             </span>
           </header>
           <div className="memory-constellation" aria-hidden="true">
@@ -452,13 +481,13 @@ export default function CommandCenter({
                 <circle key={i} cx={cx} cy={cy} r={i % 3 === 0 ? 3 : 2} />
               ))}
             </svg>
-            <span>CONTEXT, CONNECTED</span>
+            <span>{tr("CONTEXT, CONNECTED")}</span>
           </div>
           <div className="context-bottom">
             <p>
               {memoryConnected
-                ? "A memory that picks up where you left off."
-                : "Connect your memories, projects and ideas."}
+                ? tr("A memory that picks up where you left off.")
+                : tr("Connect your memories, projects and ideas.")}
             </p>
             <button
               className="text-btn"
@@ -466,7 +495,9 @@ export default function CommandCenter({
                 memoryConnected ? onPage("memory") : onSettings("memory")
               }
             >
-              {memoryConnected ? "Explore memory" : "Connect Second Brain"}{" "}
+              {memoryConnected
+                ? tr("Explore memory")
+                : tr("Connect Second Brain")}{" "}
               <ArrowRight size={12} />
             </button>
           </div>
@@ -474,13 +505,14 @@ export default function CommandCenter({
 
         <section
           className="hud-panel systems-panel"
-          aria-label="Configured models and connected tools"
+          aria-label={tr("Configured models and connected tools")}
         >
           <header className="hud-heading">
             <span>
-              <Layers3 size={14} /> CONNECTED SYSTEMS
+              <Layers3 size={14} />
+              {tr(" CONNECTED SYSTEMS")}
             </span>
-            <span className="panel-index">02 / TOOLS</span>
+            <span className="panel-index">{tr("02 / TOOLS")}</span>
           </header>
           <div className="system-links">
             <button onClick={() => onSettings("models")}>
@@ -488,9 +520,9 @@ export default function CommandCenter({
                 <Cloud size={15} />
               </span>
               <span>
-                <strong>Cloud intelligence</strong>
+                <strong>{tr("Cloud intelligence")}</strong>
                 <small title={status.models?.cloud}>
-                  {status.models?.cloud || "Choose a model"}
+                  {status.models?.cloud || tr("Choose a model")}
                 </small>
               </span>
               <span
@@ -499,7 +531,9 @@ export default function CommandCenter({
                   (status.models?.cloud_configured ? "configured" : "")
                 }
               >
-                {status.models?.cloud_configured ? "Configured" : "Set up"}
+                {status.models?.cloud_configured
+                  ? tr("Configured")
+                  : tr("Set up")}
               </span>
             </button>
             <button onClick={() => onSettings("models")}>
@@ -507,9 +541,9 @@ export default function CommandCenter({
                 <Computer size={15} />
               </span>
               <span>
-                <strong>Local intelligence</strong>
+                <strong>{tr("Local intelligence")}</strong>
                 <small title={status.models?.local}>
-                  {status.models?.local || "Choose a model"}
+                  {status.models?.local || tr("Choose a model")}
                 </small>
               </span>
               <span
@@ -517,7 +551,7 @@ export default function CommandCenter({
                   "system-tag " + (status.models?.local ? "configured" : "")
                 }
               >
-                {status.models?.local ? "Configured" : "Set up"}
+                {status.models?.local ? tr("Configured") : tr("Set up")}
               </span>
             </button>
             <button onClick={() => onPage("integrations")}>
@@ -525,10 +559,12 @@ export default function CommandCenter({
                 <Layers3 size={15} />
               </span>
               <span>
-                <strong>MCP tools</strong>
+                <strong>{tr("MCP tools")}</strong>
                 <small>
-                  {enabledTools} enabled · {connectedMcp.length} connected{" "}
-                  {connectedMcp.length === 1 ? "server" : "servers"}
+                  {tr("Tools enabled: {tools} · Connected servers: {servers}", {
+                    tools: enabledTools,
+                    servers: connectedMcp.length,
+                  })}
                 </small>
               </span>
               <ChevronRight size={13} />
@@ -537,28 +573,28 @@ export default function CommandCenter({
         </section>
       </div>
 
-      <div className="command-shortcuts" aria-label="Start a request">
-        <span className="eyebrow">MAKE A START</span>
+      <div className="command-shortcuts" aria-label={tr("Start a request")}>
+        <span className="eyebrow">{tr("MAKE A START")}</span>
         {[
           {
             icon: CalendarDays,
-            label: "Plan my day",
+            label: tr("Plan my day"),
             prompt: "Help me plan my day using my calendar and tasks.",
           },
           {
             icon: Search,
-            label: "Explore a topic",
+            label: tr("Explore a topic"),
             prompt: "Research in depth: ",
           },
           {
             icon: Code2,
-            label: "Work on code",
+            label: tr("Work on code"),
             prompt: "Help me work on the project ",
           },
         ].map(({ icon: Icon, label, prompt }) => (
-          <button key={label} onClick={() => onCompose(prompt)}>
+          <button key={tr(label)} onClick={() => onCompose(tr(prompt))}>
             <Icon size={14} />
-            {label}
+            {tr(label)}
             <ArrowUpRight size={12} />
           </button>
         ))}
@@ -567,15 +603,15 @@ export default function CommandCenter({
       <footer className="command-footer">
         <span>
           <span className="tiny-dot" />
-          {profileLabels[status.profile] || "Loading profile"}
+          {tr(profileLabels[status.profile] || "Loading profile")}
           <i />
           {selectedModel(status)}
         </span>
         <span>
           <ShieldCheck size={11} />{" "}
           {portableText
-            ? "Your computer. Your controls."
-            : "Your Mac. Your controls."}
+            ? tr("Your computer. Your controls.")
+            : tr("Your Mac. Your controls.")}
         </span>
       </footer>
     </div>

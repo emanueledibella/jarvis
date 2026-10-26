@@ -1,6 +1,6 @@
 # Implemented environment configuration
 
-Based on the `Settings` schema for version 0.1.0, updated October 25, 2026. All 91 settings appear below.
+Based on the `Settings` schema for version 0.1.0, updated October 26, 2026. All 92 settings appear below.
 
 Precedence: process environment → `.env` → private GUI settings → defaults. Source checkouts default to the repository `.env`; portable executables default to `.env` inside their private application data directory. Select another file with `JARVIS_ENV_FILE` or `jarvis --env-file /path/file.env ...`. Environment-provided fields are locked in the GUI. Editing `.env` requires a service restart; closing only the window does not restart the backend.
 
@@ -9,6 +9,8 @@ Keys accept direct values. On macOS they also accept `keychain:account` referenc
 `api_host` stays loopback. Change `api_port`, `data_dir`, and `ui_dir` before startup through env. `record_audio` and `allow_cloud_fallback` can only be false: hybrid selects a provider at task start, without silently retrying another provider. Interrupting a task does not move its checkpoint to cloud.
 
 Ollama uses its root endpoint, such as `http://127.0.0.1:11434`. LM Studio/compatible gateways use the full API endpoint, such as `http://127.0.0.1:1234/v1`. Not all model/template pairs support tools; run the Settings test.
+
+`JARVIS_UI_LANGUAGE=en` or `it` selects the graphical interface and native Mac menu language; English is the default. GUI changes save immediately and do not change voice or conversation settings.
 
 `JARVIS_LANGUAGE` selects local wake/Apple transcription, retaining `it-IT` by default. `JARVIS_RESPONSE_LANGUAGE=auto` follows the language of substantive user requests. Explicit language tags select a preferred reply language; the user can still ask to switch. OpenAI conversation audio is not restricted to the wake locale. An explicitly selected Apple TTS voice overrides automatic voice choice.
 
@@ -21,6 +23,7 @@ The monthly ledger covers cloud LLM requests and recorded OpenAI desktop voice s
 | `JARVIS_API_PORT` | integer | `8765` | minimum: 1024, maximum: 65535 |
 | `JARVIS_TIMEZONE` | string | `Europe/Rome` |  |
 | `JARVIS_LANGUAGE` | string | `it-IT` | On-device wake/Apple recognition locale |
+| `JARVIS_UI_LANGUAGE` | en / it | `en` | Dashboard, interface messages and native Mac menus; independent of speech |
 | `JARVIS_RESPONSE_LANGUAGE` | string | `auto` | auto or a BCP 47 language tag; independent of recognition locale |
 | `JARVIS_PROFILE` | local_strict, local_connected, cloud, hybrid | `local_connected` |  |
 | `JARVIS_CLOUD_PROVIDER` | openai, anthropic, openai_compatible | `openai` |  |

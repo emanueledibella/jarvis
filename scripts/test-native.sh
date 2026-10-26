@@ -14,3 +14,5 @@ swiftc -swift-version 5 -framework AVFoundation native/Client.swift native/Playb
 "$JARVIS_NATIVE_TEST_DIR/playback-tests"
 swiftc -swift-version 5 native/Client.swift tests/native/ServiceTrustTests.swift -o "$JARVIS_NATIVE_TEST_DIR/service-trust-tests"
 "$JARVIS_NATIVE_TEST_DIR/service-trust-tests"
+swiftc -swift-version 5 native/InterfaceLanguage.swift tests/native/InterfaceLanguageTests.swift -o "$JARVIS_NATIVE_TEST_DIR/interface-language-tests"
+"$JARVIS_NATIVE_TEST_DIR/interface-language-tests" web/src/locales/it.json

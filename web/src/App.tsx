@@ -1,3 +1,10 @@
+import {
+  t as tr,
+  useI18n,
+  uiLocale,
+  formatNumber,
+  syncInterfaceLanguage,
+} from "./i18n";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ArrowRight,
@@ -29,6 +36,7 @@ import { api, eventStream, hasToken, post, setToken, type Json } from "./api";
 import {
   Badge,
   Empty,
+  ErrorMessage,
   Modal,
   Text,
   formatDate,
@@ -50,10 +58,11 @@ type Page =
   | "settings";
 
 export default function App() {
+  useI18n();
   const [authenticated, setAuthenticated] = useState(hasToken()),
     [entryToken, setEntryToken] = useState(""),
     [page, setPage] = useState<Page>("home"),
-    [settingsSection, setSettingsSection] = useState("models"),
+    [settingsSection, setSettingsSection] = useState("interface"),
     [status, setStatus] = useState<Json>({
       native: {},
       models: {},
@@ -171,7 +180,10 @@ export default function App() {
     localStorage.setItem("jarvis-theme", theme);
   }, [theme]);
   useEffect(() => {
-    if (authenticated) syncPreference();
+    if (authenticated) {
+      syncPreference();
+      syncInterfaceLanguage().catch(() => {});
+    }
   }, [authenticated]);
   useEffect(() => {
     const update = () =>
@@ -190,7 +202,13 @@ export default function App() {
     eventStream((event) => {
       if (event.type === "connection") {
         setConnection(event.data.state);
-        if (event.data.state === "connected") syncPreference();
+        if (event.data.state === "connected") {
+          syncPreference();
+          syncInterfaceLanguage().catch(() => {});
+        }
+      } else if (event.type === "settings.updated") {
+        syncInterfaceLanguage().catch(() => {});
+        refresh();
       } else if (event.type === "voice.session.updated") {
         syncPreference();
       } else if (event.type === "audio.level") setAudio(event.data);
@@ -343,11 +361,11 @@ export default function App() {
           onChange={(e) => setText(e.target.value)}
           placeholder={
             privateMode
-              ? "A private request, without history…"
-              : "Ask a question, or tell me what you want to do…"
+              ? tr("A private request, without history…")
+              : tr("Ask a question, or tell me what you want to do…")
           }
           rows={text.split("\n").length > 2 ? 3 : 1}
-          aria-label="Message to Jarvis"
+          aria-label={tr("Message to Jarvis")}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
               e.preventDefault();
@@ -358,7 +376,7 @@ export default function App() {
         <div className="composer-bottom">
           <div className="composer-options">
             <button
-              title="New conversation"
+              title={tr("New conversation")}
               className="icon-btn"
               onClick={newChat}
             >
@@ -371,23 +389,23 @@ export default function App() {
               aria-pressed={privateMode}
             >
               <LockKeyhole size={13} />
-              {privateMode ? "Private" : "Private session"}
+              {privateMode ? tr("Private") : tr("Private session")}
             </button>
             <select
-              aria-label="Conversation scope"
+              aria-label={tr("Conversation scope")}
               value={scope}
               disabled={!privacyReady}
               onChange={(e) => preference(privateMode, e.target.value)}
             >
-              <option value="personal">Personal</option>
-              <option value="work">Work</option>
+              <option value="personal">{tr("Personal")}</option>
+              <option value="work">{tr("Work")}</option>
             </select>
           </div>
           <div className="composer-actions">
             {runningChat.length > 0 && (
               <button
                 className="icon-btn"
-                aria-label="Cancel the current task"
+                aria-label={tr("Cancel the current task")}
                 onClick={() =>
                   post(
                     "/tasks/" +
@@ -403,7 +421,7 @@ export default function App() {
             )}
             <button
               className="icon-btn"
-              aria-label="Talk to Jarvis"
+              aria-label={tr("Talk to Jarvis")}
               disabled={!privacyReady || portableText}
               onClick={() => native("listen")}
             >
@@ -413,7 +431,7 @@ export default function App() {
               className="send-btn"
               disabled={!text.trim() || sending || !privacyReady}
               onClick={() => send()}
-              aria-label="Send message"
+              aria-label={tr("Send message")}
             >
               {sending ? (
                 <LoaderCircle size={17} className="spin" />
@@ -427,18 +445,20 @@ export default function App() {
       <div className="composer-caption">
         <span>
           <span className="tiny-dot" />
-          {profileLabels[status.profile] || "Service connection"}
+          {tr(profileLabels[status.profile] || "Service connection")}
         </span>
         <label
           className="external-choice"
-          title="Actions after reading outside content, and queries containing private context, still need a specific approval."
+          title={tr(
+            "Actions after reading outside content, and queries containing private context, still need a specific approval.",
+          )}
         >
           <input
             type="checkbox"
             checked={external}
             onChange={(e) => setExternal(e.target.checked)}
           />
-          Preauthorize direct actions
+          {tr("Preauthorize direct actions")}
         </label>
       </div>
     </div>
@@ -447,18 +467,19 @@ export default function App() {
     return (
       <div className="connect-screen">
         <img className="brand-mark brand-logo" src={brandIcon} alt="" />
-        <h1>A private connection.</h1>
+        <h1>{tr("A private connection.")}</h1>
         <p>
-          Open the dashboard from the macOS app or with <code>jarvis open</code>
+          {tr("Open the dashboard from the macOS app or with ")}
+          <code>{tr("jarvis open")}</code>
           .
           <br />
-          You can also enter this installation's local token.
+          {tr("You can also enter this installation's local token.")}
         </p>
         <input
           type="password"
           autoComplete="off"
-          placeholder="Local token"
-          aria-label="Jarvis local token"
+          placeholder={tr("Local token")}
+          aria-label={tr("Jarvis local token")}
           value={entryToken}
           onChange={(e) => setEntryToken(e.target.value)}
         />
@@ -471,9 +492,12 @@ export default function App() {
             setEntryToken("");
           }}
         >
-          Connect this browser <ArrowRight size={16} />
+          {tr("Connect this browser ")}
+          <ArrowRight size={16} />
         </button>
-        <small>The token authenticates only the service on your Mac.</small>
+        <small>
+          {tr("The token authenticates only the service on your computer.")}
+        </small>
       </div>
     );
   return (
@@ -482,28 +506,29 @@ export default function App() {
         <button
           className="brand"
           onClick={() => setPage("home")}
-          aria-label="Jarvis home"
+          aria-label={tr("Jarvis home")}
         >
           <img className="brand-mark brand-logo" src={brandIcon} alt="" />
           <div>
-            <strong>JARVIS</strong>
-            <span>PERSONAL INTELLIGENCE</span>
+            <strong>{tr("JARVIS")}</strong>
+            <span>{tr("PERSONAL INTELLIGENCE")}</span>
           </div>
         </button>
         <button className="new-chat" onClick={newChat}>
           <Plus size={15} />
-          New conversation<kbd>↵</kbd>
+          {tr("New conversation")}
+          <kbd>↵</kbd>
         </button>
-        <span className="nav-label eyebrow">WORKSPACE</span>
-        <nav aria-label="Main navigation">
+        <span className="nav-label eyebrow">{tr("WORKSPACE")}</span>
+        <nav aria-label={tr("Main navigation")}>
           {(
             [
-              { id: "home", label: "Overview", icon: LayoutDashboard },
-              { id: "chat", label: "Conversation", icon: MessageSquare },
-              { id: "tasks", label: "Tasks", icon: Workflow },
-              { id: "routines", label: "Routines", icon: CalendarClock },
-              { id: "memory", label: "Memory", icon: Brain },
-              { id: "integrations", label: "Connections", icon: Link2 },
+              { id: "home", label: tr("Overview"), icon: LayoutDashboard },
+              { id: "chat", label: tr("Conversation"), icon: MessageSquare },
+              { id: "tasks", label: tr("Tasks"), icon: Workflow },
+              { id: "routines", label: tr("Routines"), icon: CalendarClock },
+              { id: "memory", label: tr("Memory"), icon: Brain },
+              { id: "integrations", label: tr("Connections"), icon: Link2 },
             ] as { id: Page; label: string; icon: any }[]
           ).map((item) => (
             <button
@@ -525,10 +550,10 @@ export default function App() {
           ))}
         </nav>
         <div className="recent-heading">
-          <span>RECENT CONVERSATIONS</span>
+          <span>{tr("RECENT CONVERSATIONS")}</span>
           <button
             className="icon-btn"
-            aria-label="New conversation"
+            aria-label={tr("New conversation")}
             onClick={newChat}
           >
             <Plus size={13} />
@@ -547,16 +572,18 @@ export default function App() {
               <span>{c.title}</span>
             </button>
           ))}
-          {!conversations.length && <p>Context starts with a conversation.</p>}
+          {!conversations.length && (
+            <p>{tr("Context starts with a conversation.")}</p>
+          )}
         </div>
         <div className="sidebar-bottom">
           <button
             className="sidebar-voice"
             onClick={() => openSettings("voice")}
-            aria-label="Open voice settings"
+            aria-label={tr("Open voice settings")}
           >
             <span className="eyebrow">
-              VOICE CHANNEL{" "}
+              {tr("VOICE CHANNEL")}{" "}
               <span
                 className={
                   "tiny-dot " +
@@ -582,28 +609,28 @@ export default function App() {
             <span>
               <Mic size={12} />
               {!status.native?.connected
-                ? "Not connected"
+                ? tr("Not connected")
                 : status.native?.muted
-                  ? "Microphone muted"
+                  ? tr("Microphone muted")
                   : voiceState === "speaking"
-                    ? "Jarvis is speaking"
+                    ? tr("Jarvis is speaking")
                     : voiceState === "armed"
-                      ? "Listening for Jarvis"
+                      ? tr("Listening for Jarvis")
                       : voiceState === "listening" || voiceState === "followup"
-                        ? "Listening"
-                        : "Open voice settings"}
+                        ? tr("Listening")
+                        : tr("Open voice settings")}
             </span>
           </button>
           <div className="brain-state">
             <Brain size={17} />
             <div>
-              <strong>Second Brain</strong>
+              <strong>{tr("Second Brain")}</strong>
               <span>
                 {status.memory?.connection === "connected"
-                  ? "Connected · sources and revisions"
+                  ? tr("Connected · sources and revisions")
                   : status.memory?.configured
-                    ? "Configured · not connected"
-                    : "Needs setup"}
+                    ? tr("Configured · not connected")
+                    : tr("Needs setup")}
               </span>
             </div>
             <span
@@ -615,18 +642,20 @@ export default function App() {
           </div>
           <button
             className={"settings-link " + (page === "settings" ? "active" : "")}
-            onClick={() => openSettings("models")}
+            onClick={() => openSettings("interface")}
           >
             <Settings2 size={16} />
-            Settings
+            {tr("Settings")}
           </button>
           <div className="owner">
             <span className="owner-avatar">
               <Computer size={16} />
             </span>
             <div>
-              <strong>Your workspace</strong>
-              <small>{portableText ? "Local computer" : "Personal Mac"}</small>
+              <strong>{tr("Your workspace")}</strong>
+              <small>
+                {portableText ? tr("Local computer") : tr("Personal Mac")}
+              </small>
             </div>
             <ShieldCheck size={14} />
           </div>
@@ -635,17 +664,18 @@ export default function App() {
       <main className="workspace">
         <header className="topbar">
           <div className="breadcrumb">
-            Workspace <ChevronRight size={12} />
+            {tr("Workspace ")}
+            <ChevronRight size={12} />
             <span>
               {
                 {
-                  home: "Overview",
-                  chat: "Conversation",
-                  tasks: "Tasks",
-                  routines: "Routines",
-                  memory: "Memory",
-                  integrations: "Connections",
-                  settings: "Settings",
+                  home: tr("Overview"),
+                  chat: tr("Conversation"),
+                  tasks: tr("Tasks"),
+                  routines: tr("Routines"),
+                  memory: tr("Memory"),
+                  integrations: tr("Connections"),
+                  settings: tr("Settings"),
                 }[page]
               }
             </span>
@@ -654,16 +684,16 @@ export default function App() {
           <div className="topbar-controls">
             <button
               className="icon-btn"
-              aria-label="Settings"
-              onClick={() => openSettings("models")}
+              aria-label={tr("Settings")}
+              onClick={() => openSettings("interface")}
             >
               <Settings2 size={16} />
             </button>
             <button
               className="icon-btn emergency-button"
-              aria-label="Emergency stop"
+              aria-label={tr("Emergency stop")}
               disabled={status.emergency_stop}
-              title="Stop tasks, tools, voice, and calls"
+              title={tr("Stop tasks, tools, voice, and calls")}
               onClick={() =>
                 post("/control/emergency", { stopped: true })
                   .then(() => {
@@ -681,12 +711,14 @@ export default function App() {
               }
             >
               <span className="tiny-dot" />
-              {connection === "connected" ? "Local service" : "Reconnecting"}
+              {connection === "connected"
+                ? tr("Local service")
+                : tr("Reconnecting")}
             </span>
             <button
               className="icon-btn"
               aria-label={
-                theme === "dark" ? "Use light theme" : "Use dark theme"
+                theme === "dark" ? tr("Use light theme") : tr("Use dark theme")
               }
               onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
             >
@@ -694,7 +726,7 @@ export default function App() {
             </button>
             <button
               className="icon-btn notification-button"
-              aria-label="Notifications"
+              aria-label={tr("Notifications")}
               onClick={() => {
                 setShowNotifications(true);
                 post("/notifications/read")
@@ -709,7 +741,7 @@ export default function App() {
             {voiceState === "speaking" && (
               <button className="btn" onClick={() => native("stop")}>
                 <Square size={13} />
-                Stop speaking
+                {tr("Stop speaking")}
               </button>
             )}
             <button
@@ -723,10 +755,10 @@ export default function App() {
               }
               aria-label={
                 portableText
-                  ? "Open text conversation"
+                  ? tr("Open text conversation")
                   : status.native?.muted
-                    ? "Unmute microphone"
-                    : "Mute microphone"
+                    ? tr("Unmute microphone")
+                    : tr("Mute microphone")
               }
             >
               {portableText ? (
@@ -738,18 +770,18 @@ export default function App() {
               )}
               <span>
                 {portableText
-                  ? "Text mode"
+                  ? tr("Text mode")
                   : status.native?.connected
                     ? status.native?.muted
-                      ? "Microphone off"
+                      ? tr("Microphone off")
                       : ["unavailable", "permission_required"].includes(
                             voiceState,
                           )
-                        ? "Voice unavailable"
+                        ? tr("Voice unavailable")
                         : voiceState === "recovering"
-                          ? "Recovering voice…"
-                          : "Voice active"
-                    : "Voice needs activation"}
+                          ? tr("Recovering voice…")
+                          : tr("Voice active")
+                    : tr("Voice needs activation")}
               </span>
             </button>
           </div>
@@ -757,7 +789,7 @@ export default function App() {
         {status.emergency_stop && (
           <div className="emergency-banner" role="alert">
             <span>
-              Emergency stop is active. Tasks and tools are suspended.
+              {tr("Emergency stop is active. Tasks and tools are suspended.")}
             </span>
             <button
               className="btn"
@@ -767,7 +799,7 @@ export default function App() {
                   .catch((e) => notify(e.message, true))
               }
             >
-              Re-enable service
+              {tr("Re-enable service")}
             </button>
           </div>
         )}
@@ -801,18 +833,18 @@ export default function App() {
               <div className="chat-heading">
                 <div>
                   <span className="eyebrow">
-                    ONE CONVERSATION, MANY POSSIBILITIES
+                    {tr("ONE CONVERSATION, MANY POSSIBILITIES")}
                   </span>
                   <h1>
                     {privateMode
-                      ? "A private session."
+                      ? tr("A private session.")
                       : conversations.find((c) => c.id === conversation)
-                          ?.title || "What shall we work on?"}
+                          ?.title || tr("What shall we work on?")}
                   </h1>
                 </div>
                 <button className="btn ghost" onClick={newChat}>
                   <Plus size={14} />
-                  New
+                  {tr("New")}
                 </button>
               </div>
               <div className="message-list">
@@ -823,15 +855,16 @@ export default function App() {
                       src={brandIcon}
                       alt=""
                     />
-                    <h2>Tell me the goal.</h2>
+                    <h2>{tr("Tell me the goal.")}</h2>
                     <p>
-                      I can search, remember, code, and use your connected
-                      tools.
+                      {tr(
+                        "I can search, remember, code, and use your connected tools.",
+                      )}
                     </p>
                     {privateMode && (
                       <span className="privacy-label">
                         <LockKeyhole size={13} />
-                        Content is not retained.
+                        {tr("Content is not retained.")}
                       </span>
                     )}
                   </div>
@@ -839,11 +872,11 @@ export default function App() {
                 {visibleMessages.map((m: Json) => (
                   <article className={"message message-" + m.role} key={m.id}>
                     <div className="message-avatar">
-                      {m.role === "assistant" ? "J" : "YOU"}
+                      {m.role === "assistant" ? tr("J") : tr("YOU")}
                     </div>
                     <div className="message-body">
                       <span className="message-author">
-                        {m.role === "assistant" ? "Jarvis" : "You"}
+                        {m.role === "assistant" ? tr("Jarvis") : tr("You")}
                       </span>
                       <Text value={m.content} />
                     </div>
@@ -851,13 +884,13 @@ export default function App() {
                 ))}
                 {runningChat.map((t) => (
                   <article className="message message-assistant" key={t.id}>
-                    <div className="message-avatar">J</div>
+                    <div className="message-avatar">{tr("J")}</div>
                     <div className="message-body">
                       <div className="message-working">
                         <LoaderCircle size={13} className="spin" />
                         {t.state === "queued"
-                          ? "Waiting for the engine"
-                          : "Working on your request"}
+                          ? tr("Waiting for the engine")
+                          : tr("Working on your request")}
                       </div>
                       {deltas[t.id] && <Text value={deltas[t.id]} />}
                     </div>
@@ -868,16 +901,22 @@ export default function App() {
                   .map((t) => (
                     <div className="chat-alert" key={t.id}>
                       <Badge state={t.state} />
-                      <p>
-                        {t.error ||
-                          "I prepared a concrete proposal. Review it before continuing."}
-                      </p>
+                      <div className="body-copy">
+                        {t.error ? (
+                          <ErrorMessage message={t.error} />
+                        ) : (
+                          tr(
+                            "I prepared a concrete proposal. Review it before continuing.",
+                          )
+                        )}
+                      </div>
                       {t.state === "waiting_user" && (
                         <button
                           className="text-btn"
                           onClick={() => setPage("tasks")}
                         >
-                          Open decision <ArrowRight size={13} />
+                          {tr("Open decision ")}
+                          <ArrowRight size={13} />
                         </button>
                       )}
                     </div>
@@ -928,10 +967,16 @@ export default function App() {
       {toast && (
         <div className={"toast " + (toast.error ? "error" : "")} role="status">
           {toast.error ? <X size={15} /> : <Check size={15} />}
-          <span>{toast.message}</span>
+          <div className="toast-copy">
+            {toast.error ? (
+              <ErrorMessage message={toast.message} />
+            ) : (
+              tr(toast.message)
+            )}
+          </div>
           <button
             className="icon-btn"
-            aria-label="Dismiss message"
+            aria-label={tr("Dismiss message")}
             onClick={() => setToast(null)}
           >
             <X size={13} />
@@ -940,7 +985,7 @@ export default function App() {
       )}
       {showNotifications && (
         <Modal
-          title="Your notifications"
+          title={tr("Your notifications")}
           onClose={() => setShowNotifications(false)}
         >
           <div className="modal-body">
@@ -956,8 +1001,10 @@ export default function App() {
                 </article>
               ))
             ) : (
-              <Empty icon={Bell} title="All quiet">
-                Notifications appear when there is a useful result or decision.
+              <Empty icon={Bell} title={tr("All quiet")}>
+                {tr(
+                  "Notifications appear when there is a useful result or decision.",
+                )}
               </Empty>
             )}
           </div>

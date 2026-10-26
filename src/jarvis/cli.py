@@ -58,7 +58,10 @@ def main():
     url = f"http://127.0.0.1:{config.settings.api_port}"
     if args.command == "desktop-info":
         # Private IPC with the native launcher, never used by a public HTTP endpoint.
-        print(json.dumps({"url": url, "token": config.token, "data_dir": str(config.data_dir)}))
+        print(json.dumps({
+            "url": url, "token": config.token, "data_dir": str(config.data_dir),
+            "ui_language": config.settings.ui_language,
+        }))
         return
     if args.command == "desktop":
         from .desktop import launch

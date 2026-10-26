@@ -1,3 +1,10 @@
+import {
+  t as tr,
+  useI18n,
+  uiLocale,
+  formatNumber,
+  saveInterfaceLanguage,
+} from "./i18n";
 import React, { useEffect, useState } from "react";
 import {
   Check,
@@ -32,8 +39,10 @@ export default function Settings({
   platform,
   notify,
   onSaved,
-  initial = "models",
+  initial = "interface",
 }: Props) {
+  const language = useI18n();
+  const [savingLanguage, setSavingLanguage] = useState(false);
   const [tab, setTab] = useState(initial),
     [values, setValues] = useState<Json>({}),
     [changes, setChanges] = useState<Json>({}),
@@ -71,7 +80,7 @@ export default function Settings({
   ) => (
     <Field
       key={key}
-      label={label}
+      label={tr(label)}
       value={
         Array.isArray(values[key])
           ? JSON.stringify(values[key], null, 2)
@@ -83,7 +92,7 @@ export default function Settings({
       disabled={locked.includes(key)}
       placeholder={
         type === "password" && values[key + "_configured"]
-          ? "Configured · leave blank to keep it"
+          ? tr("Configured · leave blank to keep it")
           : undefined
       }
       options={options}
@@ -92,7 +101,7 @@ export default function Settings({
   const toggle = (key: string, label: string, help?: string) => (
     <Toggle
       key={key}
-      label={label}
+      label={tr(label)}
       checked={Boolean(values[key])}
       help={help}
       disabled={locked.includes(key)}
@@ -161,6 +170,7 @@ export default function Settings({
     return () => clearInterval(timer);
   }, [tab]);
   const tabs = [
+    ["interface", "Interface"],
     ["models", "Models"],
     ["voice", "Voice and presence"],
     ["memory", "Memory"],
@@ -171,9 +181,11 @@ export default function Settings({
   return (
     <div className="page settings-page">
       <SectionTitle
-        eyebrow="YOUR ASSISTANT, YOUR CHOICES"
-        title="Settings"
-        description="Models, connections, and boundaries. All under your control."
+        eyebrow={tr("YOUR ASSISTANT, YOUR CHOICES")}
+        title={tr("Settings")}
+        description={tr(
+          "Models, connections, and boundaries. All under your control.",
+        )}
         action={
           <button
             className="btn primary"
@@ -185,14 +197,14 @@ export default function Settings({
             ) : (
               <Save size={15} />
             )}
-            Save changes
+            {tr("Save changes")}
           </button>
         }
       />
       <div
         className="settings-tabs"
         role="tablist"
-        aria-label="Settings sections"
+        aria-label={tr("Settings sections")}
       >
         {tabs.map(([key, label]) => (
           <button
@@ -202,15 +214,66 @@ export default function Settings({
             key={key}
             onClick={() => setTab(key)}
           >
-            {label}
+            {tr(label)}
           </button>
         ))}
       </div>
       {!!locked.length && (
         <div className="info-line">
           <KeyRound size={14} />
-          Locked fields are set by the environment. Edit the env file and
-          restart the service.
+          {tr(
+            "Locked fields are set by the environment. Edit the env file and restart the service.",
+          )}
+        </div>
+      )}
+      {tab === "interface" && (
+        <div className="settings-grid">
+          <section className="settings-card">
+            <div className="card-heading">
+              <Settings2 size={19} />
+              <div>
+                <h2>{tr("Language and interface")}</h2>
+                <p>{tr("Choose the language for every Jarvis screen.")}</p>
+              </div>
+            </div>
+            <Field
+              label={tr("Interface language")}
+              value={language}
+              options={[
+                { value: "en", label: tr("English") },
+                { value: "it", label: tr("Italian") },
+              ]}
+              disabled={
+                savingLanguage ||
+                !values.ui_language ||
+                locked.includes("ui_language")
+              }
+              onChange={async (value) => {
+                setSavingLanguage(true);
+                try {
+                  const result = await saveInterfaceLanguage(value);
+                  setValues((current) => ({
+                    ...current,
+                    ui_language: result.values.ui_language,
+                  }));
+                  notify("Interface language saved.");
+                } catch (error: any) {
+                  notify(error.message, true);
+                } finally {
+                  setSavingLanguage(false);
+                }
+              }}
+              help={tr(
+                "Changes apply immediately and are saved automatically. Voice recognition and conversation language stay independent.",
+              )}
+            />
+            {savingLanguage && (
+              <span className="info-line">
+                <LoaderCircle size={14} className="spin" />
+                {tr("Saving language…")}
+              </span>
+            )}
+          </section>
         </div>
       )}
       {tab === "models" && (
@@ -219,8 +282,8 @@ export default function Settings({
             <div className="card-heading">
               <Computer size={19} />
               <div>
-                <h2>Local intelligence</h2>
-                <p>The model runs on your Mac.</p>
+                <h2>{tr("Local intelligence")}</h2>
+                <p>{tr("The model runs on your computer.")}</p>
               </div>
               <Badge
                 state={
@@ -230,22 +293,24 @@ export default function Settings({
                 }
               />
             </div>
-            {field("local_provider", "Runtime", "text", undefined, [
-              { value: "ollama", label: "Ollama" },
+            {field("local_provider", tr("Runtime"), "text", undefined, [
+              { value: "ollama", label: tr("Ollama") },
               {
                 value: "openai_compatible",
-                label: "LM Studio / OpenAI compatible",
+                label: tr("LM Studio / OpenAI compatible"),
               },
             ])}
             {field(
               "local_base_url",
-              "Local endpoint",
+              tr("Local endpoint"),
               "url",
-              "Ollama: http://127.0.0.1:11434 · LM Studio: http://127.0.0.1:1234/v1",
+              tr(
+                "Ollama: http://127.0.0.1:11434 · LM Studio: http://127.0.0.1:1234/v1",
+              ),
             )}
             <label className="field">
               <span>
-                Local model{" "}
+                {tr("Local model")}{" "}
                 {locked.includes("local_model") && <KeyRound size={11} />}
               </span>
               <input
@@ -253,7 +318,7 @@ export default function Settings({
                 value={values.local_model || ""}
                 onChange={(e) => change("local_model", e.target.value)}
                 disabled={locked.includes("local_model")}
-                placeholder="Select an installed model"
+                placeholder={tr("Select an installed model")}
               />
               <datalist id="local-models">
                 {models.local?.map((m: Json) => (
@@ -262,11 +327,17 @@ export default function Settings({
               </datalist>
               <small>
                 {models.local?.length
-                  ? `${models.local.length} models detected in the local runtime.`
-                  : "Start the runtime and detect models."}
+                  ? tr("{value0} models detected in the local runtime.", {
+                      value0: models.local.length,
+                    })
+                  : tr("Start the runtime and detect models.")}
               </small>
             </label>
-            {field("local_api_key", "Runtime token, if required", "password")}
+            {field(
+              "local_api_key",
+              tr("Runtime token, if required"),
+              "password",
+            )}
             <div className="button-row">
               <button
                 className="btn"
@@ -277,7 +348,7 @@ export default function Settings({
                 }
               >
                 <RefreshCw size={14} />
-                Detect models
+                {tr("Detect models")}
               </button>
               <button
                 className="btn"
@@ -289,43 +360,46 @@ export default function Settings({
                 ) : (
                   <ShieldCheck size={14} />
                 )}
-                Test tool calling
+                {tr("Test tool calling")}
               </button>
             </div>
             <small className="hint">
-              Save changes before testing. Models are never downloaded
-              automatically.
+              {tr(
+                "Save changes before testing. Models are never downloaded automatically.",
+              )}
             </small>
           </section>
           <section className="settings-card">
             <div className="card-heading">
               <Cloud size={19} />
               <div>
-                <h2>Cloud intelligence</h2>
-                <p>For tasks that need a remote model.</p>
+                <h2>{tr("Cloud intelligence")}</h2>
+                <p>{tr("For tasks that need a remote model.")}</p>
               </div>
             </div>
-            {field("cloud_provider", "Provider", "text", undefined, [
-              { value: "openai", label: "OpenAI · Responses API" },
-              { value: "anthropic", label: "Anthropic" },
+            {field("cloud_provider", tr("Provider"), "text", undefined, [
+              { value: "openai", label: tr("OpenAI · Responses API") },
+              { value: "anthropic", label: tr("Anthropic") },
               {
                 value: "openai_compatible",
-                label: "Other OpenAI-compatible provider",
+                label: tr("Other OpenAI-compatible provider"),
               },
             ])}
             {field(
               "cloud_model",
-              "Model ID",
+              tr("Model ID"),
               "text",
-              "Use the exact ID available in your account.",
+              tr("Use the exact ID available in your account."),
             )}
             {field(
               "cloud_api_key",
-              "API key",
+              tr("API key"),
               "password",
-              "Stored in private configuration; keychain:account references are also supported.",
+              tr(
+                "Stored in private configuration; keychain:account references are also supported.",
+              ),
             )}
-            {field("cloud_base_url", "Custom endpoint, optional", "url")}
+            {field("cloud_base_url", tr("Custom endpoint, optional"), "url")}
             <button
               className="btn"
               disabled={!!testing}
@@ -336,14 +410,14 @@ export default function Settings({
               ) : (
                 <ShieldCheck size={14} />
               )}
-              Test connection and tools
+              {tr("Test connection and tools")}
             </button>
             <small className="hint">
-              The test makes a short real request to the provider.
+              {tr("The test makes a short real request to the provider.")}
             </small>
           </section>
           <section className="settings-card full">
-            <h2>Default profile</h2>
+            <h2>{tr("Default profile")}</h2>
             <div className="profile-options">
               {Object.entries(profileLabels).map(([key, label]) => (
                 <button
@@ -352,43 +426,45 @@ export default function Settings({
                   onClick={() => change("profile", key)}
                   className={values.profile === key ? "selected" : ""}
                 >
-                  <span>{label}</span>
+                  <span>{tr(label)}</span>
                   <small>
                     {key === "local_strict"
-                      ? "No remote tools or cloud fallback"
+                      ? tr("No remote tools or cloud fallback")
                       : key === "local_connected"
-                        ? "Local LLM, connected services enabled"
+                        ? tr("Local LLM, connected services enabled")
                         : key === "cloud"
-                          ? "Selected cloud model"
-                          : "Cloud when configured, otherwise local"}
+                          ? tr("Selected cloud model")
+                          : tr("Cloud when configured, otherwise local")}
                   </small>
                 </button>
               ))}
             </div>
             <div className="form-grid">
-              {field("max_output_tokens", "Response token limit", "number")}
+              {field("max_output_tokens", tr("Response token limit"), "number")}
               {field(
                 "cloud_reasoning_effort",
-                "OpenAI reasoning",
+                tr("OpenAI reasoning"),
                 "text",
-                "Low prioritizes response time; this setting applies to GPT-5 and GPT-6 models.",
+                tr(
+                  "Low prioritizes response time; this setting applies to GPT-5 and GPT-6 models.",
+                ),
                 [
-                  { value: "low", label: "Low" },
-                  { value: "medium", label: "Medium" },
-                  { value: "high", label: "High" },
-                  { value: "xhigh", label: "Extra high" },
-                  { value: "max", label: "Max" },
+                  { value: "low", label: tr("Low") },
+                  { value: "medium", label: tr("Medium") },
+                  { value: "high", label: tr("High") },
+                  { value: "xhigh", label: tr("Extra high") },
+                  { value: "max", label: tr("Max") },
                 ],
               )}
-              {field("max_agent_steps", "Agent step limit", "number")}
+              {field("max_agent_steps", tr("Agent step limit"), "number")}
               {field(
                 "task_timeout_seconds",
-                "Maximum task duration, seconds",
+                tr("Maximum task duration, seconds"),
                 "number",
               )}
               {field(
                 "model_request_timeout_seconds",
-                "Model timeout, seconds",
+                tr("Model timeout, seconds"),
                 "number",
               )}
             </div>
@@ -401,151 +477,174 @@ export default function Settings({
             <div className="card-heading">
               <Headphones size={19} />
               <div>
-                <h2>A voice within reach</h2>
+                <h2>{tr("A voice within reach")}</h2>
                 <p>
-                  Microphone access and recognition are managed by the macOS
-                  app.
+                  {tr(
+                    "Microphone access and recognition are managed by the macOS app.",
+                  )}
                 </p>
               </div>
             </div>
             {platform?.native_voice === false && (
               <p className="info-line">
-                This portable build supports text conversations. Native wake
-                detection and desktop audio are available in the macOS app.
-                Telephony is configured separately.
+                {tr(
+                  "This portable build supports text conversations. Native wake detection and desktop audio are available in the macOS app. Telephony is configured separately.",
+                )}
               </p>
             )}
-            {toggle("voice_enabled", "Enable voice")}
-            {toggle("wake_enabled", "Voice activation")}
+            {toggle("voice_enabled", tr("Enable voice"))}
+            {toggle("wake_enabled", tr("Voice activation"))}
             {field(
               "wake_phrase",
-              "Wake phrase",
+              tr("Wake phrase"),
               "text",
-              "Detection uses on-device transcription with word boundaries.",
+              tr(
+                "Detection uses on-device transcription with word boundaries.",
+              ),
             )}
             {field(
               "language",
-              "Recognition language",
+              tr("Recognition language"),
               "text",
-              "Example: it-IT. The language must support on-device recognition on this Mac. OpenAI detects the conversation language from audio after activation.",
+              tr(
+                "Example: it-IT. The language must support on-device recognition on this Mac. OpenAI detects the conversation language from audio after activation.",
+              ),
             )}
             {field(
               "response_language",
-              "Response language",
+              tr("Response language"),
               "text",
-              "Auto follows complete requests in Italian, English, or another supported language. Tool output and accents do not change the conversation language.",
+              tr(
+                "Auto follows complete requests in Italian, English, or another supported language. Tool output and accents do not change the conversation language.",
+              ),
               [
-                { value: "auto", label: "Auto · follow the user" },
-                { value: "it-IT", label: "Italian" },
-                { value: "en-GB", label: "English" },
+                { value: "auto", label: tr("Auto · follow the user") },
+                { value: "it-IT", label: tr("Italian") },
+                { value: "en-GB", label: tr("English") },
               ],
             )}
             {field(
               "tts_voice",
-              "System voice, optional identifier",
+              tr("System voice, optional identifier"),
               "text",
-              "Leave blank to select a system voice automatically from the response language.",
+              tr(
+                "Leave blank to select a system voice automatically from the response language.",
+              ),
             )}
             {field(
               "desktop_voice_provider",
-              "Voice conversation",
+              tr("Voice conversation"),
               "text",
               undefined,
               [
                 {
                   value: "apple",
-                  label: "Apple · recognition and synthesis on Mac",
+                  label: tr("Apple · recognition and synthesis on Mac"),
                 },
                 {
                   value: "openai_live",
-                  label: "OpenAI Live · listening and natural speech",
+                  label: tr("OpenAI Live · listening and natural speech"),
                 },
               ],
             )}
-            {field("desktop_voice_model", "OpenAI voice model")}
+            {field("desktop_voice_model", tr("OpenAI voice model"))}
             {field(
               "desktop_voice_duplex",
-              "Microphone during playback",
+              tr("Microphone during playback"),
               "text",
-              "With speakers, input audio is gated during playback to prevent commands caused by echo. Press ⌘⇧J to take the floor again.",
+              tr(
+                "With speakers, input audio is gated during playback to prevent commands caused by echo. Press ⌘⇧J to take the floor again.",
+              ),
               [
-                { value: "gated", label: "Speakers · echo protection" },
-                { value: "full", label: "Headphones · listen during playback" },
+                { value: "gated", label: tr("Speakers · echo protection") },
+                {
+                  value: "full",
+                  label: tr("Headphones · listen during playback"),
+                },
               ],
             )}
             {field(
               "desktop_voice_name",
-              "OpenAI voice name or custom ID",
+              tr("OpenAI voice name or custom ID"),
               "text",
-              "Use a built-in name such as cedar, marin, ash, ballad or verse, or the voice_… ID of a saved GPT-Live voice.",
+              tr(
+                "Use a built-in name such as cedar, marin, ash, ballad or verse, or the voice_… ID of a saved GPT-Live voice.",
+              ),
             )}
             {field(
               "desktop_voice_style",
-              "Vocal style",
+              tr("Vocal style"),
               "textarea",
-              "Describe timbre, pacing and delivery. For a saved custom voice, keep its original description here.",
+              tr(
+                "Describe timbre, pacing and delivery. For a saved custom voice, keep its original description here.",
+              ),
             )}
             {field(
               "desktop_voice_api_key",
-              "OpenAI voice API key, optional",
+              tr("OpenAI voice API key, optional"),
               "password",
-              "Leave blank to use the OpenAI provider key configured under Models.",
+              tr(
+                "Leave blank to use the OpenAI provider key configured under Models.",
+              ),
             )}
             <small className="hint">
-              Speech is generated by an AI model. With OpenAI Live, wake
-              detection stays local; after activation, the command and
-              conversation audio go to OpenAI with a short initial RAM buffer.
-              Keep the lid open for the built-in microphone or choose an
-              external input.
+              {tr(
+                "Speech is generated by an AI model. With OpenAI Live, wake detection stays local; after activation, the command and conversation audio go to OpenAI with a short initial RAM buffer. Keep the lid open for the built-in microphone or choose an external input.",
+              )}
             </small>
             <div className="button-row">
               <button className="btn primary" onClick={() => native("enable")}>
                 <Headphones size={15} />
-                Enable voice and permissions
+                {tr("Enable voice and permissions")}
               </button>
               <button className="btn" onClick={() => native("listen")}>
-                Test listening
+                {tr("Test listening")}
               </button>
             </div>
           </section>
           <section className="settings-card">
-            <h2>Conversation timing</h2>
+            <h2>{tr("Conversation timing")}</h2>
             {field(
               "desktop_voice_max_session_seconds",
-              "Maximum OpenAI session duration, seconds",
+              tr("Maximum OpenAI session duration, seconds"),
               "number",
             )}
             {field(
               "desktop_voice_idle_seconds",
-              "OpenAI idle timeout, seconds",
+              tr("OpenAI idle timeout, seconds"),
               "number",
             )}
             {field(
               "desktop_voice_rate_usd_per_minute",
-              "Voice rate in USD/minute for the budget",
+              tr("Voice rate in USD/minute for the budget"),
               "number",
             )}
-            {field("followup_seconds", "Follow-up window, seconds", "number")}
+            {field(
+              "followup_seconds",
+              tr("Follow-up window, seconds"),
+              "number",
+            )}
             {field(
               "end_of_turn_ms",
-              "End-of-turn pause, milliseconds",
+              tr("End-of-turn pause, milliseconds"),
               "number",
             )}
             {field(
               "listen_timeout_seconds",
-              "Maximum command duration, seconds",
+              tr("Maximum command duration, seconds"),
               "number",
             )}
             {toggle(
               "voice_on_lock_screen",
-              "Allow voice while the screen is locked",
-              "Disabled by default.",
+              tr("Allow voice while the screen is locked"),
+              tr("Disabled by default."),
             )}
             <div className="info-box">
-              <strong>⌘ ⇧ J</strong>
+              <strong>{tr("⌘ ⇧ J")}</strong>
               <p>
-                Global shortcut to start a turn. Closing the window keeps Jarvis
-                in the menu bar.
+                {tr(
+                  "Global shortcut to start a turn. Closing the window keeps Jarvis in the menu bar.",
+                )}
               </p>
             </div>
             <div className="button-row">
@@ -553,17 +652,19 @@ export default function Settings({
                 className="btn"
                 onClick={() => native("autostart_enable")}
               >
-                Launch at login
+                {tr("Launch at login")}
               </button>
               <button
                 className="btn ghost"
                 onClick={() => native("autostart_disable")}
               >
-                Disable launch at login
+                {tr("Disable launch at login")}
               </button>
             </div>
             <small className="hint">
-              The Mac must be awake. Sleep and shutdown suspend the assistant.
+              {tr(
+                "The Mac must be awake. Sleep and shutdown suspend the assistant.",
+              )}
             </small>
           </section>
         </div>
@@ -571,41 +672,51 @@ export default function Settings({
       {tab === "memory" && (
         <div className="settings-grid">
           <section className="settings-card">
-            <h2>Your Second Brain</h2>
+            <h2>{tr("Your Second Brain")}</h2>
             {field(
               "second_brain_url",
-              "Endpoint MCP",
+              tr("Endpoint MCP"),
               "url",
-              "Use your canonical memory installation.",
+              tr("Use your canonical memory installation."),
             )}
-            {field("second_brain_auth", "Authentication", "text", undefined, [
-              { value: "bearer", label: "Bearer token" },
-              { value: "oauth", label: "OAuth with browser consent" },
-              {
-                value: "none",
-                label: "None · only for servers explicitly protected elsewhere",
-              },
-            ])}
-            {field("second_brain_token", "Dedicated token", "password")}
+            {field(
+              "second_brain_auth",
+              tr("Authentication"),
+              "text",
+              undefined,
+              [
+                { value: "bearer", label: tr("Bearer token") },
+                { value: "oauth", label: tr("OAuth with browser consent") },
+                {
+                  value: "none",
+                  label: tr(
+                    "None · only for servers explicitly protected elsewhere",
+                  ),
+                },
+              ],
+            )}
+            {field("second_brain_token", tr("Dedicated token"), "password")}
             {toggle(
               "second_brain_allow_corrections",
-              "Enable corrections and retractions",
-              "Requires separate OAuth consent with memory:write. Changes still require approval.",
+              tr("Enable corrections and retractions"),
+              tr(
+                "Requires separate OAuth consent with memory:write. Changes still require approval.",
+              ),
             )}
-            {field("memory_capture", "Memory capture", "text", undefined, [
+            {field("memory_capture", tr("Memory capture"), "text", undefined, [
               {
                 value: "explicit_only",
-                label: "Only when I ask to remember",
+                label: tr("Only when I ask to remember"),
               },
               {
                 value: "explicit_facts",
-                label: "Relevant explicit facts from conversations",
+                label: tr("Relevant explicit facts from conversations"),
               },
-              { value: "off", label: "No new memory" },
+              { value: "off", label: tr("No new memory") },
             ])}
             {field(
               "memory_recall_token_budget",
-              "Recall context budget",
+              tr("Recall context budget"),
               "number",
             )}
             <button
@@ -620,23 +731,25 @@ export default function Settings({
                   .catch((e) => notify(e.message, true))
               }
             >
-              Connect Second Brain
+              {tr("Connect Second Brain")}
             </button>
           </section>
           <section className="settings-card">
-            <h2>Sources and continuity</h2>
+            <h2>{tr("Sources and continuity")}</h2>
             <p className="body-copy">
-              Memories retain their source, revision, and quotations. Saving is
-              asynchronous: a queued source is not yet a searchable memory.
+              {tr(
+                "Memories retain their source, revision, and quotations. Saving is asynchronous: a queued source is not yet a searchable memory.",
+              )}
             </p>
             <p className="body-copy">
-              Private sessions exclude new memory, checkpoint content, and
-              persistent messages. Retracting a memory preserves originals in
-              Second Brain.
+              {tr(
+                "Private sessions exclude new memory, checkpoint content, and persistent messages. Retracting a memory preserves originals in Second Brain.",
+              )}
             </p>
             <div className="info-box">
-              Do not reuse other applications' credentials. Configure a
-              dedicated connection with only the required privileges.
+              {tr(
+                "Do not reuse other applications' credentials. Configure a dedicated connection with only the required privileges.",
+              )}
             </div>
           </section>
         </div>
@@ -644,76 +757,77 @@ export default function Settings({
       {tab === "productivity" && (
         <div className="settings-grid">
           <section className="settings-card">
-            <h2>Agenda</h2>
-            {field("calendar_provider", "Calendar", "text", undefined, [
-              { value: "disabled", label: "Not connected" },
-              { value: "apple", label: "Apple Calendar · native on Mac" },
-              { value: "ics", label: "ICS feed · read only" },
-              { value: "google", label: "Google Calendar" },
-              { value: "microsoft", label: "Microsoft 365 / Outlook" },
+            <h2>{tr("Agenda")}</h2>
+            {field("calendar_provider", tr("Calendar"), "text", undefined, [
+              { value: "disabled", label: tr("Not connected") },
+              { value: "apple", label: tr("Apple Calendar · native on Mac") },
+              { value: "ics", label: tr("ICS feed · read only") },
+              { value: "google", label: tr("Google Calendar") },
+              { value: "microsoft", label: tr("Microsoft 365 / Outlook") },
             ])}
             {values.calendar_provider === "apple" && (
               <button
                 className="btn"
                 onClick={() => native("calendar_authorize")}
               >
-                Authorize Mac calendar
+                {tr("Authorize Mac calendar")}
               </button>
             )}
             {values.calendar_provider === "ics" &&
-              field("calendar_ics_url", "ICS feed URL", "url")}
+              field("calendar_ics_url", tr("ICS feed URL"), "url")}
             {["google", "microsoft"].includes(values.calendar_provider) && (
               <>
-                {field("calendar_client_id", "OAuth client ID")}
+                {field("calendar_client_id", tr("OAuth client ID"))}
                 {field(
                   "calendar_client_secret",
-                  "OAuth client secret, if required",
+                  tr("OAuth client secret, if required"),
                   "password",
                 )}
                 {field(
                   "calendar_refresh_token",
-                  "Refresh token",
+                  tr("Refresh token"),
                   "password",
-                  "Refresh runs automatically when configured.",
+                  tr("Refresh runs automatically when configured."),
                 )}
                 {field(
                   "calendar_access_token",
-                  "Access token, temporary alternative",
+                  tr("Access token, temporary alternative"),
                   "password",
                 )}
                 {values.calendar_provider === "microsoft" &&
-                  field("calendar_tenant_id", "Microsoft tenant")}
+                  field("calendar_tenant_id", tr("Microsoft tenant"))}
               </>
             )}
             <small className="hint">
-              Save the provider before authorizing the calendar.
+              {tr("Save the provider before authorizing the calendar.")}
             </small>
           </section>
           <section className="settings-card">
-            <h2>Weather and search</h2>
+            <h2>{tr("Weather and search")}</h2>
             {field(
               "weather_location",
-              "Weather location",
+              tr("Weather location"),
               "text",
-              "A city you choose; no automatic geolocation.",
+              tr("A city you choose; no automatic geolocation."),
             )}
             {field(
               "weather_refresh_minutes",
-              "Weather refresh, minutes",
+              tr("Weather refresh, minutes"),
               "number",
             )}
-            {field("search_provider", "Search engine", "text", undefined, [
+            {field("search_provider", tr("Search engine"), "text", undefined, [
               {
                 value: "duckduckgo",
-                label: "Public DuckDuckGo · keyless, best effort",
+                label: tr("Public DuckDuckGo · keyless, best effort"),
               },
-              { value: "brave", label: "Brave Search API" },
-              { value: "tavily", label: "Tavily Search API" },
+              { value: "brave", label: tr("Brave Search API") },
+              { value: "tavily", label: tr("Tavily Search API") },
             ])}
-            {field("search_api_key", "Search engine API key", "password")}
+            {field("search_api_key", tr("Search engine API key"), "password")}
             <small className="hint">
-              Weather uses Open-Meteo with attribution. The service may limit
-              keyless search.
+              {tr(
+                "Weather uses Open-Meteo with attribution. The service may limit keyless search.",
+              )}
             </small>
           </section>
         </div>
@@ -721,64 +835,67 @@ export default function Settings({
       {tab === "security" && (
         <div className="settings-grid">
           <section className="settings-card">
-            <h2>Workspaces and commands</h2>
+            <h2>{tr("Workspaces and commands")}</h2>
             {field(
               "workspace_roots",
-              "Authorized folders, JSON array",
+              tr("Authorized folders, JSON array"),
               "textarea",
-              'Example: ["/absolute/path/projects/app"]. File tools exclude credentials and external symlinks.',
+              tr(
+                'Example: ["/absolute/path/projects/app"]. File tools exclude credentials and external symlinks.',
+              ),
             )}
             {field(
               "command_execution",
-              "Command execution",
+              tr("Command execution"),
               "text",
               undefined,
               [
-                { value: "disabled", label: "Disabled" },
+                { value: "disabled", label: tr("Disabled") },
                 {
                   value: "approval",
-                  label: "Host · proposal requires approval",
+                  label: tr("Host · proposal requires approval"),
                 },
-                { value: "sandbox", label: "macOS sandbox · no network" },
+                { value: "sandbox", label: tr("macOS sandbox · no network") },
               ],
             )}
             {field(
               "command_timeout_seconds",
-              "Command timeout, seconds",
+              tr("Command timeout, seconds"),
               "number",
             )}
             <p className="body-copy">
-              Command approval authorizes that specific action. Coding processes
-              do not inherit provider API keys.
+              {tr(
+                "Command approval authorizes that specific action. Coding processes do not inherit provider API keys.",
+              )}
             </p>
           </section>
           <section className="settings-card">
-            <h2>Privacy and limits</h2>
+            <h2>{tr("Privacy and limits")}</h2>
             {field(
               "transcript_retention_days",
-              "Message retention, days",
+              tr("Message retention, days"),
               "number",
             )}
             {field(
               "operation_log_retention_days",
-              "Event retention, days",
+              tr("Event retention, days"),
               "number",
             )}
-            {field("monthly_budget_usd", "Monthly limit, USD", "number")}
+            {field("monthly_budget_usd", tr("Monthly limit, USD"), "number")}
             {field(
               "model_input_usd_per_million",
-              "Input cost per million tokens, USD",
+              tr("Input cost per million tokens, USD"),
               "number",
             )}
             {field(
               "model_output_usd_per_million",
-              "Output cost per million tokens, USD",
+              tr("Output cost per million tokens, USD"),
               "number",
             )}
             <small className="hint">
-              Cloud input and output rates are required. Each request reserves
-              an estimate before sending; the provider's final bill remains
-              authoritative.
+              {tr(
+                "Cloud input and output rates are required. Each request reserves an estimate before sending; the provider's final bill remains authoritative.",
+              )}
             </small>
           </section>
         </div>
@@ -789,92 +906,99 @@ export default function Settings({
             <div className="card-heading">
               <Phone size={19} />
               <div>
-                <h2>Jarvis on the phone</h2>
-                <p>Twilio Media Streams with two-way conversation.</p>
+                <h2>{tr("Jarvis on the phone")}</h2>
+                <p>{tr("Twilio Media Streams with two-way conversation.")}</p>
               </div>
             </div>
             {toggle(
               "telephony_enabled",
-              "Enable telephony",
-              "Requires a carrier, an HTTPS/WSS tunnel, and credit.",
+              tr("Enable telephony"),
+              tr("Requires a carrier, an HTTPS/WSS tunnel, and credit."),
             )}
-            {field("telephony_account_id", "Twilio account SID")}
-            {field("telephony_auth_token", "Twilio auth token", "password")}
+            {field("telephony_account_id", tr("Twilio account SID"))}
+            {field("telephony_auth_token", tr("Twilio auth token"), "password")}
             {field(
               "telephony_public_base_url",
-              "Public telephony proxy URL",
+              tr("Public telephony proxy URL"),
               "url",
-              "Expose only /telephony, not the entire local API.",
+              tr("Expose only /telephony, not the entire local API."),
             )}
-            {field("telephony_from_number", "Caller number, E.164")}
-            {field("owner_phone_number", "Your verified number, E.164")}
+            {field("telephony_from_number", tr("Caller number, E.164"))}
+            {field("owner_phone_number", tr("Your verified number, E.164"))}
             {field(
               "phone_pin",
-              "Personal PIN, 4–8 digits",
+              tr("Personal PIN, 6–8 digits"),
               "password",
-              "Required before discussing private data. Never sent to the model.",
+              tr(
+                "Required before discussing private data. Never sent to the model.",
+              ),
             )}
           </section>
           <section className="settings-card">
-            <h2>Call audio and limits</h2>
+            <h2>{tr("Call audio and limits")}</h2>
             {field(
               "phone_stt_provider",
-              "Phone speech recognition",
+              tr("Phone speech recognition"),
               "text",
               undefined,
               [
-                { value: "openai", label: "OpenAI · cloud audio" },
+                { value: "openai", label: tr("OpenAI · cloud audio") },
                 {
                   value: "faster_whisper",
-                  label: "Local faster-whisper · voice extra required",
+                  label: tr("Local faster-whisper · voice extra required"),
                 },
               ],
             )}
             {field(
               "phone_api_key",
-              "OpenAI audio API key, if used",
+              tr("OpenAI audio API key, if used"),
               "password",
-              "Separate from the reasoning provider. Without a key, TTS uses the system voice.",
+              tr(
+                "Separate from the reasoning provider. Without a key, TTS uses the system voice.",
+              ),
             )}
             {field(
               "phone_max_call_seconds",
-              "Maximum duration, seconds",
+              tr("Maximum duration, seconds"),
               "number",
             )}
             {field(
               "phone_local_tts_voice",
-              "Mac phone voice, optional name",
+              tr("Mac phone voice, optional name"),
               "text",
-              "Example: Alice, if installed. This differs from the desktop voice ID.",
+              tr(
+                "Example: Alice, if installed. This differs from the desktop voice ID.",
+              ),
             )}
             {field(
               "phone_daily_budget_usd",
-              "Maximum daily reservation, USD",
+              tr("Maximum daily reservation, USD"),
               "number",
             )}
             {field(
               "phone_minute_rate_usd",
-              "Conservative rate, USD/min",
+              tr("Conservative rate, USD/min"),
               "number",
             )}
             {field(
               "quiet_hours",
-              "Quiet hours",
+              tr("Quiet hours"),
               "text",
-              "Format: 22:00-08:00. No proactive calls outside policy.",
+              tr("Format: 22:00-08:00. No proactive calls outside policy."),
             )}
             <div className="info-box">
-              Reservation for an outgoing call:{" "}
-              {(
+              {tr("Reservation for an outgoing call:")}{" "}
+              {formatNumber(
                 Math.ceil((values.phone_max_call_seconds || 0) / 60) *
-                (values.phone_minute_rate_usd || 0)
-              ).toFixed(2)}{" "}
-              USD. Check actual rates and save settings.
+                  (values.phone_minute_rate_usd || 0),
+                2,
+              )}{" "}
+              {tr("USD. Check actual rates and save settings.")}
             </div>
             <Toggle
               checked={authorized}
               onChange={setAuthorized}
-              label="I authorize a test call to my number"
+              label={tr("I authorize a test call to my number")}
             />
             <button
               className="btn"
@@ -895,23 +1019,23 @@ export default function Settings({
               }}
             >
               <Phone size={14} />
-              Start test call
+              {tr("Start test call")}
             </button>
           </section>
           {!!calls.length && (
             <section className="settings-card full">
-              <h2>Recent calls</h2>
+              <h2>{tr("Recent calls")}</h2>
               {calls.map((c) => (
                 <React.Fragment key={c.id}>
                   <div className="list-row">
                     <div>
                       <strong>
                         {c.direction === "outbound"
-                          ? "Outgoing call"
-                          : "Incoming call"}
+                          ? tr("Outgoing call")
+                          : tr("Incoming call")}
                       </strong>
                       <small>
-                        {new Date(c.created_at).toLocaleString("en-GB")}
+                        {new Date(c.created_at).toLocaleString(uiLocale())}
                       </small>
                     </div>
                     <Badge state={c.state} />
@@ -942,6 +1066,7 @@ function CallReview({
   notify: (text: string, error?: boolean) => void;
   onDone: () => void;
 }) {
+  useI18n();
   const [sid, setSid] = useState(""),
     [note, setNote] = useState(""),
     [notCreated, setNotCreated] = useState(false),
@@ -950,23 +1075,28 @@ function CallReview({
   return (
     <section className="subform">
       <p className="body-copy">
-        The carrier may have received the request. Check its log before allowing
-        another attempt.
+        {tr(
+          "The carrier may have received the request. Check its log before allowing another attempt.",
+        )}
       </p>
       <Field
-        label="Call SID observed in the carrier log"
+        label={tr("Call SID observed in the carrier log")}
         value={sid}
         onChange={setSid}
         disabled={notCreated}
       />
       <Toggle
-        label="I verified that the call was not created"
+        label={tr("I verified that the call was not created")}
         checked={notCreated}
         onChange={setNotCreated}
       />
-      <Field label="Verification outcome" value={note} onChange={setNote} />
+      <Field
+        label={tr("Verification outcome")}
+        value={note}
+        onChange={setNote}
+      />
       <Toggle
-        label="I confirm that I checked the carrier log"
+        label={tr("I confirm that I checked the carrier log")}
         checked={verified}
         onChange={setVerified}
       />
@@ -993,7 +1123,7 @@ function CallReview({
           }
         }}
       >
-        Record verified outcome
+        {tr("Record verified outcome")}
       </button>
     </section>
   );

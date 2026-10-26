@@ -6,7 +6,7 @@ A personal assistant with a dashboard, local/cloud models, MCP tools, programmin
 
 Built with **React** and a **Python, FastAPI, LangGraph, Deep Agents** service, with **AppKit/WebKit** for the native Mac host. On macOS, close the window and Jarvis keeps running in the menu bar. The computer must remain awake and logged in.
 
-The interface, documentation, comments, and system messages are English. **You can still speak Italian.** With response language set to `auto`, Jarvis follows substantive requests in Italian, English, or another supported language. English tool results do not force an English reply.
+The interface supports **English and Italian**: choose **Settings → Interface → Interface language**. It changes immediately and saves automatically. Documentation and code comments remain English. **You can still speak Italian.** With response language set to `auto`, Jarvis follows substantive requests in Italian, English, or another supported language. English tool results do not force an English reply.
 
 The command center uses a midnight-blue palette, cyan accents, framed panels, and an audio-reactive circular core. Weather, calendar, task activity, Second Brain, and configured models stay connected to real service data. See [interface design and verification](docs/15-command-center-interface.md).
 
@@ -100,6 +100,8 @@ Each archive has a sibling `.sha256` checksum and `BUILD-INFO.json` with its sou
 
 ## First use
 
+Choose **Settings → Interface → Interface language** (or **Impostazioni → Interfaccia → Lingua dell’interfaccia**) to switch the entire dashboard and native Mac menus between English and Italian. The preference survives restarts and syncs open dashboards. It is independent of wake recognition and conversation language. Set `JARVIS_UI_LANGUAGE=en` or `it` only when the environment should control and lock this preference. See the [interface language guide](docs/18-interface-language.md).
+
 1. **Models:** select runtime/model in Settings and run “Test tool calling”. Configure cloud key, model ID, and input/output rates. Hybrid chooses configured cloud or otherwise local at task start, without mid-task fallback.
 2. **Voice and presence (native Mac app):** enable voice, choose Apple or OpenAI Live, and grant Jarvis Microphone/Speech Recognition. Live keeps wake detection local and sends conversation audio only after activation. Set **Response language → Auto** to speak Italian or English. Recognition language remains separate, initially `it-IT`. Say “Jarvis” or **“Jarvis, che ore sono?”**. Shortcut: **⌘⇧J**. See the [OpenAI voice guide](docs/13-voce-openai.md). Launch at login is optional in Settings/menu. Windows/Linux currently use text conversation with the same response-language policy.
 3. **Memory:** configure the canonical Second Brain MCP endpoint and dedicated Bearer/OAuth connection. “Connect Second Brain” opens consent where needed; Jarvis does not reuse Codex credentials. Corrections need their separate option/OAuth scope.
@@ -132,7 +134,7 @@ JARVIS_LANGUAGE=it-IT
 JARVIS_RESPONSE_LANGUAGE=auto
 ```
 
-Precedence: process environment → `.env` → private GUI settings → defaults. Env-imposed fields are locked in the GUI; restart the service after file changes. The [complete env schema](docs/12-configurazione-env.md) lists all 91 settings, types, defaults, and constraints.
+Precedence: process environment → `.env` → private GUI settings → defaults. Env-imposed fields are locked in the GUI; restart the service after file changes. The [complete env schema](docs/12-configurazione-env.md) lists all 92 settings, types, defaults, and constraints.
 
 Data is separate from source: `~/Library/Application Support/Jarvis` on macOS, `%LOCALAPPDATA%\Jarvis` on Windows, and `$XDG_DATA_HOME/Jarvis` or `~/.local/share/Jarvis` on Linux. It holds private settings, the local token, database, checkpoints, approvals, and memory queue. Private-session content stays in service RAM and cannot be recovered after restart. Ordinary history follows configured retention.
 
@@ -179,7 +181,7 @@ Read the [security policy](SECURITY.md) and [audit/remediation record](docs/17-s
 
 The [dossier](docs/README.md) contains GitHub research, 132 requirements, architecture, and decisions. The [implementation design](docs/10-progetto-esecutivo.md) records implemented choices. The [operations/coverage guide](docs/11-implementazione-e-verifica.md) distinguishes automated tests, real experiments, and integrations awaiting authorization. Existing document filenames are retained to preserve links.
 
-Cross-platform verification collects **112 Python tests**, with platform-specific skips, plus **34 Swift regression scenarios** on macOS. It also checks TypeScript/Vite, Python lint, Mac bundle compilation/signing, and actual Windows/Linux executables. See [platform verification evidence](docs/16-cross-platform-builds.md#verification-results).
+Cross-platform verification collects **119 Python tests**, with platform-specific skips, plus **40 Swift regression scenarios** on macOS. It also checks TypeScript/Vite, Python lint, Mac bundle compilation/signing, and actual Windows/Linux executables. See [platform verification evidence](docs/16-cross-platform-builds.md#verification-results).
 
 Account-specific integration tests should be recorded privately. Public regression tests use synthetic fixtures and never need a personal provider key, calendar, phone number, or memory corpus.
 

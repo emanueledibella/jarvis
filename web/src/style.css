@@ -2279,3 +2279,9 @@ td code {
   background: none;
   object-fit: contain;
 }
+
+/* Diagnostics retain their original payload; surrounding controls follow the UI locale. */
+.diagnostic-details { margin-top: 6px; font-size: 12px; }
+.diagnostic-details summary { cursor: pointer; }
+.diagnostic-details pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 180px; overflow: auto; }
+.toast-copy { min-width: 0; overflow-wrap: anywhere; }

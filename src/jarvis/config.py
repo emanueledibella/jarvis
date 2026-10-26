@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     api_host: str = "127.0.0.1"
     api_port: int = Field(default=8765, ge=1024, le=65535)
     timezone: str = "Europe/Rome"
+    ui_language: Literal["en", "it"] = "en"
     language: str = "it-IT"
     response_language: str = Field(
         default="auto", pattern=r"^(?:auto|[a-zA-Z]{2,3}(?:-[a-zA-Z0-9]{2,8})*)$"

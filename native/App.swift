@@ -20,7 +20,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     var hotKey: EventHotKeyRef?
     var nativeSettings: [String: Any] = [:]
     var serviceRestarts = 0
+    var interfaceLanguage = InterfaceLanguage.configured(UserDefaults.standard.string(forKey: "interfaceLanguage"))
+    let interfaceMessages = InterfaceLanguage.messages()
     var webReady = false
+
+    func ui(_ source: String) -> String { interfaceLanguage.text(source, messages: interfaceMessages) }
+
+    func configureInterface(_ value: String?) {
+        let next = InterfaceLanguage.configured(value)
+        guard next != interfaceLanguage else { return }
+        interfaceLanguage = next
+        UserDefaults.standard.set(next.rawValue, forKey: "interfaceLanguage")
+        buildMenu()
+        statusItem.button?.toolTip = ui("Jarvis — personal assistant")
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -29,7 +42,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         }
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem.button?.image = NSImage(systemSymbolName: "waveform.circle", accessibilityDescription: "Jarvis")
-        statusItem.button?.toolTip = "Jarvis — personal assistant"
+        statusItem.button?.toolTip = ui("Jarvis — personal assistant")
         buildMenu()
         do {
             let resource = Bundle.main.url(forResource: "project-root", withExtension: "txt")!
@@ -49,12 +62,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                   url.host == "127.0.0.1", let token = info["token"] as? String else {
                 throw ServiceClient.ClientError.server("Run scripts/setup.sh to prepare the service.")
             }
+            configureInterface(info["ui_language"] as? String)
             dataDirectory = info["data_dir"] as? String ?? ""
             client = ServiceClient(base: url, token: token)
             voice = VoiceEngine(client: client)
             voice.onStateChange = { [weak self] state in
                 let name = state == "muted" ? "mic.slash.circle" : state == "speaking" ? "waveform.circle.fill" : "waveform.circle"
-                self?.statusItem.button?.image = NSImage(systemSymbolName: name, accessibilityDescription: "Jarvis: " + state)
+                let states = ["armed": "Ready for Jarvis", "muted": "Microphone muted", "speaking": "Speaking", "listening": "Listening", "processing": "Working on it.", "followup": "Ready to continue", "recovering": "Restoring listening."]
+                self?.statusItem.button?.image = NSImage(systemSymbolName: name, accessibilityDescription: (self?.ui("Jarvis: ") ?? "Jarvis: ") + (self?.ui(states[state] ?? state) ?? state))
             }
             Task {
                 do {
@@ -72,27 +87,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             }
         } catch {
             let alert = NSAlert()
-            alert.messageText = "Jarvis is not ready yet"
-            alert.informativeText = error.localizedDescription
+            alert.messageText = ui("Jarvis is not ready yet")
+            alert.informativeText = ui(error.localizedDescription)
             alert.runModal()
         }
     }
 
     func buildMenu() {
         let menu = NSMenu()
-        let items: [(String, Selector, String)] = [("Open Jarvis", #selector(showDashboard), "j"), ("Talk now", #selector(listen), ""), ("Mute microphone", #selector(mute), ""), ("Unmute microphone", #selector(unmute), "")]
+        let items: [(String, Selector, String)] = [(ui("Open Jarvis"), #selector(showDashboard), "j"), (ui("Talk now"), #selector(listen), ""), (ui("Mute microphone"), #selector(mute), ""), (ui("Unmute microphone"), #selector(unmute), "")]
         for (title, action, key) in items {
             let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
             item.target = self
             menu.addItem(item)
         }
         menu.addItem(.separator())
-        let settings = NSMenuItem(title: "Launch at login", action: #selector(toggleAutostart), keyEquivalent: "")
+        let settings = NSMenuItem(title: ui("Launch at login"), action: #selector(toggleAutostart), keyEquivalent: "")
         settings.target = self
         settings.state = SMAppService.mainApp.status == .enabled ? .on : .off
         menu.addItem(settings)
         menu.addItem(.separator())
-        let quit = NSMenuItem(title: "Quit Jarvis", action: #selector(quit), keyEquivalent: "q")
+        let quit = NSMenuItem(title: ui("Quit Jarvis"), action: #selector(quit), keyEquivalent: "q")
         quit.target = self
         menu.addItem(quit)
         statusItem.menu = menu
@@ -125,7 +140,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             try process.run()
             service = process
         } catch {
-            statusItem.button?.toolTip = "Jarvis: service startup failed"
+            statusItem.button?.toolTip = ui("Jarvis: service startup failed")
         }
     }
 
@@ -157,7 +172,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                     _ = try await client.authenticateService()
                     view.load(URLRequest(url: client.base))
                 } catch {
-                    statusItem.button?.toolTip = "Jarvis: local service verification failed"
+                    statusItem.button?.toolTip = ui("Jarvis: local service verification failed")
                 }
             }
         }
@@ -199,6 +214,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                 sequence = max(sequence, result["cursor"] as? Int ?? 0)
                 if let settings = result["settings"] as? [String: Any] {
                     nativeSettings = settings
+                    configureInterface(settings["ui_language"] as? String)
                     voice.configure(settings)
                 }
                 for event in result["events"] as? [[String: Any]] ?? [] {
@@ -224,7 +240,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                 failures = 0
             } catch {
                 failures += 1
-                if failures > 2 { statusItem.button?.toolTip = "Jarvis: reconnecting to the service" }
+                if failures > 2 { statusItem.button?.toolTip = ui("Jarvis: reconnecting to the service") }
                 if failures == 3 { startService() }
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
             }
@@ -269,8 +285,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         let settings = await UNUserNotificationCenter.current().notificationSettings()
         guard settings.authorizationStatus == .authorized else { return }
         let content = UNMutableNotificationContent()
-        content.title = "Jarvis — result ready"
-        content.body = "Open Jarvis to see the result."
+        content.title = ui("Jarvis — result ready")
+        content.body = ui("Open Jarvis to see the result.")
         let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
         try? await UNUserNotificationCenter.current().add(request)
     }
@@ -310,8 +326,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                 buildMenu()
             } catch {
                 let alert = NSAlert()
-                alert.messageText = "Launch at login requires approval"
-                alert.informativeText = "Check System Settings → General → Login Items."
+                alert.messageText = ui("Launch at login requires approval")
+                alert.informativeText = ui("Check System Settings → General → Login Items.")
                 alert.runModal()
             }
         }

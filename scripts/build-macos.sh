@@ -11,9 +11,10 @@ mkdir -p dist/Jarvis.app/Contents/MacOS dist/Jarvis.app/Contents/Resources
 scripts/build-icon.sh
 cp native/Info.plist dist/Jarvis.app/Contents/Info.plist
 cp native/Resources/Jarvis.icns dist/Jarvis.app/Contents/Resources/Jarvis.icns
+cp web/src/locales/it.json dist/Jarvis.app/Contents/Resources/Interface.it.json
 print -rn -- "$JARVIS_PROJECT_DIR" > dist/Jarvis.app/Contents/Resources/project-root.txt
 JARVIS_BUILD_ARCH="$(uname -m)"
-swiftc -swift-version 5 -target "${JARVIS_BUILD_ARCH}-apple-macos14.0" -O -framework AppKit -framework WebKit -framework Speech -framework AVFoundation -framework EventKit -framework ServiceManagement -framework UserNotifications -framework Carbon -framework Accelerate -framework NaturalLanguage native/Client.swift native/CalendarBridge.swift native/RecognitionRecovery.swift native/LiveAudio.swift native/PlaybackAudio.swift native/SpokenLanguage.swift native/VoiceEngine.swift native/App.swift -o dist/Jarvis.app/Contents/MacOS/Jarvis
+swiftc -swift-version 5 -target "${JARVIS_BUILD_ARCH}-apple-macos14.0" -O -framework AppKit -framework WebKit -framework Speech -framework AVFoundation -framework EventKit -framework ServiceManagement -framework UserNotifications -framework Carbon -framework Accelerate -framework NaturalLanguage native/Client.swift native/CalendarBridge.swift native/RecognitionRecovery.swift native/LiveAudio.swift native/PlaybackAudio.swift native/SpokenLanguage.swift native/InterfaceLanguage.swift native/VoiceEngine.swift native/App.swift -o dist/Jarvis.app/Contents/MacOS/Jarvis
 codesign --force --deep --sign - --identifier it.jarvis.personal dist/Jarvis.app
 print "Bundle created: $JARVIS_PROJECT_DIR/dist/Jarvis.app"
 print "Open it with: open dist/Jarvis.app"

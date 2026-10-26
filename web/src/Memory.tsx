@@ -1,3 +1,4 @@
+import { t as tr, useI18n } from "./i18n";
 import React, { useEffect, useState } from "react";
 import {
   ArrowUpRight,
@@ -27,6 +28,7 @@ type Props = {
   openSettings: (section: string) => void;
 };
 export function Memory({ notify, openSettings }: Props) {
+  useI18n();
   const [status, setStatus] = useState<Json>({ outbox: [] }),
     [query, setQuery] = useState(""),
     [scope, setScope] = useState("personal"),
@@ -71,13 +73,15 @@ export function Memory({ notify, openSettings }: Props) {
   return (
     <div className="page">
       <SectionTitle
-        eyebrow="CONTINUITY, WITH SOURCES"
-        title="Your memory"
-        description="Preferences, decisions, and context in the Second Brain you already created."
+        eyebrow={tr("CONTINUITY, WITH SOURCES")}
+        title={tr("Your memory")}
+        description={tr(
+          "Preferences, decisions, and context in the Second Brain you already created.",
+        )}
         action={
           <button className="btn primary" onClick={() => setAdding(true)}>
             <Plus size={15} />
-            Remember something
+            {tr("Remember something")}
           </button>
         }
       />
@@ -86,9 +90,11 @@ export function Memory({ notify, openSettings }: Props) {
           <Brain size={27} />
         </div>
         <div>
-          <h2>Second Brain</h2>
+          <h2>{tr("Second Brain")}</h2>
           <p>
-            The memory ledger remains separate from chat history and task state.
+            {tr(
+              "The memory ledger remains separate from chat history and task state.",
+            )}
           </p>
         </div>
         <Badge
@@ -98,22 +104,24 @@ export function Memory({ notify, openSettings }: Props) {
       {!status.configured ? (
         <Empty
           icon={Link2}
-          title="Connect your memory"
+          title={tr("Connect your memory")}
           action={
             <button className="btn" onClick={() => openSettings("memory")}>
-              Set up Second Brain
+              {tr("Set up Second Brain")}
             </button>
           }
         >
-          Use a dedicated endpoint and credential. Memories are never simulated.
+          {tr(
+            "Use a dedicated endpoint and credential. Memories are never simulated.",
+          )}
         </Empty>
       ) : (
         <>
           <div className="search-memory">
             <Search size={18} />
             <input
-              aria-label="Search memories"
-              placeholder="What did we decide about…"
+              aria-label={tr("Search memories")}
+              placeholder={tr("What did we decide about…")}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => {
@@ -121,19 +129,23 @@ export function Memory({ notify, openSettings }: Props) {
               }}
             />
             <select
-              aria-label="Memory scope"
+              aria-label={tr("Memory scope")}
               value={scope}
               onChange={(e) => setScope(e.target.value)}
             >
-              <option value="personal">Personal</option>
-              <option value="work">Work</option>
+              <option value="personal">{tr("Personal")}</option>
+              <option value="work">{tr("Work")}</option>
             </select>
             <button
               className="btn"
               disabled={busy || !query.trim()}
               onClick={recall}
             >
-              {busy ? <LoaderCircle size={14} className="spin" /> : "Search"}
+              {busy ? (
+                <LoaderCircle size={14} className="spin" />
+              ) : (
+                tr("Search")
+              )}
             </button>
           </div>
           {result && (
@@ -146,12 +158,18 @@ export function Memory({ notify, openSettings }: Props) {
                         state={m.conflicts?.length ? "unknown" : "connected"}
                       >
                         {m.conflicts?.length
-                          ? "Conflicting sources"
+                          ? tr("Conflicting sources")
                           : m.epistemic === "inferred"
-                            ? "Inference"
-                            : "Explicit source"}
+                            ? tr("Inference")
+                            : tr("Explicit source")}
                       </Badge>
-                      <small>{m.scope}</small>
+                      <small>
+                        {m.scope === "work"
+                          ? tr("Work")
+                          : m.scope === "personal"
+                            ? tr("Personal")
+                            : m.scope}
+                      </small>
                     </div>
                     <p>{m.statement || m.value}</p>
                     {m.evidence?.map((e: Json, i: number) => (
@@ -169,7 +187,9 @@ export function Memory({ notify, openSettings }: Props) {
                               .catch((error) => notify(error.message, true))
                           }
                         >
-                          {e.title || e.source_id} · revision {e.revision}
+                          {e.title || e.source_id}
+                          {tr(" · revision ")}
+                          {e.revision}
                           <ArrowUpRight size={12} />
                         </button>
                         <code>{e.source_id}</code>
@@ -178,9 +198,10 @@ export function Memory({ notify, openSettings }: Props) {
                   </article>
                 ))
               ) : (
-                <Empty icon={Search} title="No relevant memory">
-                  A search without results does not prove that a decision was
-                  made.
+                <Empty icon={Search} title={tr("No relevant memory")}>
+                  {tr(
+                    "A search without results does not prove that a decision was made.",
+                  )}
                 </Empty>
               )}
             </section>
@@ -188,11 +209,11 @@ export function Memory({ notify, openSettings }: Props) {
         </>
       )}
       <div className="subsection-heading">
-        <h2>Sources being processed</h2>
+        <h2>{tr("Sources being processed")}</h2>
         <button
           className="icon-btn"
           onClick={load}
-          aria-label="Refresh memory status"
+          aria-label={tr("Refresh memory status")}
         >
           <RefreshCw size={15} />
         </button>
@@ -202,9 +223,9 @@ export function Memory({ notify, openSettings }: Props) {
           <table>
             <thead>
               <tr>
-                <th>Request</th>
-                <th>Status</th>
-                <th>Source / revision</th>
+                <th>{tr("Request")}</th>
+                <th>{tr("Status")}</th>
+                <th>{tr("Source / revision")}</th>
                 <th />
               </tr>
             </thead>
@@ -213,17 +234,29 @@ export function Memory({ notify, openSettings }: Props) {
                 <tr key={o.id}>
                   <td>
                     {formatDate(o.created_at)}
-                    <small>{o.attempts} checks</small>
+                    <small>
+                      {o.attempts}
+                      {tr(" checks")}
+                    </small>
                   </td>
                   <td>
                     <Badge state={o.state} />
                     {o.detail?.warnings?.length > 0 && (
-                      <small>{o.detail.warnings.join(" · ")}</small>
+                      <small>
+                        {o.detail.warnings
+                          .map((warning: string) => tr(warning))
+                          .join(" · ")}
+                      </small>
                     )}
                   </td>
                   <td>
-                    <code>{o.source_id || "Unconfirmed delivery"}</code>
-                    {o.revision && <small>Revision {o.revision}</small>}
+                    <code>{o.source_id || tr("Unconfirmed delivery")}</code>
+                    {o.revision && (
+                      <small>
+                        {tr("Revision ")}
+                        {o.revision}
+                      </small>
+                    )}
                   </td>
                   <td>
                     {["delivery_error", "needs_review"].includes(o.state) && (
@@ -235,7 +268,7 @@ export function Memory({ notify, openSettings }: Props) {
                             .catch((e) => notify(e.message, true))
                         }
                       >
-                        Check again
+                        {tr("Check again")}
                       </button>
                     )}
                   </td>
@@ -246,30 +279,33 @@ export function Memory({ notify, openSettings }: Props) {
         </div>
       ) : (
         <p className="muted">
-          No pending sources. New writes will appear here with their actual
-          state.
+          {tr(
+            "No pending sources. New writes will appear here with their actual state.",
+          )}
         </p>
       )}
       {adding && (
         <Modal
-          title="A source for Second Brain"
+          title={tr("A source for Second Brain")}
           onClose={() => setAdding(false)}
         >
           <div className="modal-body">
             <Field
-              label="Original text to remember"
+              label={tr("Original text to remember")}
               type="textarea"
               value={note}
               onChange={setNote}
-              help="Save explicit information. Assumptions and proposals do not become personal facts."
+              help={tr(
+                "Save explicit information. Assumptions and proposals do not become personal facts.",
+              )}
             />
             <Field
-              label="Scope"
+              label={tr("Scope")}
               value={scope}
               onChange={setScope}
               options={[
-                { value: "personal", label: "Personal" },
-                { value: "work", label: "Work" },
+                { value: "personal", label: tr("Personal") },
+                { value: "work", label: tr("Work") },
               ]}
             />
             <button
@@ -282,19 +318,22 @@ export function Memory({ notify, openSettings }: Props) {
               ) : (
                 <Check size={14} />
               )}
-              Queue source
+              {tr("Queue source")}
             </button>
           </div>
         </Modal>
       )}
       {source && (
         <Modal
-          title={source.title || "Original source"}
+          title={source.title || tr("Original source")}
           onClose={() => setSource(null)}
         >
           <div className="modal-body">
             <small>
-              Source {source.source_id} · revision {source.revision}
+              {tr("Source ")}
+              {source.source_id}
+              {tr(" · revision ")}
+              {source.revision}
             </small>
             <Text value={source.text || JSON.stringify(source, null, 2)} />
           </div>
@@ -305,6 +344,7 @@ export function Memory({ notify, openSettings }: Props) {
 }
 
 export function Integrations({ notify, openSettings }: Props) {
+  useI18n();
   const [items, setItems] = useState<Json[]>([]),
     [adding, setAdding] = useState(false),
     [name, setName] = useState(""),
@@ -384,13 +424,15 @@ export function Integrations({ notify, openSettings }: Props) {
   return (
     <div className="page">
       <SectionTitle
-        eyebrow="TOOLS AND PERMISSIONS"
-        title="Connections"
-        description="Local and MCP tools, with explicit provenance and permissions."
+        eyebrow={tr("TOOLS AND PERMISSIONS")}
+        title={tr("Connections")}
+        description={tr(
+          "Local and MCP tools, with explicit provenance and permissions.",
+        )}
         action={
           <button className="btn primary" onClick={() => setAdding(true)}>
             <Plus size={15} />
-            Add MCP server
+            {tr("Add MCP server")}
           </button>
         }
       />
@@ -399,21 +441,22 @@ export function Integrations({ notify, openSettings }: Props) {
           <div className="integration-icon">
             <Brain size={26} />
           </div>
-          <h2>Second Brain</h2>
-          <p>Personal memory with sources and revisions.</p>
+          <h2>{tr("Second Brain")}</h2>
+          <p>{tr("Personal memory with sources and revisions.")}</p>
           <button className="btn" onClick={() => openSettings("memory")}>
-            Set up memory
+            {tr("Set up memory")}
           </button>
         </section>
         <section className="integration-card">
           <div className="integration-icon">
             <Database size={26} />
           </div>
-          <h2>Mac tools</h2>
-          <p>Files, commands, voice, calendar, and persistent tasks.</p>
-          <Badge state="connected">Local gateway</Badge>
+          <h2>{tr("Mac tools")}</h2>
+          <p>{tr("Files, commands, voice, calendar, and persistent tasks.")}</p>
+          <Badge state="connected">{tr("Local gateway")}</Badge>
           <button className="text-btn" onClick={() => openSettings("security")}>
-            Workspaces and autonomy <ArrowUpRight size={13} />
+            {tr("Workspaces and autonomy ")}
+            <ArrowUpRight size={13} />
           </button>
         </section>
         {items.map((item) => (
@@ -427,7 +470,9 @@ export function Integrations({ notify, openSettings }: Props) {
             <h2>{item.name}</h2>
             <p className="endpoint">{item.url || item.command}</p>
             <small>
-              {item.transport === "stdio" ? "Local process" : "Streamable HTTP"}{" "}
+              {item.transport === "stdio"
+                ? tr("Local process")
+                : tr("Streamable HTTP")}{" "}
               · {item.auth}
             </small>
             <button
@@ -446,16 +491,20 @@ export function Integrations({ notify, openSettings }: Props) {
               ) : (
                 <RefreshCw size={14} />
               )}
-              Connect / verify
+              {tr("Connect / verify")}
             </button>
             {item.status?.error && (
               <small className="error-text">
-                {item.status.error}. Check the endpoint and authorization.
+                {tr(item.status.error)}
+                {tr(". Check the endpoint and authorization.")}
               </small>
             )}
             {item.status?.tools?.length > 0 && (
               <details>
-                <summary>{item.status.tools.length} tools discovered</summary>
+                <summary>
+                  {item.status.tools.length}
+                  {tr(" tools discovered")}
+                </summary>
                 <div className="tools-policy">
                   {item.status.tools.map((tool: Json) => (
                     <label key={tool.name}>
@@ -468,7 +517,7 @@ export function Integrations({ notify, openSettings }: Props) {
                         </Badge>
                       ) : (
                         <select
-                          aria-label={"Policy " + tool.name}
+                          aria-label={tr("Policy ") + tool.name}
                           value={
                             item.read_tools.includes(tool.name)
                               ? "read"
@@ -480,9 +529,11 @@ export function Integrations({ notify, openSettings }: Props) {
                             policy(item, tool.name, e.target.value)
                           }
                         >
-                          <option value="off">Disabled</option>
-                          <option value="read">Read</option>
-                          <option value="write">Write · controlled</option>
+                          <option value="off">{tr("Disabled")}</option>
+                          <option value="read">{tr("Read")}</option>
+                          <option value="write">
+                            {tr("Write · controlled")}
+                          </option>
                         </select>
                       )}
                     </label>
@@ -495,24 +546,32 @@ export function Integrations({ notify, openSettings }: Props) {
       </div>
       <div className="info-line">
         <ShieldCheck size={15} />
-        Discovering a tool does not automatically grant permission to execute
-        actions.
+        {tr(
+          "Discovering a tool does not automatically grant permission to execute actions.",
+        )}
       </div>
       {adding && (
-        <Modal title="Connect an MCP server" onClose={() => setAdding(false)}>
+        <Modal
+          title={tr("Connect an MCP server")}
+          onClose={() => setAdding(false)}
+        >
           <div className="modal-body">
             <Field
-              label="Server name"
+              label={tr("Server name")}
               value={name}
               onChange={setName}
-              help="Letters, numbers, and hyphens. Second Brain has a dedicated configuration."
+              help={tr(
+                "Letters, numbers, and hyphens. Second Brain has a dedicated configuration.",
+              )}
             />
             <Field
-              label="Configuration"
+              label={tr("Configuration")}
               type="textarea"
               value={spec}
               onChange={setSpec}
-              help="An HTTP URL or an absolute command with args. Secrets may use env:VARIABLE_NAME references; classify tools after discovery."
+              help={tr(
+                "An HTTP URL or an absolute command with args. Secrets may use env:VARIABLE_NAME references; classify tools after discovery.",
+              )}
             />
             <button
               className="btn primary"
@@ -524,7 +583,7 @@ export function Integrations({ notify, openSettings }: Props) {
               ) : (
                 <Link2 size={14} />
               )}
-              Register server
+              {tr("Register server")}
             </button>
           </div>
         </Modal>

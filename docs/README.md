@@ -1,6 +1,6 @@
 # Jarvis — analysis and implementation
 
-Analysis started **October 24, 2026**, with OpenAI voice/language/branding, command-center, and portable build updates on October 25. Version **0.1.0** includes the native Mac app and a portable Windows/Linux service/dashboard preview. Start with the [project README](../README.md) and [operations guide](11-implementazione-e-verifica.md). Chapters 01–09 preserve the initial dossier; 10–17 describe implemented choices and verification.
+Analysis started **October 24, 2026**, with OpenAI voice/language/branding, command-center, and portable build updates on October 25. Version **0.1.0** includes the native Mac app and a portable Windows/Linux service/dashboard preview. Start with the [project README](../README.md) and [operations guide](11-implementazione-e-verifica.md). Chapters 01–09 preserve the initial dossier; 10–18 describe implemented choices and verification.
 
 ## Confirmed decisions
 
@@ -11,7 +11,7 @@ Analysis started **October 24, 2026**, with OpenAI voice/language/branding, comm
 - Real-time two-way phone dialogue as a complete-product capability.
 - Futuristic HUD-inspired interface, central audio-reactive orb, quick weather/calendar information.
 - Analysis followed by implementation at the owner's request. Future work remains explicitly identified in coverage.
-- English product text with **Italian conversation retained** and automatic response-language adaptation.
+- English/Italian interface selection with **Italian conversation retained** and automatic response-language adaptation.
 
 **Local availability:** The Mac app works with its window closed while logged in. Portable Windows/Linux keeps running while its service console remains open. Shutdown, sleep, or missing connectivity limit timely work/calls. Apply explicit recovery rules on wake. A server is a later evolution.
 
@@ -36,11 +36,12 @@ This selection follows documented comparisons/product constraints. Pipecat and L
 | [09 — Sources and decisions](09-fonti-e-decisioni.md) | Primary sources, inspected revisions, local evidence, open decisions |
 | [10 — Implementation design](10-progetto-esecutivo.md) | Implemented choices, components, invariants |
 | [11 — Implementation and verification](11-implementazione-e-verifica.md) | Operations, real/automated tests, coverage, remaining checks |
-| [12 — Environment configuration](12-configurazione-env.md) | All 91 implemented settings |
+| [12 — Environment configuration](12-configurazione-env.md) | All 92 implemented settings |
 | [13 — OpenAI voice](13-voce-openai.md) | GPT-Live, multilingual policy, delegation, RAM audio, privacy, budget |
 | [14 — Audio quality and vocal style](14-audio-quality-and-voice.md) | Continuous playback, Italian companion profile, custom voice IDs, selective spoken citations |
 | [15 — Command-center interface](15-command-center-interface.md) | Original HUD composition, live states, responsive layout, shared theme, asset delivery, verification |
 | [17 — Security audit](17-security-audit.md) | Publication privacy, corrected security boundaries, regression evidence and residual trust limits |
+| [18 — Interface language](18-interface-language.md) | English/Italian UI, persistence, native menus, independent voice language |
 | [16 — Cross-platform builds](16-cross-platform-builds.md) | Windows/Linux portable packages, OS boundaries, universal dependencies, native CI, build and verification procedures |
 
 The catalog has **132 functional requirements**: 96 P0, 34 P1, two P2. Priorities describe product completeness; the roadmap distinguishes first demo from later delivery. Existing numbered filenames are stable to preserve links.

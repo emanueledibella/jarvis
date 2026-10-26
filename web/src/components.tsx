@@ -1,3 +1,4 @@
+import { t as tr, useI18n, uiLocale } from "./i18n";
 import React, { useEffect, useRef, useId } from "react";
 import {
   AlertCircle,
@@ -38,6 +39,30 @@ export const stateLabels: Record<string, string> = {
   not_connected: "Not connected",
   connecting: "Connecting…",
   error: "Error",
+  accepted: "Accepted",
+  initiated: "Call starting",
+  ringing: "Ringing",
+  answered: "Answered",
+  in_progress: "Call in progress",
+  "in-progress": "Call in progress",
+  creating: "Call starting",
+  canceled: "Cancelled",
+  "no-answer": "No answer",
+  verified_not_created: "Verified not created",
+  not_configured: "Needs setup",
+  completed: "Completed",
+  busy: "Busy",
+  no_answer: "No answer",
+  blocked: "Blocked",
+  unavailable: "Unavailable",
+  armed: "Ready for Jarvis",
+  listening: "Listening",
+  speaking: "Speaking",
+  followup: "Ready to continue",
+  muted: "Microphone muted",
+  recovering: "Restoring listening.",
+  permission_required: "Permissions required",
+  locked: "Session protected.",
 };
 export const profileLabels: Record<string, string> = {
   local_strict: "Strict offline",
@@ -51,7 +76,7 @@ export function formatDate(value?: string, short = false) {
   return Number.isNaN(+date)
     ? value
     : new Intl.DateTimeFormat(
-        "en-GB",
+        uiLocale(),
         short
           ? { hour: "2-digit", minute: "2-digit" }
           : {
@@ -69,6 +94,7 @@ export function Badge({
   state?: string;
   children?: React.ReactNode;
 }) {
+  useI18n();
   return (
     <span className={"badge badge-" + (state || "neutral")}>
       {state === "running" || state === "connecting" ? (
@@ -80,7 +106,7 @@ export function Badge({
       ) : (
         <Circle size={6} fill="currentColor" />
       )}
-      {children || stateLabels[state || ""] || state}
+      {children || tr(stateLabels[state || ""] || state || "")}
     </span>
   );
 }
@@ -95,6 +121,7 @@ export function Empty({
   children?: React.ReactNode;
   action?: React.ReactNode;
 }) {
+  useI18n();
   return (
     <div className="empty">
       <Icon size={25} />
@@ -115,6 +142,7 @@ export function SectionTitle({
   description?: string;
   action?: React.ReactNode;
 }) {
+  useI18n();
   return (
     <div className="section-title">
       <div>
@@ -135,6 +163,7 @@ export function Modal({
   children: React.ReactNode;
   onClose: () => void;
 }) {
+  useI18n();
   const panel = useRef<HTMLElement>(null);
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
@@ -183,7 +212,7 @@ export function Modal({
           <button
             className="icon-btn"
             onClick={onClose}
-            aria-label="Close window"
+            aria-label={tr("Close window")}
           >
             <X size={19} />
           </button>
@@ -194,6 +223,7 @@ export function Modal({
   );
 }
 export function Text({ value }: { value: string }) {
+  useI18n();
   return (
     <div className="markdown">
       <Markdown
@@ -212,6 +242,21 @@ export function Text({ value }: { value: string }) {
     </div>
   );
 }
+
+export function ErrorMessage({ message }: { message: string }) {
+  const language = useI18n();
+  const localized = tr(message);
+  if (language === "en" || localized !== message) return <>{localized}</>;
+  return (
+    <>
+      {tr("The operation could not be completed.")}
+      <details className="diagnostic-details">
+        <summary>{tr("Technical details")}</summary>
+        <pre>{message}</pre>
+      </details>
+    </>
+  );
+}
 export function Orb({
   state = "unavailable",
   level = 0,
@@ -221,6 +266,7 @@ export function Orb({
   level?: number;
   small?: boolean;
 }) {
+  useI18n();
   const descriptions: Record<string, [string, string]> = {
     text_ready: ["Ready to help.", "Write a request to begin."],
     armed: ["I am here.", "Say “Jarvis” to begin."],
@@ -260,7 +306,7 @@ export function Orb({
           } as React.CSSProperties
         }
         role="img"
-        aria-label={"Jarvis: " + title}
+        aria-label={tr("Jarvis: ") + tr(title)}
       >
         <div className="orb-haze" />
         <svg
@@ -293,8 +339,8 @@ export function Orb({
         <div className="orb-ring ring-b" />
         <div className="orb-ring ring-c" />
         <div className="orb-core">
-          <span className="reactor-name">JARVIS</span>
-          <small>VOICE LINK</small>
+          <span className="reactor-name">{tr("JARVIS")}</span>
+          <small>{tr("VOICE LINK")}</small>
           <div className="spectrum" aria-hidden="true">
             {Array.from({ length: 13 }, (_, i) => (
               <i
@@ -312,17 +358,17 @@ export function Orb({
       <div className="orb-state">
         <span className="eyebrow">
           {state === "armed"
-            ? "LOCAL VOICE READY"
+            ? tr("LOCAL VOICE READY")
             : state === "speaking"
-              ? "VOICE OUTPUT"
+              ? tr("VOICE OUTPUT")
               : state === "listening"
-                ? "VOICE INPUT"
+                ? tr("VOICE INPUT")
                 : state === "processing"
-                  ? "WORKING"
-                  : "PERSONAL INTELLIGENCE"}
+                  ? tr("WORKING")
+                  : tr("PERSONAL INTELLIGENCE")}
         </span>
-        <h2>{title}</h2>
-        <p>{detail}</p>
+        <h2>{tr(title)}</h2>
+        <p>{tr(detail)}</p>
       </div>
     </div>
   );
@@ -346,6 +392,7 @@ export function Field({
   disabled?: boolean;
   options?: { value: string; label: string }[];
 }) {
+  useI18n();
   const helpId = useId();
   const accessibility = {
     "aria-label": label,
@@ -366,7 +413,7 @@ export function Field({
         >
           {options.map((o) => (
             <option key={o.value} value={o.value}>
-              {o.label}
+              {tr(o.label)}
             </option>
           ))}
         </select>
@@ -413,6 +460,7 @@ export function Toggle({
   help?: string;
   disabled?: boolean;
 }) {
+  useI18n();
   return (
     <label className="toggle-row">
       <div>

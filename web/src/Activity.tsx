@@ -1,3 +1,4 @@
+import { t as tr, useI18n } from "./i18n";
 import React, { useState, useEffect } from "react";
 import {
   CalendarClock,
@@ -20,6 +21,7 @@ import { api, patch, post, type Json } from "./api";
 import {
   Badge,
   Empty,
+  ErrorMessage,
   Field,
   Modal,
   SectionTitle,
@@ -27,7 +29,20 @@ import {
   Toggle,
   formatDate,
   profileLabels,
+  stateLabels,
 } from "./components";
+
+const eventLabels: Record<string, string> = {
+  "task.created": "Task created",
+  "task.updated": "Task updated",
+  "tool.started": "Tool started",
+  "tool.completed": "Tool completed",
+  "approval.requested": "Approval requested",
+  "plan.updated": "Plan updated",
+  "artifact.created": "Artifact created",
+  "memory.updated": "Memory updated",
+  "assistant.message": "Assistant response",
+};
 
 type Props = {
   tasks: Json[];
@@ -37,6 +52,7 @@ type Props = {
   notify: (message: string, error?: boolean) => void;
 };
 export function Tasks({ tasks, approvals, refresh, notify }: Props) {
+  useI18n();
   const [selected, setSelected] = useState<Json | null>(null),
     [detail, setDetail] = useState<Json>({ events: [], effects: [] });
   useEffect(() => {
@@ -93,31 +109,39 @@ export function Tasks({ tasks, approvals, refresh, notify }: Props) {
   return (
     <div className="page">
       <SectionTitle
-        eyebrow="FROM PLAN TO RESULT"
-        title="Tasks"
-        description={`${active.length} open tasks. Every action has a verifiable state.`}
+        eyebrow={tr("FROM PLAN TO RESULT")}
+        title={tr("Tasks")}
+        description={tr(
+          active.length === 1
+            ? "{count} open task. Every action has a verifiable state."
+            : "{count} open tasks. Every action has a verifiable state.",
+          { count: active.length },
+        )}
       />
       {!!approvals.length && (
         <section className="attention-section">
-          <h2>Your decisions</h2>
+          <h2>{tr("Your decisions")}</h2>
           {approvals.map((a) => (
             <div className="approval-card" key={a.id}>
               <div>
                 <Badge state="waiting_user" />
                 <h3>{a.tool}</h3>
                 <pre>{JSON.stringify(a.arguments, null, 2)}</pre>
-                <small>Valid until {formatDate(a.expires_at, true)}</small>
+                <small>
+                  {tr("Valid until ")}
+                  {formatDate(a.expires_at, true)}
+                </small>
               </div>
               <div className="button-row">
                 <button className="btn" onClick={() => decision(a.id, false)}>
-                  Reject
+                  {tr("Reject")}
                 </button>
                 <button
                   className="btn primary"
                   onClick={() => decision(a.id, true)}
                 >
                   <Check size={14} />
-                  Approve this action
+                  {tr("Approve this action")}
                 </button>
               </div>
             </div>
@@ -138,8 +162,8 @@ export function Tasks({ tasks, approvals, refresh, notify }: Props) {
               <div className="task-row-main">
                 <h3>{t.title}</h3>
                 <span>
-                  {formatDate(t.created_at)} · {profileLabels[t.profile]}
-                  {t.private ? " · Private session" : ""}
+                  {formatDate(t.created_at)} · {tr(profileLabels[t.profile])}
+                  {t.private ? tr(" · Private session") : ""}
                 </span>
               </div>
               <Badge state={t.state} />
@@ -148,9 +172,10 @@ export function Tasks({ tasks, approvals, refresh, notify }: Props) {
           ))}
         </div>
       ) : (
-        <Empty icon={Workflow} title="An objective becomes a task">
-          Ask Jarvis to research, edit code, or check something. Follow the work
-          here.
+        <Empty icon={Workflow} title={tr("An objective becomes a task")}>
+          {tr(
+            "Ask Jarvis to research, edit code, or check something. Follow the work here.",
+          )}
         </Empty>
       )}
       {selected && (
@@ -159,26 +184,28 @@ export function Tasks({ tasks, approvals, refresh, notify }: Props) {
             <div className="button-row">
               <Badge state={selected.state} />
               <span className="muted">
-                {selected.model || "Model has not started yet"}
+                {selected.model || tr("Model has not started yet")}
               </span>
             </div>
             {selected.error && (
-              <div className="error-box">{selected.error}</div>
+              <div className="error-box">
+                <ErrorMessage message={selected.error} />
+              </div>
             )}
             {selected.result && <Text value={selected.result} />}
             {!!detail.plan?.length && (
               <>
-                <h3 className="detail-heading">Task plan</h3>
+                <h3 className="detail-heading">{tr("Task plan")}</h3>
                 <ol className="event-timeline">
                   {detail.plan.map((item: Json, i: number) => (
                     <li key={i}>
                       <span>{item.content}</span>
                       <strong>
                         {item.status === "completed"
-                          ? "Completed"
+                          ? tr("Completed")
                           : item.status === "in_progress"
-                            ? "In progress"
-                            : "To do"}
+                            ? tr("In progress")
+                            : tr("To do")}
                       </strong>
                     </li>
                   ))}
@@ -192,7 +219,7 @@ export function Tasks({ tasks, approvals, refresh, notify }: Props) {
                   onClick={() => action(selected, "pause")}
                 >
                   <Pause size={14} />
-                  Pause
+                  {tr("Pause")}
                 </button>
               )}
               {["running", "queued", "waiting_user"].includes(
@@ -203,7 +230,7 @@ export function Tasks({ tasks, approvals, refresh, notify }: Props) {
                   onClick={() => action(selected, "cancel")}
                 >
                   <X size={14} />
-                  Cancel task
+                  {tr("Cancel task")}
                 </button>
               )}
               {selected.state === "paused" && (
@@ -212,11 +239,11 @@ export function Tasks({ tasks, approvals, refresh, notify }: Props) {
                   onClick={() => action(selected, "resume")}
                 >
                   <Play size={14} />
-                  Resume checkpoint
+                  {tr("Resume checkpoint")}
                 </button>
               )}
             </div>
-            <h3 className="detail-heading">Observed steps</h3>
+            <h3 className="detail-heading">{tr("Observed steps")}</h3>
             {detail.events.length ? (
               <ol className="event-timeline">
                 {detail.events
@@ -226,18 +253,27 @@ export function Tasks({ tasks, approvals, refresh, notify }: Props) {
                   )
                   .map((e: Json) => (
                     <li key={e.id}>
-                      <span>{e.type.replaceAll(".", " · ")}</span>
-                      <strong>{e.data?.tool || e.data?.state || ""}</strong>
+                      <span>
+                        {tr(
+                          eventLabels[e.type] || e.type.replaceAll(".", " · "),
+                        )}
+                      </span>
+                      <strong>
+                        {e.data?.tool ||
+                          tr(stateLabels[e.data?.state] || e.data?.state || "")}
+                      </strong>
                       <small>{formatDate(e.created_at, true)}</small>
                     </li>
                   ))}
               </ol>
             ) : (
-              <p className="muted">Steps will appear during execution.</p>
+              <p className="muted">
+                {tr("Steps will appear during execution.")}
+              </p>
             )}
             {!!detail.tool_results?.length && (
               <>
-                <h3 className="detail-heading">Tool results</h3>
+                <h3 className="detail-heading">{tr("Tool results")}</h3>
                 {detail.tool_results.map((item: Json, i: number) => (
                   <details key={i}>
                     <summary>{item.name}</summary>
@@ -248,7 +284,9 @@ export function Tasks({ tasks, approvals, refresh, notify }: Props) {
             )}
             {!!detail.artifacts?.length && (
               <>
-                <h3 className="detail-heading">Files created or modified</h3>
+                <h3 className="detail-heading">
+                  {tr("Files created or modified")}
+                </h3>
                 {detail.artifacts.map((item: Json) => (
                   <p className="endpoint" key={item.id}>
                     {item.path}
@@ -258,8 +296,9 @@ export function Tasks({ tasks, approvals, refresh, notify }: Props) {
             )}
             {detail.effects?.some((e: Json) => e.state === "unknown") && (
               <div className="error-box">
-                An effect has an uncertain outcome. Check the destination system
-                before retrying it.
+                {tr(
+                  "An effect has an uncertain outcome. Check the destination system before retrying it.",
+                )}
               </div>
             )}
             {detail.effects
@@ -288,6 +327,7 @@ function EffectReview({
   notify: (text: string, error?: boolean) => void;
   onDone: () => void;
 }) {
+  useI18n();
   const [result, setResult] = useState("{}"),
     [outcome, setOutcome] = useState("succeeded"),
     [verified, setVerified] = useState(false);
@@ -295,27 +335,27 @@ function EffectReview({
     <section className="subform">
       <h3>{effect.tool}</h3>
       <Field
-        label="Outcome verified in the original system"
+        label={tr("Outcome verified in the original system")}
         value={outcome}
         onChange={setOutcome}
         options={[
-          { value: "succeeded", label: "Executed · retain the result" },
+          { value: "succeeded", label: tr("Executed · retain the result") },
           {
             value: "not_executed",
-            label: "Not executed · allow another attempt",
+            label: tr("Not executed · allow another attempt"),
           },
         ]}
       />
       {outcome === "succeeded" && (
         <Field
-          label="Observed result, JSON"
+          label={tr("Observed result, JSON")}
           value={result}
           onChange={setResult}
           type="textarea"
         />
       )}
       <Toggle
-        label="I verified the outcome before recording it"
+        label={tr("I verified the outcome before recording it")}
         checked={verified}
         onChange={setVerified}
       />
@@ -336,20 +376,21 @@ function EffectReview({
           }
         }}
       >
-        Record verification
+        {tr("Record verification")}
       </button>
     </section>
   );
 }
 
 export function Routines({ schedules, refresh, notify }: Props) {
+  useI18n();
   const [adding, setAdding] = useState(false),
     [editing, setEditing] = useState(""),
     [deleting, setDeleting] = useState(""),
     [saving, setSaving] = useState(false),
     [form, setForm] = useState<Json>({
       title: "",
-      expression: "in 20 minutes",
+      expression: tr("in 20 minutes"),
       kind: "at",
       mode: "reminder",
       prompt: "",
@@ -385,20 +426,23 @@ export function Routines({ schedules, refresh, notify }: Props) {
   return (
     <div className="page">
       <SectionTitle
-        eyebrow="TIME, WITH PURPOSE"
-        title="Routines and reminders"
-        description="Persistent deadlines, quiet checks, and everyday tasks."
+        eyebrow={tr("TIME, WITH PURPOSE")}
+        title={tr("Routines and reminders")}
+        description={tr(
+          "Persistent deadlines, quiet checks, and everyday tasks.",
+        )}
         action={
           <button className="btn primary" onClick={() => setAdding(true)}>
             <Plus size={15} />
-            New routine
+            {tr("New routine")}
           </button>
         }
       />
       <div className="info-line">
         <Clock3 size={14} />
-        Execution requires an awake Mac. The selected recovery rule applies
-        after wake.
+        {tr(
+          "Execution requires an awake computer. The selected recovery rule applies after wake.",
+        )}
       </div>
       {schedules.length ? (
         <div className="routine-grid">
@@ -407,29 +451,29 @@ export function Routines({ schedules, refresh, notify }: Props) {
               <div className="routine-heading">
                 <CalendarClock size={20} />
                 <Badge state={s.enabled ? "connected" : "paused"}>
-                  {s.enabled ? "Active" : "Paused"}
+                  {s.enabled ? tr("Active") : tr("Paused")}
                 </Badge>
               </div>
               <h2>{s.title}</h2>
               <p>{s.prompt || s.expression}</p>
               <div className="routine-next">
-                <span>NEXT RUN</span>
+                <span>{tr("NEXT RUN")}</span>
                 <strong>{formatDate(s.next_run_at)}</strong>
               </div>
               <div className="routine-meta">
                 <span>
                   {s.mode === "monitor"
-                    ? "Monitor"
+                    ? tr("Monitor")
                     : s.mode === "agent"
-                      ? "Agent"
-                      : "Reminder"}
+                      ? tr("Agent")
+                      : tr("Reminder")}
                 </span>
                 <span>
                   {s.notify === "phone"
-                    ? "Phone"
+                    ? tr("Phone")
                     : s.notify === "voice"
-                      ? "Voice"
-                      : "Desktop"}
+                      ? tr("Voice")
+                      : tr("Desktop")}
                 </span>
                 <span>{s.timezone}</span>
               </div>
@@ -446,7 +490,7 @@ export function Routines({ schedules, refresh, notify }: Props) {
                     setAdding(true);
                   }}
                 >
-                  Edit
+                  {tr("Edit")}
                 </button>
                 <button
                   className="btn"
@@ -457,7 +501,7 @@ export function Routines({ schedules, refresh, notify }: Props) {
                   }
                 >
                   {s.enabled ? <Pause size={13} /> : <Play size={13} />}
-                  {s.enabled ? "Pause" : "Resume"}
+                  {s.enabled ? tr("Pause") : tr("Resume")}
                 </button>
                 {deleting === s.id ? (
                   <button
@@ -471,12 +515,12 @@ export function Routines({ schedules, refresh, notify }: Props) {
                         .catch((e) => notify(e.message, true))
                     }
                   >
-                    Confirm deletion
+                    {tr("Confirm deletion")}
                   </button>
                 ) : (
                   <button
                     className="icon-btn"
-                    aria-label={"Delete " + s.title}
+                    aria-label={tr("Delete ") + s.title}
                     onClick={() => setDeleting(s.id)}
                   >
                     <Trash2 size={14} />
@@ -487,106 +531,114 @@ export function Routines({ schedules, refresh, notify }: Props) {
           ))}
         </div>
       ) : (
-        <Empty icon={CalendarClock} title="Let Jarvis remember the details">
-          Create a reminder without a model, or an agent routine with a clear
-          objective.
+        <Empty
+          icon={CalendarClock}
+          title={tr("Let Jarvis remember the details")}
+        >
+          {tr(
+            "Create a reminder without a model, or an agent routine with a clear objective.",
+          )}
         </Empty>
       )}
       {adding && (
-        <Modal title="A new routine" onClose={() => setAdding(false)}>
+        <Modal title={tr("A new routine")} onClose={() => setAdding(false)}>
           <div className="modal-body">
             <Field
-              label="Name"
+              label={tr("Name")}
               value={form.title}
               onChange={(v) => set("title", v)}
             />
             <div className="form-grid">
               <Field
-                label="What it should do"
+                label={tr("What it should do")}
                 value={form.mode}
                 onChange={(v) => set("mode", v)}
                 options={[
-                  { value: "reminder", label: "Send a reminder" },
-                  { value: "agent", label: "Run an agent task" },
+                  { value: "reminder", label: tr("Send a reminder") },
+                  { value: "agent", label: tr("Run an agent task") },
                   {
                     value: "monitor",
-                    label: "Monitor a JSON value on the web",
+                    label: tr("Monitor a JSON value on the web"),
                   },
                 ]}
               />
               <Field
-                label="When"
+                label={tr("When")}
                 value={form.kind}
                 onChange={(v) => set("kind", v)}
                 options={[
-                  { value: "at", label: "Once · date or phrase" },
-                  { value: "interval", label: "Every interval · seconds" },
-                  { value: "cron", label: "Cron recurrence" },
+                  { value: "at", label: tr("Once · date or phrase") },
+                  { value: "interval", label: tr("Every interval · seconds") },
+                  { value: "cron", label: tr("Cron recurrence") },
                 ]}
               />
             </div>
             <Field
               label={
                 form.kind === "at"
-                  ? "Date or due time"
+                  ? tr("Date or due time")
                   : form.kind === "interval"
-                    ? "Interval, seconds"
-                    : "Cron expression"
+                    ? tr("Interval, seconds")
+                    : tr("Cron expression")
               }
               value={form.expression}
               onChange={(v) => set("expression", v)}
               help={
                 form.kind === "at"
-                  ? "Example: tomorrow at 09:00, or 2026-10-25T09:00:00+01:00"
+                  ? tr(
+                      "Example: tomorrow at 09:00, or 2026-10-25T09:00:00+01:00",
+                    )
                   : form.kind === "interval"
-                    ? "Minimum 60 seconds."
-                    : "Example: 0 9 * * 1-5 for weekdays."
+                    ? tr("Minimum 60 seconds.")
+                    : tr("Example: 0 9 * * 1-5 for weekdays.")
               }
             />
             <Field
               label={
                 form.mode === "agent"
-                  ? "Complete agent objective"
-                  : "Message or description"
+                  ? tr("Complete agent objective")
+                  : tr("Message or description")
               }
               value={form.prompt}
               onChange={(v) => set("prompt", v)}
               type="textarea"
-              help="Jobs must be understandable without relying on the current chat."
+              help={tr(
+                "Jobs must be understandable without relying on the current chat.",
+              )}
             />
             {form.mode === "monitor" && (
               <section className="subform">
                 <Field
-                  label="Public JSON URL"
+                  label={tr("Public JSON URL")}
                   value={form.monitor.url}
                   onChange={(v) => set("monitor", { ...form.monitor, url: v })}
                 />
                 <Field
-                  label="JSON path"
+                  label={tr("JSON path")}
                   value={form.monitor.json_path}
                   onChange={(v) =>
                     set("monitor", { ...form.monitor, json_path: v })
                   }
-                  help="Example: status or results.0.price"
+                  help={tr("Example: status or results.0.price")}
                 />
                 <div className="form-grid">
                   <Field
-                    label="Condition"
+                    label={tr("Condition")}
                     value={form.monitor.operator}
                     onChange={(v) =>
                       set("monitor", { ...form.monitor, operator: v })
                     }
                     options={[
-                      { value: "changed", label: "The value changes" },
-                      { value: "equals", label: "Equals" },
-                      { value: "contains", label: "Contains" },
-                      { value: "gte", label: "Greater than or equal to" },
-                      { value: "lte", label: "Less than or equal to" },
+                      { value: "changed", label: tr("The value changes") },
+                      { value: "equals", label: tr("Equals") },
+                      { value: "contains", label: tr("Contains") },
+                      { value: "gte", label: tr("Greater than or equal to") },
+                      { value: "lte", label: tr("Less than or equal to") },
                     ]}
                   />
                   {form.monitor.operator !== "changed" && (
                     <Field
-                      label="Expected value"
+                      label={tr("Expected value")}
                       value={form.monitor.expected ?? ""}
                       onChange={(v) =>
                         set("monitor", { ...form.monitor, expected: v })
@@ -595,29 +647,30 @@ export function Routines({ schedules, refresh, notify }: Props) {
                   )}
                 </div>
                 <small className="hint">
-                  The first read establishes the baseline for “changes”. No
-                  notification is sent while the value stays the same.
+                  {tr(
+                    "The first read establishes the baseline for “changes”. No notification is sent while the value stays the same.",
+                  )}
                 </small>
               </section>
             )}
             <div className="form-grid">
               <Field
-                label="Time zone"
+                label={tr("Time zone")}
                 value={form.timezone}
                 onChange={(v) => set("timezone", v)}
               />
               <Field
-                label="Notification"
+                label={tr("Notification")}
                 value={form.notify}
                 onChange={(v) => set("notify", v)}
                 options={[
-                  { value: "desktop", label: "Desktop" },
-                  { value: "voice", label: "Voice on Mac" },
-                  { value: "phone", label: "Phone call to the owner" },
+                  { value: "desktop", label: tr("Desktop") },
+                  { value: "voice", label: tr("Voice on Mac") },
+                  { value: "phone", label: tr("Phone call to the owner") },
                 ]}
               />
               <Field
-                label="AI profile"
+                label={tr("AI profile")}
                 value={form.profile}
                 onChange={(v) => set("profile", v)}
                 options={Object.entries(profileLabels).map(
@@ -625,20 +678,25 @@ export function Routines({ schedules, refresh, notify }: Props) {
                 )}
               />
               <Field
-                label="If the Mac was asleep"
+                label={tr("If the Mac was asleep")}
                 value={form.misfire_policy}
                 onChange={(v) => set("misfire_policy", v)}
                 options={[
-                  { value: "coalesce", label: "Recover one run" },
-                  { value: "skip", label: "Skip outside the tolerance window" },
-                  { value: "run_once", label: "Run once on return" },
+                  { value: "coalesce", label: tr("Recover one run") },
+                  {
+                    value: "skip",
+                    label: tr("Skip outside the tolerance window"),
+                  },
+                  { value: "run_once", label: tr("Run once on return") },
                 ]}
               />
             </div>
             {form.notify === "phone" && (
               <Toggle
-                label="I authorize this routine to call my number"
-                help="Quiet hours, budgets, and limits still apply. Expired calls are not recovered after wake."
+                label={tr("I authorize this routine to call my number")}
+                help={tr(
+                  "Quiet hours, budgets, and limits still apply. Expired calls are not recovered after wake.",
+                )}
                 checked={form.call_authorized}
                 onChange={(v) => set("call_authorized", v)}
               />
@@ -653,7 +711,7 @@ export function Routines({ schedules, refresh, notify }: Props) {
               ) : (
                 <Check size={14} />
               )}
-              Save routine
+              {tr("Save routine")}
             </button>
           </div>
         </Modal>
