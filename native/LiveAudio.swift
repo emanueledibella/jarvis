@@ -12,8 +12,10 @@ final class LiveAudioBuffer: @unchecked Sendable {
   private var preRoll = Data()
   private var pending = Data()
   private var active = false
+  private var preparing = false
   private var overflow = false
   private var gated = false
+  private var capturedFrames: Int64 = 0
   private let preRollBytes = 72000  // 1.5 seconds, including wake-detection latency.
   private let maximumBytes = 480000  // Bounded startup/network buffer: 10 seconds.
 
@@ -44,11 +46,15 @@ final class LiveAudioBuffer: @unchecked Sendable {
     guard error == nil, converted.frameLength > 0, let samples = converted.int16ChannelData?[0]
     else { return }
     let count = Int(converted.frameLength) * 2
+    capturedFrames += Int64(converted.frameLength)
     let bytes =
       active && gated ? Data(repeating: 0, count: count) : Data(bytes: samples, count: count)
     if active {
       if pending.count + bytes.count <= maximumBytes {
         pending.append(bytes)
+      } else if preparing {
+        pending.append(bytes)
+        pending.removeFirst(pending.count - maximumBytes)
       } else {
         overflow = true
       }
@@ -58,13 +64,29 @@ final class LiveAudioBuffer: @unchecked Sendable {
     }
   }
 
-  func begin() {
+  func position() -> Int64 {
     lock.lock()
     defer { lock.unlock() }
-    pending = preRoll
+    return capturedFrames
+  }
+
+  func begin(afterFrame: Int64? = nil, deferred: Bool = false) {
+    lock.lock()
+    defer { lock.unlock() }
+    guard !active else { return }
+    let start = capturedFrames - Int64(preRoll.count / 2)
+    let discard = afterFrame.map { Int(min(Int64(preRoll.count), max(0, $0 - start) * 2)) } ?? 0
+    pending = Data(preRoll.dropFirst(discard))
     preRoll.removeAll(keepingCapacity: true)
     overflow = false
     active = true
+    preparing = deferred
+  }
+
+  func startStreaming() {
+    lock.lock()
+    defer { lock.unlock() }
+    preparing = false
   }
 
   func drain() throws -> Data {
@@ -86,6 +108,7 @@ final class LiveAudioBuffer: @unchecked Sendable {
     pending.removeAll()
     preRoll.removeAll()
     active = false
+    preparing = false
     overflow = false
     gated = false
     converter?.reset()

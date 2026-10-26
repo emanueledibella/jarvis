@@ -4,9 +4,9 @@ Desktop voice has two selectable paths. Apple keeps recognition/synthesis on the
 
 ## Activation and audio
 
-Apple Speech recognizes “Jarvis” on-device. ⌘⇧J also starts a conversation. After activation, the native client opens an authenticated loopback WebSocket to Python; only the service holds the OpenAI key.
+Apple Speech recognizes “Jarvis” on-device. ⌘⇧J also starts a conversation. A wake-only pause stays local; a short cached listening cue can play only in the initial quiet window. Beginning a request cancels that cue. Once request speech is recognized, the native client opens an authenticated loopback WebSocket to Python; only the service holds the OpenAI key. See [wake response timing](19-wake-response-timing.md).
 
-Convert microphone input to mono 24 kHz PCM16. A 1.5-second pre-roll recovers wake phrase/command onset, compensating for local detection delay. It is transmitted after activation; input then continues during the open session. Buffers are bounded RAM only and cleared on mute, scope/privacy change, or closure. Jarvis writes no audio recording files.
+Convert microphone input to mono 24 kHz PCM16. A 1.5-second pre-roll preserves the command onset despite local detection delay. Wake-word timestamps trim this buffer with a 50 ms safety margin. After activation, a bounded rolling RAM queue waits for a request before any cloud stream opens; input then continues during the open session. Buffers are cleared on mute, profile/scope/privacy change, or closure. Jarvis writes no microphone recording files; bundled synthetic listening cues are static application resources.
 
 Play response audio as it arrives, deriving orb levels from actual buffers. This is AI-generated speech. OpenAI errors do not silently fall back to Apple synthesis; show the error.
 
@@ -14,9 +14,9 @@ Default `gated` mode suppresses microphone audio during playback and a short tra
 
 Keep the MacBook lid open for the built-in microphone. Closed-lid use requires external input. Apple Silicon laptops physically disconnect that microphone: [Apple documentation](https://support.apple.com/en-gb/guide/security/secbbd20b00b/1/web/1).
 
-## Language: English interface, multilingual conversation
+## Independent interface and conversation languages
 
-The interface, system messages, source comments, and documentation are English. `response_language=auto` applies one shared language policy to Deep Agents and OpenAI Live. Complete Italian requests produce Italian replies; complete English requests switch to English. Fillers, accents, names, and English tool results do not change the conversation language. Before a substantive request, use the configured recognition locale as fallback.
+The interface can be English or Italian, independently of conversation language. Source comments and documentation are English. `response_language=auto` applies one shared language policy to Deep Agents and OpenAI Live. Complete Italian requests produce Italian replies; complete English requests switch to English. Fillers, accents, names, and English tool results do not change the conversation language. Before a substantive request, use the configured recognition locale as fallback.
 
 Apple wake recognition still uses `language`, initially `it-IT`; it does not continuously auto-switch transcription locales. After activation OpenAI receives audio and can identify the spoken language independently. With the Apple synthesis path, local `NLLanguageRecognizer` chooses the response voice; an explicit voice ID takes precedence. Phone STT no longer pins transcription to Italian; fixed phone authentication/service prompts are English.
 

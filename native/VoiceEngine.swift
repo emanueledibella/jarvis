@@ -15,6 +15,7 @@ final class VoiceEngine: NSObject {
   private var recognizer: SFSpeechRecognizer?
   private let requestLock = NSLock()
   private var speechRequest: SFSpeechAudioBufferRecognitionRequest?
+  private var speechAudioStartFrame: Int64?
   private let output = AVAudioEngine()
   private let player = AVAudioPlayerNode()
   private let synth = AVSpeechSynthesizer()
@@ -32,6 +33,15 @@ final class VoiceEngine: NSObject {
   private var lastLiveSpeech = Date.distantPast
   private var lastPlaybackSound = Date.distantPast
   private var initialLiveSpeech: String?
+  private var liveInputPrepared = false
+  private var wakeReply = WakeAcknowledgement()
+  private var wakeReplyPlayer: AVAudioPlayer?
+  private var wakeReplyPlayed = false
+  private var wakeReplyLastSoundAt = Date.distantPast
+  private let wakeReplyClips: [String: Data] = ["it", "en"].reduce(into: [:]) { clips, language in
+    if let url = Bundle.main.url(forResource: "WakeReady-" + language, withExtension: "wav"),
+       let data = try? Data(contentsOf: url) { clips[language] = data }
+  }
   private let liveTransport = URLSession(configuration: .ephemeral)
   private var timer: Timer?
   private var state = "muted"
@@ -99,9 +109,13 @@ final class VoiceEngine: NSObject {
   func configure(_ values: [String: Any]) {
     let previousLanguage = settings["language"] as? String
     let previousProvider = settings["desktop_voice_provider"] as? String
+    let previousProfile = settings["profile"] as? String
     let previousResponseLanguage = settings["response_language"] as? String
     settings = values
     if previousProvider != nil && previousProvider != values["desktop_voice_provider"] as? String {
+      closeLive()
+    }
+    if previousProfile != nil && previousProfile != values["profile"] as? String {
       closeLive()
     }
     if previousResponseLanguage != nil
@@ -270,8 +284,12 @@ final class VoiceEngine: NSObject {
     }
     input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
       guard let self = self else { return }
+      let firstFrame = cloudAudio.position()
       cloudAudio.append(buffer)
       self.requestLock.lock()
+      if self.speechRequest != nil && self.speechAudioStartFrame == nil {
+        self.speechAudioStartFrame = firstFrame
+      }
       self.speechRequest?.append(buffer)
       self.requestLock.unlock()
       let level = Self.rms(buffer)
@@ -280,6 +298,12 @@ final class VoiceEngine: NSObject {
         self.lastInputBuffer = Date()
         self.inputLevel = level
         if level > 0.1 { self.lastSoundAt = Date() }
+        if level > 0.035 {
+          self.wakeReplyLastSoundAt = Date()
+          if self.liveInputPrepared && self.wakeReplyPlayer == nil {
+            self.wakeReply.heardSound(at: self.wakeReplyLastSoundAt.timeIntervalSinceReferenceDate)
+          }
+        }
       }
     }
     do {
@@ -296,6 +320,7 @@ final class VoiceEngine: NSObject {
   }
 
   private func stopCapture() {
+    cancelOpeningTurn()
     cancelRecognition()
     if let engine = capture {
       engine.stop()
@@ -360,19 +385,20 @@ final class VoiceEngine: NSObject {
     requestLock.lock()
     speechRequest?.endAudio()
     speechRequest = request
+    speechAudioStartFrame = nil
     requestLock.unlock()
     lastTranscript = ""
     prefix = ""
     let requestID = UUID()
     recognitionID = requestID
-    if ["recovering", "unavailable"].contains(state) { setState("armed") }
+    if ["recovering", "unavailable"].contains(state) { setState(liveInputPrepared ? "listening" : "armed") }
     recognition = recognizer.recognitionTask(with: request) { [weak self] result, error in
       DispatchQueue.main.async {
         guard let self = self, self.recognitionID == requestID else { return }
         self.recognitionCallbacks += 1
         if let result = result {
           if !result.bestTranscription.formattedString.isEmpty { self.recovery.receivedSpeech() }
-          self.receive(result.bestTranscription.formattedString)
+          self.receive(result.bestTranscription.formattedString, transcription: result.bestTranscription)
           guard self.recognitionID == requestID else { return }
           if result.isFinal {
             if self.state == "listening" && !self.command.isEmpty {
@@ -389,6 +415,8 @@ final class VoiceEngine: NSObject {
   private var recognitionID = UUID()
 
   private func handleRecognitionError(_ error: NSError) {
+    wakeReply.cancel()
+    stopWakeReply()
     logger.error(
       "Speech ended: domain=\(error.domain, privacy: .public) code=\(error.code, privacy: .public)")
     let decision = recovery.handle(
@@ -410,7 +438,7 @@ final class VoiceEngine: NSObject {
     }
   }
 
-  private func receive(_ text: String) {
+  private func receive(_ text: String, transcription: SFTranscription? = nil) {
     guard !muted && state != "locked" && text != lastTranscript else { return }
     lastTranscript = text
     let lower = text.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
@@ -420,6 +448,25 @@ final class VoiceEngine: NSObject {
       + "(?![\\p{L}\\p{N}])"
     let wake = text.range(of: pattern, options: .regularExpression)
     if wake != nil { wakeMatches += 1 }
+    var wakeEndFrame: Int64?
+    if let range = wake, let transcription = transcription {
+      let match = NSRange(range, in: text)
+      if let segment = transcription.segments.last(where: {
+        NSIntersectionRange($0.substringRange, match).length > 0
+      }) {
+        // A recognizer may merge adjacent words into one segment. Preserve the
+        // command rather than trimming past the wake match in that case.
+        let end = NSMaxRange(segment.substringRange) > NSMaxRange(match)
+          ? segment.timestamp : segment.timestamp + segment.duration
+        requestLock.lock()
+        let origin = speechAudioStartFrame
+        requestLock.unlock()
+        if let origin = origin, end.isFinite && end >= 0 && end <= 180 {
+          // Keep 50 ms before the estimated boundary to protect a joined command onset.
+          wakeEndFrame = origin + max(0, Int64(end * 24000) - 1200)
+        }
+      }
+    }
     if state == "speaking" {
       if ["stop", "fermati", "silenzio"].contains(lower) {
         stopSpeaking()
@@ -442,7 +489,8 @@ final class VoiceEngine: NSObject {
       prefix = String(text[..<range.upperBound])
       beginTurn(
         String(text[range.upperBound...]).trimmingCharacters(
-          in: .punctuationCharacters.union(.whitespacesAndNewlines)))
+          in: .punctuationCharacters.union(.whitespacesAndNewlines)),
+        wakeEndFrame: wakeEndFrame, acknowledge: true)
     } else if state == "followup" {
       beginTurn(text)
     } else if state == "listening" {
@@ -456,24 +504,83 @@ final class VoiceEngine: NSObject {
         command = text
       }
       lastTextAt = Date()
+      if liveInputPrepared && !command.isEmpty {
+        if wakeReplyPlayed && WakeAcknowledgement.isCueOnlyOrPrefix(command) {
+          // Recognizer delivery can lag playback. A cue or its partial spelling
+          // is never a user request, even when the transcript arrives later.
+          command = ""
+          return
+        }
+        wakeReply.heardRequest()
+        let openingText = wakeReplyPlayed ? String(command.prefix(2000)) : ""
+        startLive(initialText: openingText)
+      }
     }
   }
 
-  private func beginTurn(_ text: String) {
+  private func beginTurn(_ text: String, wakeEndFrame: Int64? = nil, acknowledge: Bool = false) {
     turnPrivate = privateSession
     turnScope = voiceScope
     turnProfile = settings["profile"] as? String ?? "local_connected"
     turnGeneration = sessionGeneration
     turnConversationID = conversationID
-    if usesOpenAIVoice {
-      startLive()
-      return
-    }
     command = text
     turnStartedAt = Date()
     lastTextAt = Date()
+    if usesOpenAIVoice {
+      stopWakeReply()
+      wakeReplyPlayed = false
+      liveAudio.begin(afterFrame: wakeEndFrame, deferred: true)
+      liveInputPrepared = true
+      if acknowledge {
+        let age = wakeEndFrame.map { Double(max(0, liveAudio.position() - $0)) / 24000 } ?? 0
+        wakeReply.begin(at: Date().timeIntervalSinceReferenceDate - age, hasRequest: !text.isEmpty)
+      } else { wakeReply.cancel() }
+      setState("listening")
+      // Wake-only pauses stay local. Connect once a request starts, preserving
+      // its onset in the bounded RAM queue rather than replaying the wake word.
+      if !text.isEmpty { startLive() }
+      return
+    }
     lastSoundAt = Date()
     setState("listening")
+  }
+
+  private func stopWakeReply() {
+    if let cue = wakeReplyPlayer {
+      cue.stop()
+    }
+    wakeReplyPlayer = nil
+    liveAudio.setGated(false)
+  }
+
+  private func cancelOpeningTurn() {
+    stopWakeReply()
+    wakeReply.cancel()
+    if liveInputPrepared { liveAudio.clear() }
+    liveInputPrepared = false
+    wakeReplyPlayed = false
+  }
+
+  private func playWakeReply() {
+    guard let language = WakeAcknowledgement.language(
+      response: settings["response_language"] as? String ?? "auto",
+      fallback: settings["language"] as? String ?? "it-IT"),
+      let data = wakeReplyClips[language],
+      let cue = try? AVAudioPlayer(data: data, fileTypeHint: AVFileType.wav.rawValue)
+    else { return }
+    cue.enableRate = true
+    cue.rate = 1.15
+    cue.prepareToPlay()
+    guard !muted && !locked && liveInputPrepared && command.isEmpty,
+      let activated = wakeReply.activatedAt,
+      Date().timeIntervalSinceReferenceDate <= activated + wakeReply.deadline
+    else { return }
+    liveAudio.setGated(true)
+    if cue.play() {
+      wakeReplyPlayer = cue
+      wakeReplyPlayed = true
+    } else { liveAudio.setGated(false) }
   }
 
   private var usesOpenAIVoice: Bool {
@@ -481,10 +588,15 @@ final class VoiceEngine: NSObject {
       && settings["profile"] as? String != "local_strict"
   }
 
-  private func startLive(speech: String? = nil) {
+  private func startLive(speech: String? = nil, initialText: String = "") {
     guard liveSocket == nil, settings["voice_enabled"] as? Bool != false else { return }
+    let prepared = liveInputPrepared
+    stopWakeReply()
+    wakeReply.cancel()
+    liveInputPrepared = false
+    if prepared { liveAudio.startStreaming() }
     cancelRecognition()
-    stopSpeaking()
+    if !prepared { stopSpeaking() }
     endingLive = false
     pendingBuffers = 0
     finalBufferSeen = false
@@ -493,7 +605,7 @@ final class VoiceEngine: NSObject {
     let generation = UUID()
     let session = sessionGeneration
     liveGeneration = generation
-    if !muted { liveAudio.begin() }
+    if !muted && !prepared { liveAudio.begin() }
     var address = URLComponents(url: client.base, resolvingAgainstBaseURL: true)!
     address.scheme = "ws"
     address.path = "/api/voice/live"
@@ -508,6 +620,9 @@ final class VoiceEngine: NSObject {
       "profile": settings["profile"] as? String ?? "cloud",
       "privacy_revision": settings["privacy_revision"] as? Int ?? 0,
     ]
+    if !initialText.isEmpty { metadata["initial_text"] = initialText }
+    command = ""
+    prefix = ""
     if let id = conversationID { metadata["conversation_id"] = id }
     liveReader = Task { [weak self] in
       guard let self = self else { return }
@@ -614,7 +729,17 @@ final class VoiceEngine: NSObject {
   }
 
   private func closeLive(error: String? = nil, drain: Bool = false) {
-    guard let socket = liveSocket else { return }
+    let opening = liveInputPrepared
+    cancelOpeningTurn()
+    guard let socket = liveSocket else {
+      if opening {
+        command = ""
+        prefix = ""
+        setState(muted ? "muted" : "armed")
+        if !muted && !locked { resetRecognition() }
+      }
+      return
+    }
     if drain {
       do {
         for tail in try playbackConverter.finish() { try enqueuePlayback(tail, realtime: true) }
@@ -661,6 +786,7 @@ final class VoiceEngine: NSObject {
     command = ""
     prefix = ""
     guard !text.isEmpty else {
+      cancelOpeningTurn()
       setState("armed")
       return
     }
@@ -705,6 +831,20 @@ final class VoiceEngine: NSObject {
           "The microphone is not providing audio. Open the MacBook lid or select an external microphone, then press Talk to Jarvis."
       )
       return
+    }
+    if liveInputPrepared {
+      if let cue = wakeReplyPlayer, !cue.isPlaying { stopWakeReply() }
+      if state == "listening" && !muted && !locked && wakeReplyPlayer == nil
+        && wakeReply.take(at: current.timeIntervalSinceReferenceDate, lastSoundAt: wakeReplyLastSoundAt.timeIntervalSinceReferenceDate) {
+        playWakeReply()
+      }
+      if current.timeIntervalSince(turnStartedAt) > Double(settings["listen_timeout_seconds"] as? Int ?? 10) {
+        cancelOpeningTurn()
+        command = ""
+        prefix = ""
+        setState("armed")
+        resetRecognition()
+      }
     }
     if liveSocket != nil {
       if state == "speaking" && current.timeIntervalSince(lastLiveSpeech) > 0.6 {

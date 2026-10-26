@@ -60,6 +60,47 @@ struct LiveAudioBufferTests {
     expect(
       capturedBeforePlayback.contains { $0 != 0 },
       "Starting playback must not discard the user's already captured question")
-    print("6 native audio buffering scenarios passed")
+    buffer.clear()
+    for _ in 0..<100 { buffer.append(audio) }
+    let wakeEnd = buffer.position()
+    for _ in 0..<20 { buffer.append(audio) }
+    let commandFrames = buffer.position() - wakeEnd
+    buffer.begin(afterFrame: wakeEnd, deferred: true)
+    buffer.begin(afterFrame: wakeEnd, deferred: true)
+    var commandAudio = Data()
+    while true {
+      let part = try buffer.drain()
+      if part.isEmpty { break }
+      commandAudio.append(part)
+    }
+    expect(commandAudio.count == Int(commandFrames) * 2,
+      "Trim the wake word at its audio timestamp while preserving the complete command onset; activation is idempotent")
+
+    buffer.clear()
+    buffer.begin(deferred: true)
+    for _ in 0..<1500 { buffer.append(audio) }
+    var waitingAudio = Data()
+    while true {
+      let part = try buffer.drain()
+      if part.isEmpty { break }
+      waitingAudio.append(part)
+    }
+    expect(waitingAudio.count <= 480000 && !waitingAudio.isEmpty,
+      "A long local wake-only pause rolls a bounded RAM buffer without starting or overflowing a cloud stream")
+
+    buffer.startStreaming()
+    for _ in 0..<1500 { buffer.append(audio) }
+    do {
+      _ = try buffer.drain()
+      fatalError("Once delivery starts, a stalled provider must still fail closed")
+    } catch ServiceClient.ClientError.server {}
+
+    buffer.clear()
+    let future = buffer.position() + 24000
+    buffer.begin(afterFrame: future)
+    for _ in 0..<10 { buffer.append(audio) }
+    let afterFuture = try buffer.drain()
+    expect(!afterFuture.isEmpty, "A future timestamp cannot discard subsequent microphone samples")
+    print("10 native audio buffering scenarios passed")
   }
 }

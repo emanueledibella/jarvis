@@ -4,6 +4,8 @@ import asyncio
 import base64
 import binascii
 import hmac
+import re
+import string
 import time
 import uuid
 from contextlib import suppress
@@ -23,7 +25,12 @@ from .voice_style import SOURCE_POLICY, voice_reference
 LIVE_PROMPT = """You are Jarvis, the Mac owner's AI voice assistant.
 Use fluid, conversational phrasing and a warm, composed manner. Vary emphasis and brief pauses naturally.
 For a simple request, answer in one or two sentences without a stock preamble or a formal completion announcement.
-Backchannel policy: Briefly acknowledge that you are listening without talking over the user.
+Activation policy: The application handles the wake phrase and listening invitation locally.
+Do not greet or acknowledge activation. Do not say 'ci sono', 'dimmi', 'I am here', or 'go ahead'
+as an opening or a delayed preamble. A lone wake phrase or ready-cue echo is not a request.
+Stay silent while the user is speaking, then answer their actual request directly.
+If initial history contains an incomplete user prefix, combine it with incoming speech as ONE request.
+The prefix can overlap the audio; do not repeat it or act on an unfinished prefix alone.
 Interruption policy: Let the user speak when they interrupt. Do not mistake your own voice for a new request.
 Delegation policy:
 Backend tools: actual time and dates, personal Second Brain memory, calendar, weather, web search,
@@ -33,7 +40,7 @@ Generate <|SpawnThinking|> before giving the time, a personal fact, or confirmin
 Do not invent results while waiting. Report only verified outcomes received from the backend.
 Do not generate <|SpawnThinking|> for greetings, clarification, or repeating a just-verified result.
 Actions require dashboard approval: a spoken yes does not grant permission.
-If you hear only 'Jarvis', briefly invite the user to continue in the conversation language and wait.
+If you hear only 'Jarvis', wait silently for a substantive request; do not add another invitation.
 """
 
 
@@ -44,6 +51,24 @@ class LiveStart(BaseModel):
     private: bool = False
     privacy_revision: int = Field(ge=0)
     conversation_id: str | None = None
+    initial_text: str = Field(default="", max_length=2000)
+
+
+def join_prefix(prefix: str, transcript: str) -> str:
+    """Recover speech overlapping a local cue without duplicating its audio transcript."""
+    prefix, transcript = prefix.strip(), transcript.strip()
+    left, right = list(re.finditer(r"\S+", prefix)), list(re.finditer(r"\S+", transcript))
+
+    def normalize(value: str) -> str:
+        return value.casefold().strip(string.punctuation + "…")
+
+    for size in range(min(len(left), len(right)), 0, -1):
+        if [normalize(p.group()) for p in left[-size:]] == [
+            normalize(p.group()) for p in right[:size]
+        ]:
+            remainder = transcript[right[size - 1].end():].lstrip()
+            return prefix + (" " + remainder if remainder else "")
+    return " ".join(value for value in (prefix, transcript) if value)
 
 
 def excerpt(text: str) -> str:
@@ -157,6 +182,7 @@ class LiveVoice:
         fragments: list[dict] = []
         processed_ids: set[str] = set()
         last_offset = -1
+        opening_prefix = metadata.initial_text.strip()
         conversation_id = metadata.conversation_id
         delegations: set[asyncio.Task] = set()
         tasks: list[asyncio.Task] = []
@@ -192,7 +218,7 @@ class LiveVoice:
                 async with client.live.connect(max_retries=0) as connection:
 
                     async def delegate(event):
-                        nonlocal conversation_id, last_offset, last_activity
+                        nonlocal conversation_id, last_offset, last_activity, opening_prefix
                         delegation_id = event["delegation"]["id"]
                         if delegation_id in processed_ids:
                             return
@@ -205,13 +231,16 @@ class LiveVoice:
                             if p["end_ms"] > last_offset and p["start_ms"] <= offset
                         ]
                         text = "".join(p["delta"] for p in selected).strip()
+                        if opening_prefix:
+                            text = join_prefix(opening_prefix, text)
                         if not text:
                             await connection.session.commentary.append(
                                 delegation_id=delegation_id,
                                 content="The request was not transcribed: ask the user to repeat it in their language.",
                             )
                             return
-                        last_offset = max(p["end_ms"] for p in selected)
+                        opening_prefix = ""
+                        last_offset = max((p["end_ms"] for p in selected), default=offset)
                         task = await self.runtime.tasks.create(
                             text[:20000],
                             request_id=str(
@@ -368,6 +397,13 @@ class LiveVoice:
                         session={
                             "model": settings.desktop_voice_model,
                             "store": False,
+                            "input": [
+                                {
+                                    "role": "user",
+                                    "status": "incomplete",
+                                    "content": [{"type": "input_text", "text": opening_prefix}],
+                                }
+                            ] if opening_prefix else [],
                             "instructions": LIVE_PROMPT
                             + language_instructions(settings.response_language, settings.language)
                             + SOURCE_POLICY

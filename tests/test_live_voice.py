@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 from test_agent_policy import model_factory
 
-from jarvis.live_voice import LiveStart
+from jarvis.live_voice import LiveStart, join_prefix
 from jarvis.runtime import Runtime
 
 
@@ -305,3 +305,44 @@ async def test_concurrent_voice_sessions_claim_slots_before_waiting_on_the_budge
         release.set()
         await asyncio.gather(first, second, return_exceptions=True)
     assert not runtime.live_voice.sessions
+
+
+@pytest.mark.parametrize(("prefix", "transcript", "expected"), [
+    ("Che ore", " ore sono?", "Che ore sono?"),
+    ("Che", "Che ore sono?", "Che ore sono?"),
+    ("Dimmi che ore", "sono?", "Dimmi che ore sono?"),
+    ("", "Ciao", "Ciao"),
+    ("Che ore sono?", "", "Che ore sono?"),
+    ("CHE ORE", "che ore sono?", "CHE ORE sono?"),
+])
+def test_local_cue_overlap_restores_user_words_without_repeating_them(prefix, transcript, expected):
+    assert join_prefix(prefix, transcript) == expected
+
+
+async def test_live_partial_prefix_is_user_context_and_used_once_for_delegation(runtime, monkeypatch):
+    configure(runtime)
+    monkeypatch.setattr(runtime.tasks, "model", model_factory())
+    connection = Connection()
+    await asyncio.wait_for(runtime.live_voice.serve(
+        Peer(), start(runtime, initial_text="Che"), client_factory=factory(connection)
+    ), 5)
+    history = connection.configuration["input"]
+    assert history == [{"role": "user", "status": "incomplete", "content": [{"type": "input_text", "text": "Che"}]}]
+    rows = await runtime.db.fetchall("SELECT * FROM tasks")
+    assert len(rows) == 1 and rows[0]["prompt"] == "Che ore sono?"
+    instructions = connection.configuration["instructions"]
+    assert "Do not greet or acknowledge activation" in instructions
+    assert "wait silently for a substantive request" in instructions
+    assert "briefly invite the user" not in instructions
+
+
+async def test_private_prefix_is_not_persisted(runtime, monkeypatch):
+    configure(runtime)
+    await runtime.set_voice_session(True, "personal")
+    monkeypatch.setattr(runtime.tasks, "model", model_factory())
+    await asyncio.wait_for(runtime.live_voice.serve(
+        Peer(), start(runtime, private=True, initial_text="Che"), client_factory=factory(Connection())
+    ), 5)
+    assert not await runtime.db.fetchall("SELECT * FROM messages")
+    row = await runtime.db.fetchone("SELECT * FROM tasks")
+    assert row["prompt"] == row["result"] == ""
