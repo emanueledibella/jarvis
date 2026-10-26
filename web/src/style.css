@@ -616,6 +616,31 @@ nav > button b {
   flex-shrink: 0;
   color: var(--accent);
 }
+.lighting-pairing-help {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--accent-bg);
+  padding: 14px 18px;
+  margin-bottom: 20px;
+  line-height: 1.7;
+}
+.lighting-pairing-help summary {
+  cursor: pointer;
+  color: var(--text);
+  font-weight: 600;
+}
+.lighting-pairing-help ol {
+  color: var(--muted);
+  padding-left: 22px;
+  margin: 12px 0;
+}
+.lighting-pairing-help li + li {
+  margin-top: 7px;
+}
+.lighting-pairing-help p {
+  color: var(--muted);
+  margin: 12px 0 0;
+}
 .composer-wrap {
   margin-top: 29px;
 }

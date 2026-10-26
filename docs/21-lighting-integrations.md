@@ -12,7 +12,11 @@ The default lighting feature flag is `JARVIS_LIGHTING_ENABLED=true`; it opens no
 
 ## Hue Bluetooth without a Bridge
 
-Select **Hue Bluetooth · no Bridge**, then **Find nearby Hue lights**. The native Mac app requests Bluetooth permission when the owner first performs discovery. Choose the lamp you own and select **Connect and save light**. The initial encrypted power read allows macOS to request legitimate Bluetooth pairing. If needed, permit that system request while the lamp is discoverable.
+Select **Hue Bluetooth · no Bridge**, then **Find nearby Hue lights**. The native Mac app requests Bluetooth permission when the owner first performs discovery. A lamp being visible in the scan does not mean it accepts a new Bluetooth bond.
+
+For a lamp already controlled by a phone, open **Hue → Settings → Voice Assistants → Amazon Alexa or Google Home → Make Discoverable** on that phone. This creates a temporary pairing window while preserving the phone's setup. Leave Hue in the background, then immediately find/select the lamp in Jarvis and use **Connect and save light**. The initial encrypted power read allows macOS to request legitimate Bluetooth pairing; confirm that system dialog if it appears. Repeat **Make Discoverable** if the window expires. Menu wording may vary with the Hue app version/language.
+
+The Settings form includes these steps, and a failed enrollment points back to phone pairing mode. Jarvis cannot remotely enable that mode on a lamp with which it has not yet established an authenticated connection.
 
 Discovery is limited to Hue/Signify lighting advertisements, lasts eight seconds, and returns a bounded candidate list. A discovered light is not yet registered or controllable by agent tools. Pairing verifies the Hue lighting service, reads its current state, and saves the owner's selected profile. Editing the same light can reuse its existing local association; choosing another physical light requires discovery and selection again.
 
@@ -61,6 +65,7 @@ Hardware discovery, first pairing, coexistence with the phone, and actual power/
 
 Primary references consulted:
 
+- [Home Assistant Hue BLE pairing prerequisites](https://www.home-assistant.io/integrations/hue_ble/#alexagoogle-pairing-mode), including the phone's non-destructive **Make Discoverable** flow.
 - [Philips Hue: connecting without a Bridge](https://www.philips-hue.com/en-us/explore-hue/faq/controls/how-to-connect-philips-hue-without-a-bridge) for Bluetooth operation and product limitations.
 - [HueBLE](https://github.com/flip-dots/HueBLE), [hue-ble-mcp](https://github.com/jonnyblankinship/hue-ble-mcp), and [OpenHue](https://github.com/dw2lam/OpenHue) for the community-documented Hue lighting GATT profile. Jarvis uses its own bounded CoreBluetooth adapter; these projects are not installed or executed by setup.
 - [CoreBluetooth pairing/permission behavior documented by Bleak](https://bleak.readthedocs.io/en/latest/backends/macos.html), including the required application usage description and OS-owned pairing dialog.

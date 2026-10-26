@@ -274,7 +274,13 @@ export default function Lighting({ notify }: Props) {
       setTarget("{}");
       notify("Light configured. Its supported controls are ready.");
     } catch (error: any) {
-      notify(error.message, true);
+      notify(
+        error.message ===
+          "Bluetooth pairing was not confirmed. Allow the macOS pairing request and make the lamp discoverable."
+          ? "Pairing is not complete. In the Hue app on your phone, choose Make Discoverable, then retry in Jarvis."
+          : error.message,
+        true,
+      );
     } finally {
       setBusy(false);
     }
@@ -400,6 +406,31 @@ export default function Lighting({ notify }: Props) {
                 "Uses Bluetooth on the native Mac app. Allow Bluetooth and pairing when macOS asks. The lamp stays configured in the Hue app.",
               )}
             </p>
+            <details className="lighting-pairing-help" open={!editingBluetooth}>
+              <summary>{tr("Pair a lamp already linked to your phone")}</summary>
+              <ol>
+                <li>
+                  {tr(
+                    "On your phone, open Hue → Settings → Voice Assistants → Amazon Alexa or Google Home → Make Discoverable.",
+                  )}
+                </li>
+                <li>
+                  {tr(
+                    "Keep the lamp powered and near the Mac. After enabling discovery, leave the Hue app in the background.",
+                  )}
+                </li>
+                <li>
+                  {tr(
+                    "Return to Jarvis immediately: find and select your lamp, connect, and confirm the macOS pairing request if it appears.",
+                  )}
+                </li>
+              </ol>
+              <p>
+                {tr(
+                  "This opens a temporary pairing window and keeps the phone's Hue configuration. Repeat Make Discoverable if the window expires.",
+                )}
+              </p>
+            </details>
             {!data.bluetooth_available && (
               <p className="info-line">
                 {tr(
