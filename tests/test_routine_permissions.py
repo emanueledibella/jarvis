@@ -8,7 +8,7 @@ from jarvis.policy import TaskContext, active_task
 async def test_named_city_weather_does_not_require_approval_after_conversation_history(runtime, monkeypatch, channel):
     seen = []
 
-    async def weather(profile, location=None):
+    async def weather(profile, location=None, *, days=7, start_date=None):
         seen.append((profile, location))
         return {"state": "ready", "current": {"temperature_2m": 18}}
 

@@ -51,6 +51,30 @@ Dashboard/voice deliveries include a stable request ID. Repeating delivery retri
 
 Select an installed model with structured tool support. Verify a real `current_time` tool call, then a temporary workspace read/write and an explicitly approved verification command. Model catalog metadata alone does not prove compatibility. Keep model inventories, hardware measurements, and personal integration outcomes in private local records.
 
+## Weather forecasts
+
+The `weather` tool provides current conditions and daily forecasts, with seven days starting
+today by default. Optional `days` (1–16) and ISO `start_date` select a specific period; the
+whole interval must fit within today and the following 15 days in the configured time zone.
+Relative dates such as tomorrow or the weekend are resolved using `current_time`. The
+agent uses `daily.time` and the corresponding forecast values, separately from `current`.
+
+Daily results include minimum/maximum temperature, weather code, precipitation probability
+and amount, wind, units, and actual coverage. Partial results, null values, expired cached
+data, and requests beyond the horizon must not become invented forecasts. Routine weather
+requests continue without dashboard approval and without mandatory spoken citations.
+
+The provider's complete daily horizon is cached once per location, local day, and time zone;
+only requested dates enter the tool result. Current conditions remain compatible with the
+dashboard. A stale fallback retains the requested dates and an explicit freshness flag.
+No unused hourly arrays are requested. The horizon and daily variables follow the
+[Open-Meteo forecast API](https://open-meteo.com/en/docs).
+
+`tests/test_weather_forecast.py` covers future-date selection, cache reuse and midnight/time
+zone changes, invalid/out-of-range arguments before any network request, partial/malformed
+provider data, stale fallback, strict offline mode, and ongoing text/live task permissions.
+Fixtures are synthetic and never use a personal location or paid model.
+
 ## Memory and authentication
 
 Use the existing Second Brain without modifying its repository, vault, or database. Implemented operations include `recall`, `remember`, `source_status`, `read_source`, `correct`, `revise`, `retract` according to the inspected contract.

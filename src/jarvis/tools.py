@@ -167,11 +167,13 @@ def build_tools(runtime):
 
     @register(
         "weather",
-        "Read actual weather for the configured location or a requested city. Returns source and update time.",
+        "Read current weather and daily forecasts for the configured location or a requested city. days is 1–16, default 7 including today. For tomorrow, a weekend, or a specific period, set start_date (YYYY-MM-DD) and days; the entire range must fit within today and the next 15 days. Verify relative dates with current_time. Use daily.time and daily weather/rain/temperature values for future dates, not current conditions. Returns units, coverage, source, freshness, and stale status.",
         "network_read",
     )
-    async def weather(location: str | None = None):
-        return await runtime.productivity.weather(active_task.get().profile, location)
+    async def weather(location: str | None = None, days: int = 7, start_date: str | None = None):
+        return await runtime.productivity.weather(
+            active_task.get().profile, location, days=days, start_date=start_date
+        )
 
     @register(
         "calendar_events", "Read actual events from the connected calendar for the next few days."

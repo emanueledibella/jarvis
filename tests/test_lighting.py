@@ -266,7 +266,7 @@ async def test_weather_in_the_same_task_does_not_revoke_a_light_control_grant(ru
 
     await enroll(runtime)
 
-    async def weather(profile, location=None):
+    async def weather(profile, location=None, *, days=7, start_date=None):
         return {"state": "ready", "current": {"temperature_2m": 18}}
 
     monkeypatch.setattr(runtime.productivity, "weather", weather)

@@ -6,7 +6,7 @@ import json
 import os
 import time
 import unicodedata
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from urllib.parse import quote, urlencode
 from zoneinfo import ZoneInfo
 
@@ -15,6 +15,8 @@ from bs4 import BeautifulSoup
 
 from .config import ConfigStore
 from .network import fetch_public
+
+MAX_FORECAST_DAYS = 16
 
 
 class Productivity:
@@ -30,9 +32,27 @@ class Productivity:
                 "This capability uses the network and is not allowed in the strict local profile."
             )
 
-    async def weather(self, profile: str, location: str | None = None) -> dict:
+    async def weather(
+        self, profile: str, location: str | None = None, *, days: int = 7,
+        start_date: str | None = None,
+    ) -> dict:
         self.remote(profile)
         settings = self.config.settings
+        if type(days) is not int or not 1 <= days <= MAX_FORECAST_DAYS:
+            raise ValueError("Forecast days must be between 1 and 16.")
+        today = datetime.now(ZoneInfo(settings.timezone)).date()
+        try:
+            first = date.fromisoformat(start_date) if start_date is not None else today
+            if start_date is not None and first.isoformat() != start_date:
+                raise ValueError
+        except (TypeError, ValueError):
+            raise ValueError("start_date must be an ISO date (YYYY-MM-DD).") from None
+        last_available = today + timedelta(days=MAX_FORECAST_DAYS - 1)
+        if not today <= first <= last_available or first + timedelta(days=days - 1) > last_available:
+            raise ValueError(
+                f"Forecasts are available from {today.isoformat()} through {last_available.isoformat()} "
+                "(up to 16 days including today). Choose a date range within that window."
+            )
         location = unicodedata.normalize("NFC", (location or settings.weather_location).strip())
         if len(location) > 120 or any(
             not (c.isalnum() or unicodedata.category(c).startswith("M") or c in " .,'’()-")
@@ -41,55 +61,98 @@ class Productivity:
             # A weather lookup accepts a place label, not arbitrary documents,
             # URLs, multiline content, or a bulk export through geocoding.
             raise ValueError("Location not found.")
-        key = location or f"{settings.weather_latitude},{settings.weather_longitude}"
+        # A new local day/time zone must not reuse yesterday's current conditions
+        # or shift the meaning of a relative forecast. Cache the full horizon and
+        # return only the requested dates to keep model context small.
+        key = (location.casefold(), settings.weather_latitude, settings.weather_longitude,
+               settings.timezone, today.isoformat())
         cached = self.weather_cache.get(key)
         if cached and time.monotonic() - cached[0] < settings.weather_refresh_minutes * 60:
-            return cached[1]
+            return self.weather_range(cached[1], first, days)
         lat, lon, place = settings.weather_latitude, settings.weather_longitude, location
-        if location:
-            _, raw, _ = await fetch_public(
-                "https://geocoding-api.open-meteo.com/v1/search?"
-                + urlencode({"name": location, "count": 1, "language": "it"})
-            )
-            results = json.loads(raw).get("results", [])
-            if not results:
-                raise ValueError("Location not found.")
-            lat, lon = results[0]["latitude"], results[0]["longitude"]
-            place = ", ".join(filter(None, [results[0]["name"], results[0].get("admin1")]))
-        if lat is None or lon is None:
-            return {
-                "state": "not_configured",
-                "message": "Set a location in Settings.",
-            }
-        url = "https://api.open-meteo.com/v1/forecast?" + urlencode(
-            {
-                "latitude": lat,
-                "longitude": lon,
-                "current": "temperature_2m,apparent_temperature,weather_code,wind_speed_10m,precipitation",
-                "hourly": "precipitation_probability",
-                "daily": "temperature_2m_max,temperature_2m_min,sunrise,sunset",
-                "timezone": settings.timezone,
-                "forecast_days": 1,
-            }
-        )
         try:
+            if location:
+                _, raw, _ = await fetch_public(
+                    "https://geocoding-api.open-meteo.com/v1/search?"
+                    + urlencode({"name": location, "count": 1, "language": "it"})
+                )
+                results = json.loads(raw).get("results", [])
+                if not results:
+                    raise ValueError("Location not found.")
+                lat, lon = results[0]["latitude"], results[0]["longitude"]
+                place = ", ".join(filter(None, [results[0]["name"], results[0].get("admin1")]))
+            if lat is None or lon is None:
+                return {
+                    "state": "not_configured",
+                    "message": "Set a location in Settings.",
+                }
+            url = "https://api.open-meteo.com/v1/forecast?" + urlencode(
+                {
+                    "latitude": lat,
+                    "longitude": lon,
+                    "current": "temperature_2m,apparent_temperature,weather_code,wind_speed_10m,precipitation",
+                    "daily": "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,wind_speed_10m_max,sunrise,sunset",
+                    "timezone": settings.timezone,
+                    "temperature_unit": "celsius",
+                    "wind_speed_unit": "kmh",
+                    "precipitation_unit": "mm",
+                    "forecast_days": MAX_FORECAST_DAYS,
+                }
+            )
             _, raw, _ = await fetch_public(url)
             value = json.loads(raw)
             result = {
                 "state": "ready",
                 "location": place or f"{lat:.2f}, {lon:.2f}",
                 "current": value["current"],
+                "current_units": value.get("current_units", {}),
                 "daily": value["daily"],
+                "daily_units": value.get("daily_units", {}),
+                "timezone": value.get("timezone", settings.timezone),
                 "source": "https://open-meteo.com/",
                 "updated_at": datetime.now(UTC).isoformat(),
                 "stale": False,
             }
+            selected = self.weather_range(result, first, days)
             self.weather_cache[key] = (time.monotonic(), result)
-            return result
+            return selected
         except Exception:
             if cached:
-                return {**cached[1], "stale": True}
+                return self.weather_range({**cached[1], "stale": True}, first, days)
             raise
+
+    @staticmethod
+    def weather_range(value: dict, first: date, days: int) -> dict:
+        daily = value["daily"]
+        dates = daily.get("time", [])
+        try:
+            if (
+                not isinstance(dates, list)
+                or any(date.fromisoformat(day).isoformat() != day for day in dates)
+                or dates != sorted(set(dates))
+            ):
+                raise ValueError
+        except (TypeError, ValueError):
+            raise ValueError("The weather provider returned invalid forecast dates.") from None
+        last = first + timedelta(days=days - 1)
+        indices = [i for i, day in enumerate(dates) if first.isoformat() <= day <= last.isoformat()]
+        if not indices:
+            raise ValueError("The weather provider returned no forecast for the requested dates.")
+        if any(not isinstance(items, list) or len(items) != len(dates) for items in daily.values()):
+            raise ValueError("The weather provider returned inconsistent daily forecast data.")
+        selected = {name: [items[i] for i in indices] for name, items in daily.items()}
+        return {
+            **value,
+            "daily": selected,
+            "forecast": {
+                "start_date": selected["time"][0],
+                "end_date": selected["time"][-1],
+                "days": len(indices),
+                "requested_start_date": first.isoformat(),
+                "requested_days": days,
+                "complete": len(indices) == days,
+            },
+        }
 
     async def search(self, query: str, profile: str, limit=5) -> dict:
         self.remote(profile)
