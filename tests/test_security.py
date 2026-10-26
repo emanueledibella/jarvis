@@ -219,7 +219,12 @@ async def test_emergency_stop_between_approval_and_execution_is_authoritative(ru
         active_task.reset(token)
 
 
-async def test_agent_tools_cannot_discover_or_change_another_scope(runtime):
+async def test_agent_tools_cannot_discover_or_change_another_scope(runtime, monkeypatch):
+    async def approve(*args):
+        return True
+
+    # Even a specific owner approval cannot grant a tool access to another scope.
+    monkeypatch.setattr(runtime.gateway, "approval", approve)
     personal = await runtime.scheduler.create(
         ScheduleInput(
             title="Personal fixture", expression="2030-01-01T12:00:00+00:00", scope="personal"
