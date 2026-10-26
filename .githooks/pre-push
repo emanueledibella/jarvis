@@ -1,5 +1,17 @@
 #!/bin/sh
 set -eu
+# Private app-managed refs must never be mirrored to the public repository.
+while read -r local_ref local_oid remote_ref remote_oid; do
+  case "$remote_ref" in
+    refs/heads/*|refs/tags/*) ;;
+    *) echo "Publication blocked: private/internal Git refs cannot be pushed." >&2; exit 1 ;;
+  esac
+  case "$local_ref" in
+    refs/heads/*|refs/tags/*|\(delete\)) ;;
+    HEAD) git symbolic-ref -q HEAD >/dev/null || { echo "Publish a named branch or tag so its history is audited." >&2; exit 1; } ;;
+    *) echo "Publish a named branch or tag so its history is audited." >&2; exit 1 ;;
+  esac
+done
 if [ -x .venv/bin/python ]; then
   audit_python=.venv/bin/python
 elif [ -x .venv/Scripts/python.exe ]; then

@@ -50,7 +50,7 @@ Build and launch commands for each OS are in the [README](../README.md#build-and
 
 ## Verification results
 
-The hardened preview was built from `b80ca54c0de652f02794a12773cca7bd9494b1ee`; [native CI and frozen-app checks](https://github.com/emanueledibella/jarvis/actions/runs/40283483993) passed on all three systems. The [security gate](https://github.com/emanueledibella/jarvis/actions/runs/40283484016) passed independently.
+The hardened preview was built from `b858bfd6ea41e686364a799b4a3c77495d94cf8b`; [native CI and frozen-app checks](https://github.com/emanueledibella/jarvis/actions/runs/40284754035) passed on all three systems. The [security gate](https://github.com/emanueledibella/jarvis/actions/runs/40284754112) passed independently.
 
 The release executable records its source revision in `BUILD-INFO.json`. CI evidence is available in the repository’s Portable builds workflow.
 

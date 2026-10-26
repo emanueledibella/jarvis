@@ -43,8 +43,8 @@ for their work. Do not supply secrets in a prompt or authorize their export.
 
 ## Publishing controls
 
-Use a neutral local Git identity, a reserved example domain for fixtures, and
-placeholder home paths. Never publish local configuration, environment snapshots,
+Use a neutral Git identity or public GitHub noreply attribution, reserved example
+domains for fixtures, and placeholder home paths. Never publish local configuration, environment snapshots,
 OAuth caches, logs, memory databases, screenshots of personal data, or private
 diagnostic reports. Install the pre-push guard with:
 
@@ -52,6 +52,9 @@ diagnostic reports. Install the pre-push guard with:
 git config --local core.hooksPath .githooks
 # Install Gitleaks 8.30.1, or configure jarvis.secretScanner to its absolute path.
 ```
+
+The pre-push hook accepts audited named branches/tags and rejects internal refs,
+including app-managed snapshots; do not mirror private workspace refs.
 
 CI scans reachable history, Git identities, dependencies and medium/high static
 findings. It does not print secret matches or upload secret-scan reports. Release

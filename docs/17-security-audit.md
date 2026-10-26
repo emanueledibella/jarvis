@@ -29,7 +29,7 @@ alone is not treated as proof of the absence of all possible vulnerabilities.
 | Cancelled or duplicated native events could still dispatch an OS action | Medium | Authoritative, one-time native operation claims; expired events filtered while preserving poll cursor progress; current session settings fetched at claim time |
 | Ambient provider credentials or organization metadata could reach a custom gateway; restored tasks could use new credentials against an old endpoint | High | Credentials bound to the configured provider/endpoint; explicit SDK destinations; no ambient organization/project headers; fail closed on snapshot endpoint changes |
 | Workspace grants could include app credentials, credential stores or hard-linked private files | High | Protected runtime/config paths, expanded credential exclusions, non-following I/O and hard-link rejection on both native file implementations |
-| Untrusted reads could influence local mutations or carry private results into arbitrary outbound queries | High | Owner proposals for all mutations; broad preauthorization cannot survive untrusted reads or authorize private query export; execution-time context tracking and exact egress checks across delegated tools, conversation history and resumed tasks; safe fixed-argument weather requests retained |
+| Untrusted reads could influence local mutations or carry private results into arbitrary outbound queries | High | Argument-bound mutation proposals with bounded owner preauthorization; broad grants cannot survive untrusted reads or authorize private query export; execution-time context tracking and exact egress checks across delegated tools, conversation history and resumed tasks; safe fixed-argument weather requests retained |
 | Agent task/routine tools could cross personal/work scope boundaries | Medium | Scope filtering and scope-bound updates/deletes/cancellation, including explicitly preauthorized tasks |
 | MCP schema validation could read external references or execute an unbounded regex | High | In-memory reference registry, bounded schema/argument trees, deadline/regex limits and sanitized errors; regression includes a local-file reference and a hostile regex |
 | Transition IPs, redirects or compressed bodies could bypass intended web-fetch protections | Medium | Address checks at URL and connection resolution, transition-address checks, cross-origin credential stripping, HTTPS downgrade rejection and bounded uncompressed text responses |
@@ -60,19 +60,21 @@ passed Gitleaks and exact saved-secret/private-path comparisons with zero matche
 The updated local service authenticated successfully, and saved configuration and
 credentials remained byte-for-byte unchanged.
 
-The [security CI](https://github.com/emanueledibella/jarvis/actions/runs/40283484016)
+The [security CI](https://github.com/emanueledibella/jarvis/actions/runs/40284754112)
 passed the history/inventory, credential scan, Python dependency, Bandit and npm
-gates. The [native matrix](https://github.com/emanueledibella/jarvis/actions/runs/40283483993)
+gates. The [native matrix](https://github.com/emanueledibella/jarvis/actions/runs/40284754035)
 passed on all three operating systems: 111 Python tests on Windows with one skip,
 110 on Linux/macOS with two skips each, plus browser/frontend checks and 34 Swift
 scenarios on macOS. Actual frozen Windows/Linux executables completed an isolated
 Deep Agents tool round-trip against a loopback model fixture. Downloaded release
 archives passed SHA256, PE/ELF architecture, source/lock/runtime provenance,
-private-file inventory and exact saved-secret/private-path comparisons. The dependency audit after the tool upgrades reports no
-known advisories in both the audited build environment and the updated production
+private-file inventory and exact saved-secret/private-path comparisons.
+
+The dependency audit after the tool upgrades reports no known advisories in both the audited build environment and the updated production
 environment; npm audit reports zero findings. An additional advisory scan covered
 all 167 package/version pairs in the universal lock, including platform-specific
 and optional voice dependencies, with zero findings and no skipped packages.
+The verified downloads are published as [portable preview 3](https://github.com/emanueledibella/jarvis/releases/tag/v0.1.0-portable-preview.3).
 Checks are time-specific and need to be rerun for later dependencies/advisories.
 
 ## Residual risks and limitations
@@ -96,8 +98,8 @@ Checks are time-specific and need to be rerun for later dependencies/advisories.
 - **External cleanup boundary.** Rewritten refs and removed assets do not erase
   existing clones, downloads, GitHub cached commit views or hosting backups.
   GitHub Support controls cached-object removal; no support request or visibility
-  change was requested for accepted author attribution. Public repository ownership and
-  the public GitHub account remain visible by design; this audit does not change
+  change was requested for accepted author attribution. Public repository ownership
+  and the public GitHub account remain visible by design; this audit does not change
   the owner's account identity or unrelated repositories.
 
 Low residuals above are deliberate technical trust boundaries, not silently
