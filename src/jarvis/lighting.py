@@ -8,6 +8,7 @@ import math
 import os
 import re
 import time
+import unicodedata
 from pathlib import Path
 from typing import Literal
 from uuid import UUID
@@ -113,7 +114,7 @@ class MCPConnection(BaseModel):
 class LightRegistration(BaseModel):
     model_config = ConfigDict(extra="forbid")
     name: str = Field(min_length=1, max_length=60, pattern=r"^[\w .'-]+$")
-    model: str = Field(default="", max_length=100, pattern=r"^[\w .()/+-]*$")
+    model: str = Field(default="", max_length=100)
     light_profile: Literal["white", "white_ambiance", "color_ambiance"] = "white_ambiance"
     connection: Literal["hue_bluetooth", "mcp"] = "hue_bluetooth"
     scope: Literal["personal", "work"] = "personal"
@@ -128,6 +129,13 @@ class LightRegistration(BaseModel):
     def valid_name(cls, value):
         if not value.strip():
             raise ValueError("Enter a light name.")
+        return value.strip()
+
+    @field_validator("model")
+    @classmethod
+    def valid_model(cls, value):
+        if any(unicodedata.category(char) in {"Cc", "Cf", "Cs", "Zl", "Zp"} for char in value):
+            raise ValueError("Use a model label without line breaks or control characters.")
         return value.strip()
 
     @model_validator(mode="after")

@@ -274,6 +274,47 @@ async def test_lighting_api_is_authenticated_and_registration_is_explicit(config
         assert response.status_code == 403
 
 
+async def test_lighting_api_saves_and_edits_unicode_model_labels(config, monkeypatch):
+    app = create_app(config, start_scheduler=False, process_lock=False)
+    async with app.router.lifespan_context(app), httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://testserver",
+        headers={"Authorization": "Bearer " + config.token},
+    ) as client:
+        runtime = app.state.runtime
+        state = {"on": True, "brightness": 40, "temperature_kelvin": 2700}
+        monkeypatch.setattr(runtime.mcp, "specs", lambda: {
+            "fixture-server": {"read_tools": ["read_fixture"], "write_tools": ["set_fixture"]},
+        })
+
+        async def call(*args):
+            return state
+
+        monkeypatch.setattr(runtime.mcp, "call", call)
+        registration = {
+            "name": "Fixture light", "model": "  Fixture White Ambiance · E27 / A60  ",
+            "connection": "mcp", "mcp": {
+                "server": "fixture-server", "read_tool": "read_fixture", "set_tool": "set_fixture",
+                "target": {"entity_id": "light.fixture"},
+            },
+        }
+        created = await client.post("/api/lights", json=registration)
+        assert created.status_code == 200, created.json()
+        device = created.json()
+        assert device["model"] == registration["model"].strip()
+        registration["model"] = "Éclairage — Tunable: 温白色 (A60+) & Co."
+        edited = await client.put("/api/lights/" + device["id"], json=registration)
+        assert edited.status_code == 200, edited.json()
+        assert edited.json()["model"] == registration["model"]
+        restored = Lighting(runtime).list()
+        assert len(restored) == 1 and restored[0]["model"] == registration["model"]
+        before = runtime.lighting.path.read_bytes()
+        for invalid in ("Fixture\nmodel", "Fixture\x00model", "Fixture\u202emodel", "X" * 101):
+            rejected = await client.put("/api/lights/" + device["id"], json={**registration, "model": invalid})
+            assert rejected.status_code == 422
+            assert rejected.json() == {"detail": "Invalid fields: body.model"}
+            assert runtime.lighting.path.read_bytes() == before
+
+
 async def test_existing_model_and_connection_can_be_reconfigured_without_changing_device_identity(runtime, adapter):
     device = await enroll(runtime)
     before = runtime.lighting.revision

@@ -4,6 +4,8 @@
 
 Use **Settings → Lights and devices** to add, edit, or remove a light. Configure its spoken name, optional model label, connection method, personal/work scope, and capability profile. The model label is descriptive; the profile and adapter determine which commands are available.
 
+Model labels accept Unicode text and punctuation, including `·` and `—`, up to 100 characters. Line breaks and control/formatting characters are rejected; surrounding whitespace is trimmed.
+
 Profiles cover fixed white with dimming, adjustable white temperature, and RGB plus white. Adjustable white has configurable minimum/maximum kelvin values. A White Ambiance profile supports white temperature, not RGB. Native Hue Bluetooth also intersects the selected profile with discovered characteristic support and its supported wire range. Unsupported changes are rejected before a write.
 
 The default lighting feature flag is `JARVIS_LIGHTING_ENABLED=true`; it opens no radio connection and enrolls no devices. Setting it to false disables subsequent control. The same toggle is available in Settings. Device configuration is stored in private application data, independently of environment-controlled model selection.
