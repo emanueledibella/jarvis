@@ -15,6 +15,7 @@
 <key>NSMicrophoneUsageDescription</key><string>Jarvis detects the wake phrase on your Mac. If you select OpenAI Live, conversation audio is sent to OpenAI after activation. You can mute the microphone at any time.</string>
 <key>NSSpeechRecognitionUsageDescription</key><string>Jarvis recognizes the wake phrase on your Mac. With the Apple voice path, commands are also transcribed locally.</string>
 <key>NSCalendarsFullAccessUsageDescription</key><string>Jarvis reads your schedule and changes events only in tasks you authorize.</string>
+<key>NSBluetoothAlwaysUsageDescription</key><string>Jarvis discovers and controls the Bluetooth lights you choose in Settings. Device pairing and lighting controls stay local to this Mac.</string>
 <key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
 <key>NSHighResolutionCapable</key><true/>
 </dict></plist>

@@ -10,6 +10,7 @@ from .budget import ModelBudget
 from .config import ConfigStore
 from .db import Database, now
 from .integrations import MCPHub, NativeBridge
+from .lighting import Lighting
 from .live_voice import LiveVoice
 from .memory import Memory
 from .platforms import ServiceLock, capabilities
@@ -28,6 +29,7 @@ class Runtime:
         self.memory = Memory(config, self.db, self.mcp)
         self.productivity = Productivity(config, self.native)
         self.gateway = Gateway(self.db)
+        self.lighting = Lighting(self)
         self.budget = ModelBudget(config, self.db)
         self.tasks = TaskManager(self)
         self.telephony = Telephony(self)

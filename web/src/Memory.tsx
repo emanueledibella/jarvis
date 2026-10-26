@@ -438,6 +438,17 @@ export function Integrations({ notify, openSettings }: Props) {
       />
       <div className="integration-grid">
         <section className="integration-card">
+          <h2>{tr("Lights and devices")}</h2>
+          <p>
+            {tr(
+              "Configure models, Bluetooth pairing, MCP connections, and per-light voice permissions.",
+            )}
+          </p>
+          <button className="btn" onClick={() => openSettings("lighting")}>
+            {tr("Set up lights")}
+          </button>
+        </section>
+        <section className="integration-card">
           <div className="integration-icon">
             <Brain size={26} />
           </div>

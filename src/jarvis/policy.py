@@ -131,6 +131,8 @@ class Gateway:
             "schedules_list",
             "weather",
             "list_mcp_tools",
+            "lights_list",
+            "light_state",
         }:
             ctx.sensitive_context = True
         if name in {
@@ -151,6 +153,7 @@ class Gateway:
             ctx.untrusted_context = True
         needs_approval = (
             risk in {"external", "command", "workspace", "schedule", "task", "memory"}
+            or (risk == "lighting" and was_untrusted)
             or (
                 risk == "network_read"
                 and was_sensitive

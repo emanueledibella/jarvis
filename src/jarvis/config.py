@@ -87,6 +87,7 @@ class Settings(BaseSettings):
     end_of_turn_ms: int = Field(default=900, ge=300, le=4000)
     tts_voice: str = ""
     voice_on_lock_screen: bool = False
+    lighting_enabled: bool = True
     weather_location: str = ""
     weather_latitude: float | None = Field(default=None, ge=-90, le=90)
     weather_longitude: float | None = Field(default=None, ge=-180, le=180)

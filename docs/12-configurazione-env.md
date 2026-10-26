@@ -1,6 +1,6 @@
 # Implemented environment configuration
 
-Based on the `Settings` schema for version 0.1.0, updated October 26, 2026. All 92 settings appear below.
+Based on the `Settings` schema for version 0.1.0, updated October 26, 2026. All 93 settings appear below.
 
 Precedence: process environment → `.env` → private GUI settings → defaults. Source checkouts default to the repository `.env`; portable executables default to `.env` inside their private application data directory. Select another file with `JARVIS_ENV_FILE` or `jarvis --env-file /path/file.env ...`. Environment-provided fields are locked in the GUI. Editing `.env` requires a service restart; closing only the window does not restart the backend.
 
@@ -71,6 +71,7 @@ The monthly ledger covers cloud LLM requests and recorded OpenAI desktop voice s
 | `JARVIS_END_OF_TURN_MS` | integer | `900` | minimum: 300, maximum: 4000 |
 | `JARVIS_TTS_VOICE` | string | `` |  |
 | `JARVIS_VOICE_ON_LOCK_SCREEN` | boolean | `false` |  |
+| `JARVIS_LIGHTING_ENABLED` | boolean | `true` | Enables owner-configured lighting adapters; discovery and registration remain explicit. See chapter 21. |
 | `JARVIS_WEATHER_LOCATION` | string | `` |  |
 | `JARVIS_WEATHER_LATITUDE` | number or null | `null` | minimum: -90, maximum: 90; set together with longitude |
 | `JARVIS_WEATHER_LONGITUDE` | number or null | `null` | minimum: -180, maximum: 180; set together with latitude |

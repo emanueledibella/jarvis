@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 from .config import ConfigStore, Profile
 from .db import now
+from .lighting import LightChange, LightRegistration
 from .runtime import Runtime
 from .scheduler import ScheduleInput, next_due
 
@@ -58,6 +59,10 @@ class NativeStatus(BaseModel):
     echo_cancellation: Literal["active", "fallback", "off"] = "off"
     barge_in: bool = False
     interruptions: int = Field(default=0, ge=0)
+
+
+class LightGrant(BaseModel):
+    voice_control: bool = Field(strict=True)
 
 
 def create_app(
@@ -668,6 +673,45 @@ def create_app(
     async def current_voice_session():
         return runtime.voice_session
 
+    @app.get("/api/lights")
+    async def lights():
+        from .platforms import capabilities
+        return {"enabled": config.settings.lighting_enabled,
+                "bluetooth_available": capabilities()["os"] == "darwin" and runtime.native.connected,
+                "devices": runtime.lighting.list()}
+
+    @app.post("/api/lights/discover")
+    async def lights_discover():
+        return await runtime.lighting.scan()
+
+    @app.post("/api/lights")
+    async def light_add(data: LightRegistration):
+        return await runtime.lighting.add(data)
+
+    @app.delete("/api/lights/{key}")
+    async def light_remove(key: str):
+        return await runtime.lighting.remove(key)
+
+    @app.get("/api/lights/{key}/configuration")
+    async def light_configuration(key: str):
+        return runtime.lighting.configuration(key)
+
+    @app.put("/api/lights/{key}")
+    async def light_update(key: str, data: LightRegistration):
+        return await runtime.lighting.add(data, existing_id=key)
+
+    @app.patch("/api/lights/{key}/grant")
+    async def light_grant(key: str, data: LightGrant):
+        return await runtime.lighting.grant(key, data.voice_control)
+
+    @app.get("/api/lights/{key}/state")
+    async def light_read(key: str):
+        return await runtime.lighting.state(key)
+
+    @app.post("/api/lights/{key}/state")
+    async def light_write(key: str, data: LightChange):
+        return await runtime.lighting.set(key, data)
+
     @app.websocket("/api/voice/live")
     async def live_voice(websocket: WebSocket):
         await runtime.live_voice.endpoint(websocket)
@@ -728,6 +772,7 @@ def create_app(
                 "wake_phrase": config.settings.wake_phrase,
                 "wake_enabled": config.settings.wake_enabled,
                 "voice_enabled": config.settings.voice_enabled and not runtime.gateway.blocked,
+                "lighting_enabled": config.settings.lighting_enabled and not runtime.gateway.blocked,
                 "private_session": runtime.voice_session["private"],
                 "voice_scope": runtime.voice_session["scope"],
                 "profile": config.settings.profile,
@@ -754,7 +799,14 @@ def create_app(
             }
         if key == "emergency-mute" and runtime.gateway.blocked:
             return {"operation": "control.mute", "arguments": {}}
-        return runtime.native.claim(key, stopped=runtime.gateway.blocked)
+        operation = runtime.native.claim(key, stopped=runtime.gateway.blocked)
+        if operation["operation"].startswith("hue."):
+            try:
+                runtime.lighting.authorize_native(operation)
+            except PermissionError as error:
+                runtime.native.complete(key, {"error": str(error)})
+                raise
+        return operation
 
     @app.post("/api/native/result/{key}")
     async def native_result(key: str, data: dict):

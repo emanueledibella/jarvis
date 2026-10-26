@@ -21,3 +21,5 @@ swiftc -swift-version 5 native/WakeAcknowledgement.swift tests/native/WakeAcknow
 "$JARVIS_NATIVE_TEST_DIR/wake-tests"
 swiftc -swift-version 5 native/BargeInPolicy.swift tests/native/BargeInPolicyTests.swift -o "$JARVIS_NATIVE_TEST_DIR/barge-in-tests"
 "$JARVIS_NATIVE_TEST_DIR/barge-in-tests"
+swiftc -swift-version 5 native/HueLightProtocol.swift tests/native/HueLightProtocolTests.swift -o "$JARVIS_NATIVE_TEST_DIR/hue-tests"
+"$JARVIS_NATIVE_TEST_DIR/hue-tests"

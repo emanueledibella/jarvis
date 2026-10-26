@@ -12,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     var client: ServiceClient!
     var voice: VoiceEngine!
     let calendar = CalendarBridge()
+    let hue = HueBluetooth()
     var service: Process?
     var projectRoot = ""
     var dataDirectory = ""
@@ -216,6 +217,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                     nativeSettings = settings
                     configureInterface(settings["ui_language"] as? String)
                     voice.configure(settings)
+                    hue.configure(enabled: settings["lighting_enabled"] as? Bool ?? false)
                 }
                 for event in result["events"] as? [[String: Any]] ?? [] {
                     sequence = max(sequence, event["sequence"] as? Int ?? 0)
@@ -269,7 +271,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             case "control.session":
                 voice.setSession(privateMode: arguments["private"] as? Bool ?? false, scope: arguments["scope"] as? String ?? "personal")
                 result = ["state":"updated"]
-            case "control.stop": voice.stopSpeaking(); result = ["state": "stopped"]
+            case "control.stop": voice.stopSpeaking(); hue.shutdown(); result = ["state": "stopped"]
+            case "hue.scan", "hue.inspect", "hue.read", "hue.write": result = try await hue.perform(operation, arguments)
             case "control.calendar_authorize": result = try await calendar.authorize()
             case "control.autostart_enable": result = try enableAutostart()
             case "control.autostart_disable": try await SMAppService.mainApp.unregister(); buildMenu(); result = ["state": "disabled"]
@@ -348,6 +351,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     func applicationWillTerminate(_ notification: Notification) {
         terminating = true
         voice?.shutdown()
+        hue.shutdown()
         if let process = service, process.isRunning { process.terminate() }
     }
 }

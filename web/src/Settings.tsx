@@ -1,3 +1,4 @@
+import Lighting from "./Lighting";
 import {
   t as tr,
   useI18n,
@@ -177,6 +178,7 @@ export default function Settings({
     ["voice", "Voice and presence"],
     ["memory", "Memory"],
     ["productivity", "Productivity"],
+    ["lighting", "Lights and devices"],
     ["security", "Autonomy and privacy"],
     ["phone", "Telephony"],
   ];
@@ -472,6 +474,14 @@ export default function Settings({
             </div>
           </section>
         </div>
+      )}
+      {tab === "lighting" && (
+        <>
+          <section className="settings-card">
+            {toggle("lighting_enabled", tr("Enable lighting integration"))}
+          </section>
+          <Lighting notify={notify} />
+        </>
       )}
       {tab === "voice" && (
         <div className="settings-grid">

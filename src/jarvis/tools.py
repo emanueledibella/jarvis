@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 
 from langchain_core.tools import StructuredTool, ToolException
 
+from .lighting import LightChange
 from .policy import active_task
 from .scheduler import ScheduleInput
 from .workspace import Workspace
@@ -81,6 +82,12 @@ def build_tools(runtime):
     def register(name, description, risk="read"):
         def decorate(function):
             async def run(**arguments):
+                operation_risk = risk
+                if risk == "lighting":
+                    try:
+                        operation_risk = runtime.lighting.tool_risk(arguments.get("device", ""), active_task.get().scope)
+                    except (ValueError, PermissionError) as error:
+                        raise ToolException(str(error)) from None
                 async def execute():
                     try:
                         async with asyncio.timeout(
@@ -101,7 +108,7 @@ def build_tools(runtime):
                         raise ValueError(str(error)) from None
 
                 try:
-                    result = await runtime.gateway.invoke(name, arguments, risk, execute)
+                    result = await runtime.gateway.invoke(name, arguments, operation_risk, execute)
                 except (ValueError, PermissionError, FileNotFoundError) as error:
                     raise ToolException(str(error)) from None
                 return json.dumps(result, ensure_ascii=False, default=str)
@@ -131,6 +138,22 @@ def build_tools(runtime):
     async def current_time():
         zone = runtime.config.settings.timezone
         return {"time": datetime.now(ZoneInfo(zone)).isoformat(), "timezone": zone}
+
+    @register("lights_list", "List the owner's configured lights and their real capabilities. This does not discover or enroll nearby devices.")
+    async def lights_list():
+        return runtime.lighting.list(active_task.get().scope)
+
+    @register("light_state", "Read current power, brightness, and supported white temperature or color of a configured light. Use its name or ID; omit device only when exactly one light is configured.")
+    async def light_state(device: str = ""):
+        ctx = active_task.get()
+        return await runtime.lighting.state(device, ctx.scope, ctx.profile)
+
+    @register("light_set", "Set a configured light's absolute power, brightness percent 0–100, white temperature in kelvin, or hex color #RRGGBB. Respect its listed capabilities: White has fixed white; White Ambiance adjusts white temperature; Color Ambiance also supports RGB. Never claim success without a verified device result. Device enrollment and control grants belong in Settings.", "lighting")
+    async def light_set(device: str = "", on: bool | None = None, brightness: int | None = None,
+                        temperature_kelvin: int | None = None, color: str | None = None):
+        ctx = active_task.get()
+        change = LightChange(on=on, brightness=brightness, temperature_kelvin=temperature_kelvin, color=color)
+        return await runtime.lighting.set(device, change, ctx.scope, ctx.profile)
 
     @register(
         "weather",
