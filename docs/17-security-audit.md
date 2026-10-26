@@ -29,7 +29,7 @@ alone is not treated as proof of the absence of all possible vulnerabilities.
 | Cancelled or duplicated native events could still dispatch an OS action | Medium | Authoritative, one-time native operation claims; expired events filtered while preserving poll cursor progress; current session settings fetched at claim time |
 | Ambient provider credentials or organization metadata could reach a custom gateway; restored tasks could use new credentials against an old endpoint | High | Credentials bound to the configured provider/endpoint; explicit SDK destinations; no ambient organization/project headers; fail closed on snapshot endpoint changes |
 | Workspace grants could include app credentials, credential stores or hard-linked private files | High | Protected runtime/config paths, expanded credential exclusions, non-following I/O and hard-link rejection on both native file implementations |
-| Untrusted reads could influence local mutations or carry private results into arbitrary outbound queries | High | Owner proposals for all mutations; execution-time context tracking and exact egress checks across delegated tools, conversation history and resumed tasks; safe fixed-argument weather requests retained |
+| Untrusted reads could influence local mutations or carry private results into arbitrary outbound queries | High | Owner proposals for all mutations; broad preauthorization cannot survive untrusted reads or authorize private query export; execution-time context tracking and exact egress checks across delegated tools, conversation history and resumed tasks; safe fixed-argument weather requests retained |
 | Agent task/routine tools could cross personal/work scope boundaries | Medium | Scope filtering and scope-bound updates/deletes/cancellation, including explicitly preauthorized tasks |
 | MCP schema validation could read external references or execute an unbounded regex | High | In-memory reference registry, bounded schema/argument trees, deadline/regex limits and sanitized errors; regression includes a local-file reference and a hostile regex |
 | Transition IPs, redirects or compressed bodies could bypass intended web-fetch protections | Medium | Address checks at URL and connection resolution, transition-address checks, cross-origin credential stripping, HTTPS downgrade rejection and bounded uncompressed text responses |
@@ -52,7 +52,7 @@ file references/regex budgets, private input validation and native action claims
 Native Swift tests exercise the actual client with a fake local listener. Browser
 tests exercise the same authentication helper used by the product.
 
-Local verification on the pinned Python runtime passed 108 tests with two
+Local verification on the pinned Python runtime passed 110 tests with two
 platform-specific skips. All 34 Swift scenarios and three browser authentication
 tests passed; TypeScript/Vite, lint, full Mac bundle compilation and ad-hoc
 signature verification passed. A fresh clone of the rewritten public repository
@@ -63,8 +63,8 @@ credentials remained byte-for-byte unchanged.
 The [security CI](https://github.com/emanueledibella/jarvis/actions/runs/40283484016)
 passed the history/inventory, credential scan, Python dependency, Bandit and npm
 gates. The [native matrix](https://github.com/emanueledibella/jarvis/actions/runs/40283483993)
-passed on all three operating systems: 109 Python tests on Windows with one skip,
-108 on Linux/macOS with two skips each, plus browser/frontend checks and 34 Swift
+passed on all three operating systems: 111 Python tests on Windows with one skip,
+110 on Linux/macOS with two skips each, plus browser/frontend checks and 34 Swift
 scenarios on macOS. Actual frozen Windows/Linux executables completed an isolated
 Deep Agents tool round-trip against a loopback model fixture. Downloaded release
 archives passed SHA256, PE/ELF architecture, source/lock/runtime provenance,

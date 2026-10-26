@@ -429,13 +429,16 @@ export default function App() {
           <span className="tiny-dot" />
           {profileLabels[status.profile] || "Service connection"}
         </span>
-        <label className="external-choice">
+        <label
+          className="external-choice"
+          title="Actions after reading outside content, and queries containing private context, still need a specific approval."
+        >
           <input
             type="checkbox"
             checked={external}
             onChange={(e) => setExternal(e.target.checked)}
           />
-          Authorize external actions for this request
+          Preauthorize direct actions
         </label>
       </div>
     </div>

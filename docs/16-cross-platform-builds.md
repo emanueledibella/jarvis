@@ -56,9 +56,9 @@ The release executable records its source revision in `BUILD-INFO.json`. CI evid
 
 | Host | Python tests | Frontend | Executable validation |
 | --- | --- | --- | --- |
-| Windows Server 2022, x86-64 | 109 passed, one macOS-only skip | TypeScript/Vite passed | Native PyInstaller EXE, isolated frozen-app smoke test |
-| Ubuntu 22.04, x86-64 | 108 passed, two platform-specific skips | TypeScript/Vite passed | Native PyInstaller ELF, isolated frozen-app smoke test |
-| macOS, ARM64 | 108 passed, two platform-specific skips; 34 Swift scenarios passed | TypeScript/Vite passed | Native Swift bundle compiled and ad-hoc signature verified locally in a separate build directory |
+| Windows Server 2022, x86-64 | 111 passed, one macOS-only skip | TypeScript/Vite passed | Native PyInstaller EXE, isolated frozen-app smoke test |
+| Ubuntu 22.04, x86-64 | 110 passed, two platform-specific skips | TypeScript/Vite passed | Native PyInstaller ELF, isolated frozen-app smoke test |
+| macOS, ARM64 | 110 passed, two platform-specific skips; 34 Swift scenarios passed | TypeScript/Vite passed | Native Swift bundle compiled and ad-hoc signature verified locally in a separate build directory |
 
 Release archives are additionally checked for their SHA256, executable format, bundled frontend, source/lockfile identifiers, and absence of private runtime filenames. No production service restart or microphone activation is needed for this verification. No paid model request is made.
 

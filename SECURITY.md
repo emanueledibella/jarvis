@@ -23,8 +23,10 @@ the owner's files. File permissions do not sandbox that authority.
 - Files are restricted to explicit workspaces. App data, credential stores,
   symlinks/reparse escapes and hard-link aliases are excluded. Model prompts use
   numbered workspace slots rather than automatically including home paths.
-- Untrusted documents/tool results cannot authorize mutations. File, routine, task-control and memory mutations, and outbound queries following
-  private reads, require an argument-bound proposal unless the owner explicitly preauthorized the task.
+- Untrusted documents/tool results cannot authorize mutations. File, routine,
+  task-control and memory mutations require an argument-bound proposal. An owner
+  can preauthorize direct actions, but that broad grant stops applying after an
+  untrusted read and cannot authorize outbound queries containing private context.
 - Remote credential endpoints require HTTPS. Localhost model URLs are pinned to
   a loopback IP. Provider keys are not implicitly reused for a custom gateway,
   and paused tasks cannot bind new credentials to an old endpoint.

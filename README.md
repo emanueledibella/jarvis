@@ -31,7 +31,7 @@ The bundle is compiled/ad-hoc signed for local use. It references this project a
 
 ## Build and run on Windows or Linux
 
-Download the [portable preview release](https://github.com/emanueledibella/jarvis/releases/tag/v0.1.0-portable-preview.2): [Windows ZIP with EXE](https://github.com/emanueledibella/jarvis/releases/download/v0.1.0-portable-preview.2/Jarvis-Windows-x86_64.zip) · [Linux TAR.GZ](https://github.com/emanueledibella/jarvis/releases/download/v0.1.0-portable-preview.2/Jarvis-Linux-x86_64.tar.gz). SHA256 checksum files are included on the release page.
+Download the [portable preview release](https://github.com/emanueledibella/jarvis/releases/tag/v0.1.0-portable-preview.3): [Windows ZIP with EXE](https://github.com/emanueledibella/jarvis/releases/download/v0.1.0-portable-preview.3/Jarvis-Windows-x86_64.zip) · [Linux TAR.GZ](https://github.com/emanueledibella/jarvis/releases/download/v0.1.0-portable-preview.3/Jarvis-Linux-x86_64.tar.gz). SHA256 checksum files are included on the release page.
 
 The portable preview includes the Python runtime pinned in `.python-version` and the same React dashboard. Extract the **entire** archive, keeping the executable beside `_internal`. Windows starts with `Jarvis.exe`; Linux starts with `./Jarvis`. The launcher opens the local authenticated dashboard. Keep its console open; **Ctrl+C** stops the service. Closing the browser tab keeps tasks running.
 
@@ -179,7 +179,7 @@ Read the [security policy](SECURITY.md) and [audit/remediation record](docs/17-s
 
 The [dossier](docs/README.md) contains GitHub research, 132 requirements, architecture, and decisions. The [implementation design](docs/10-progetto-esecutivo.md) records implemented choices. The [operations/coverage guide](docs/11-implementazione-e-verifica.md) distinguishes automated tests, real experiments, and integrations awaiting authorization. Existing document filenames are retained to preserve links.
 
-Cross-platform verification collects **110 Python tests**, with platform-specific skips, plus **34 Swift regression scenarios** on macOS. It also checks TypeScript/Vite, Python lint, Mac bundle compilation/signing, and actual Windows/Linux executables. See [platform verification evidence](docs/16-cross-platform-builds.md#verification-results).
+Cross-platform verification collects **112 Python tests**, with platform-specific skips, plus **34 Swift regression scenarios** on macOS. It also checks TypeScript/Vite, Python lint, Mac bundle compilation/signing, and actual Windows/Linux executables. See [platform verification evidence](docs/16-cross-platform-builds.md#verification-results).
 
 Account-specific integration tests should be recorded privately. Public regression tests use synthetic fixtures and never need a personal provider key, calendar, phone number, or memory corpus.
 

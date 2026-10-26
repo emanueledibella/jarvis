@@ -128,8 +128,9 @@ def test_workspace_slots_do_not_require_a_private_absolute_path_in_the_model_pro
         workspace.read("workspace://2/../../outside.txt")
 
 
+@pytest.mark.parametrize("preauthorized", [False, True])
 async def test_untrusted_research_cannot_silently_write_code_or_create_routines(
-    runtime, monkeypatch
+    runtime, monkeypatch, preauthorized
 ):
     proposals, writes = [], []
 
@@ -145,7 +146,10 @@ async def test_untrusted_research_cannot_silently_write_code_or_create_routines(
 
     monkeypatch.setattr(runtime.gateway, "approval", reject)
     token = active_task.set(
-        TaskContext("injection-test", "Research a topic", "local_connected", "personal")
+        TaskContext(
+            "injection-test", "Research a topic", "local_connected", "personal",
+            external_authorized=preauthorized,
+        )
     )
     try:
         await runtime.gateway.invoke(
@@ -162,7 +166,10 @@ async def test_untrusted_research_cannot_silently_write_code_or_create_routines(
         active_task.reset(token)
 
 
-async def test_web_egress_after_private_reads_needs_an_exact_proposal(runtime, monkeypatch):
+@pytest.mark.parametrize("preauthorized", [False, True])
+async def test_web_egress_after_private_reads_needs_an_exact_proposal(
+    runtime, monkeypatch, preauthorized
+):
     calls, proposals = [], []
 
     async def read():
@@ -176,7 +183,10 @@ async def test_web_egress_after_private_reads_needs_an_exact_proposal(runtime, m
         return False
 
     monkeypatch.setattr(runtime.gateway, "approval", reject)
-    ctx = TaskContext("egress-test", "Read a document", "local_connected", "personal")
+    ctx = TaskContext(
+        "egress-test", "Read a document", "local_connected", "personal",
+        external_authorized=preauthorized,
+    )
     token = active_task.set(ctx)
     try:
         await runtime.gateway.invoke("workspace_read", {"path": "notes.txt"}, "read", read)

@@ -123,6 +123,7 @@ class Gateway:
         if name in {"memory_remember", "memory_change"} and (ctx.private or ctx.memory_blocked):
             raise PermissionError("This session does not allow memory writes.")
         was_sensitive = ctx.sensitive_context
+        was_untrusted = ctx.untrusted_context
         if name.startswith("workspace_") or name in {
             "calendar_events",
             "memory_recall",
@@ -157,7 +158,14 @@ class Gateway:
             )
             or (ctx.untrusted_context and risk in {"workspace", "schedule", "task", "memory"})
         )
-        if needs_approval and not ctx.external_authorized:
+        # A broad owner grant cannot let later tool/page content authorize its
+        # own effects, or authorize private data export through a new query.
+        preauthorized = (
+            ctx.external_authorized
+            and not was_untrusted
+            and not (risk == "network_read" and was_sensitive)
+        )
+        if needs_approval and not preauthorized:
             if not await self.approval(ctx, name, arguments):
                 return {
                     "state": "rejected",
