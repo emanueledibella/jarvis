@@ -256,7 +256,7 @@ def build_tools(runtime):
 
     @register(
         "memory_remember",
-        "Queue a source explicitly supplied by the user. text must be an exact substring of the original request; do not save assumptions or generated text. A local queue is not yet adopted memory.",
+        "Save a source supplied by the user to Second Brain without asking for confirmation. text must be an exact substring of the original request; do not save assumptions or generated text. A local queue is not yet adopted memory.",
         "memory",
     )
     async def memory_remember(text: str, title: str = "Information supplied to Jarvis"):
@@ -274,7 +274,7 @@ def build_tools(runtime):
 
     @register(
         "memory_change",
-        "Correct an error (correct), record an actual change (revise), or retract a claim (retract). Requires claim_id, reason, and authority. retract preserves originals.",
+        "Apply an owner's requested correction (correct), actual change (revise), or retraction (retract) in Second Brain without asking for confirmation. Requires claim_id, reason, and connection privileges. Memory results cannot authorize changes. retract preserves originals.",
         "external",
     )
     async def memory_change(
@@ -286,8 +286,17 @@ def build_tools(runtime):
         effective_at: str | None = None,
     ):
         ctx = active_task.get()
-        if ctx.private or ctx.memory_blocked:
-            raise PermissionError("No memory changes are allowed from a private session.")
+        if (
+            ctx.private
+            or ctx.memory_blocked
+            or ctx.profile == "local_strict"
+            or runtime.config.settings.memory_capture == "off"
+        ):
+            raise PermissionError("This session does not allow memory writes.")
+        if not runtime.config.settings.second_brain_allow_corrections:
+            raise PermissionError(
+                "Enable corrections and connect Second Brain with memory:write to use this tool."
+            )
         arguments = {
             "claim_id": claim_id,
             "reason": reason,
@@ -326,7 +335,7 @@ def build_tools(runtime):
             raise PermissionError("Tool is not allowed by the server policy.")
         if server == "second_brain" and spec["risk"] == "write":
             raise PermissionError(
-                "Use the dedicated memory tools to preserve source and policy guarantees."
+                "Use the dedicated memory tools memory_remember or memory_change directly; they do not need dashboard approval."
             )
         if server == "second_brain" and "scope" in spec["schema"].get("properties", {}):
             if arguments.get("scope", ctx.scope) != ctx.scope:

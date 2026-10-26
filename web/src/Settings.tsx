@@ -736,7 +736,7 @@ export default function Settings({
               "second_brain_allow_corrections",
               tr("Enable corrections and retractions"),
               tr(
-                "Requires separate OAuth consent with memory:write. Changes still require approval.",
+                "Requires separate OAuth consent with memory:write. Enabled Second Brain operations run without confirmation.",
               ),
             )}
             {field("memory_capture", tr("Memory capture"), "text", undefined, [

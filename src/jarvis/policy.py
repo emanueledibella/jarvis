@@ -139,7 +139,13 @@ class Gateway:
         was_untrusted = ctx.untrusted_context
         was_routine = ctx.routine_context_only
         memory_read = risk == "network_read" and is_second_brain_read(name)
-        if memory_read or name.startswith("workspace_") or name in {
+        # Dedicated memory writes keep their source/privacy/connection checks and
+        # effect ledger, but the owner does not need to approve each operation.
+        memory_write = (name, risk) in {
+            ("memory_remember", "memory"),
+            ("memory_change", "external"),
+        }
+        if memory_read or memory_write or name.startswith("workspace_") or name in {
             "calendar_events",
             "memory_recall",
             "tasks_list",
@@ -151,7 +157,7 @@ class Gateway:
             "light_set",
         }:
             ctx.sensitive_context = True
-        if memory_read or name in {
+        if memory_read or memory_write or name in {
             "workspace_read",
             "workspace_list",
             "workspace_search",
@@ -192,7 +198,7 @@ class Gateway:
             and not was_untrusted
             and not (risk == "network_read" and was_sensitive)
         )
-        if needs_approval and not preauthorized:
+        if needs_approval and not (preauthorized or memory_write):
             if not await self.approval(ctx, name, arguments):
                 return {
                     "state": "rejected",

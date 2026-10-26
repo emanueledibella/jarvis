@@ -38,15 +38,24 @@ after prior conversation, workspace reads, or other external content:
 `recall`, `find_entities`, `read_source`, `explain`, `memory_status`, `source_status`,
 `recovery_jobs`, `history`, `knowledge_schema`, and `reason_memory`.
 
-The gateway exception uses this fixed read allowlist and read risk. It does not apply to
-arbitrary MCP servers/tools or memory mutations. Generic MCP calls still require enabled
+Saves through `memory_remember` and changes through `memory_change` also run without a
+dashboard or spoken confirmation. Corrections, revisions, and retractions require the
+configured correction option and the connection's `memory:write` privilege. Saving still
+requires source text from the owner's request and the configured capture policy. Private
+sessions, explicit opt-out, capture disabled, and strict offline mode block memory writes.
+
+The gateway exception uses the fixed read allowlist and the dedicated write tool/risk
+pairs. It does not apply to arbitrary MCP servers/tools. Generic MCP calls still require enabled
 tools, valid schemas, the conversation scope where the tool accepts it, the configured
 connection, and its OAuth/token privileges. Generic memory writes remain prohibited;
-dedicated memory tools retain source, approval, and correction controls.
+the agent uses the dedicated memory tools automatically to retain source and correction
+controls. Writes retain their effect ledger and request IDs: an uncertain outcome must be
+reconciled rather than blindly repeated, and a queued source is not yet adopted memory.
 
-Memory evidence marks the task as containing sensitive, untrusted data. It cannot approve
-messages, commands, uploads, memory writes, or private-data exports through another network
-service. Emergency stop and strict offline mode remain authoritative. No new credentials
+Memory evidence marks the task as containing sensitive, untrusted data. It cannot authorize
+messages, commands, uploads, or private-data exports through another network service, or
+supply invented facts to the save tool. The automatic memory grant does not extend to
+other services. Emergency stop and strict offline mode remain authoritative. No new credentials
 or relaxed OAuth privileges are needed for this behavior.
 
 `JARVIS_MEMORY_CAPTURE` controls writing, independently of reading. Private sessions and
@@ -58,13 +67,16 @@ unconfigured/unavailable service is reported accurately.
 
 OpenAI Live receives the same memory policy and delegates personal questions to the backend
 before claiming a fact is unknown. The backend performs the same prefetch for delegated
-voice requests. It sends a verified answer back to the voice session without inventing a
-dashboard approval requirement.
+voice requests. Saves and changes are also delegated without asking for confirmation. The
+voice session reports the verified result, distinguishes queued sources from adopted
+memory, and never invents a dashboard approval requirement for Second Brain.
 
 `tests/test_memory_retrieval.py` uses synthetic data to exercise retrieval before the first
 model answer, ongoing text/live conversations, delegated voice, scoped generic MCP reads,
 task-local deduplication, unavailable memory, private sessions, and offline behavior.
-Regression checks also retain the boundaries for memory writes and private-data exports.
+`tests/test_memory_permissions.py` verifies automatic saves and enabled corrections,
+delivery acknowledgement, effect deduplication, uncertain outcomes, and source/privacy/
+connection checks. Regression checks also retain private-data export boundaries.
 These mocked voice tests verify delegation and evidence flow; they do not replace a spoken
 test on the owner's device. Account-specific checks and results belong in ignored local
 diagnostics, never in public fixtures or documentation.

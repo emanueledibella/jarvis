@@ -342,7 +342,7 @@
   "Request": "Richiesta",
   "Required before discussing private data. Never sent to the model.": "Richiesto prima di discutere dati privati. Non viene mai inviato al modello.",
   "Requires a carrier, an HTTPS/WSS tunnel, and credit.": "Richiede un operatore, un tunnel HTTPS/WSS e credito.",
-  "Requires separate OAuth consent with memory:write. Changes still require approval.": "Richiede un consenso OAuth separato con memory:write. Le modifiche richiedono comunque l’approvazione.",
+  "Requires separate OAuth consent with memory:write. Enabled Second Brain operations run without confirmation.": "Richiede un consenso OAuth separato con memory:write. Le operazioni abilitate del Second Brain vengono eseguite senza conferma.",
   "Reservation for an outgoing call:": "Prenotazione per una chiamata in uscita:",
   "Response language": "Lingua delle risposte",
   "Response token limit": "Limite di token della risposta",

@@ -26,7 +26,7 @@ Set a preferred response tag, such as `it-IT` or `en-GB`, in Voice settings or `
 
 GPT-Live uses `client` delegation. Associate bounded transcript fragments with delegation offsets and create a Deep Agents task with a stable delegation ID. Capture model, scope, and privacy at startup. Duplicate delegation does not create another task.
 
-Return results to voice only after the backend records outcomes. Local tools, Second Brain, and actions still use the gateway. A spoken “yes” does not approve mutations; proposals remain in the dashboard. Closing dialogue stops audio; accepted work may continue and remains visible in Tasks.
+Return results to voice only after the backend records outcomes. Local tools, Second Brain, and actions still use the gateway. Authorized Second Brain reads and dedicated memory writes run without per-operation confirmation; connection privileges and privacy/source checks still apply. Other mutations that require approval retain their dashboard proposals; a spoken “yes” does not approve them. Closing dialogue stops audio; accepted work may continue and remains visible in Tasks.
 
 `local_strict` rejects cloud sessions. Profile/scope/privacy-revision changes block subsequent transmission. Private mode keeps task contents in RAM without persistent dialogue messages/checkpoints. Live sessions use `store=false`; this does not replace provider data-processing terms.
 
