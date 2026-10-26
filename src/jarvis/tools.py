@@ -244,12 +244,15 @@ def build_tools(runtime):
 
     @register(
         "memory_recall",
-        "Query Second Brain about history, preferences, and decisions. Preserve source_id, revision, quotation, and conflicts. Similarity does not prove identity.",
+        "Read the default persistent memory (Second Brain) for personal facts, pets, family, preferences, work, history, and decisions. No approval is needed for reads. Use before claiming an unknown personal fact is unavailable. Preserve source_id, revision, quotation, and conflicts. Similarity does not prove identity.",
         "network_read",
     )
     async def memory_recall(query: str):
         ctx = active_task.get()
-        return await runtime.memory.recall(query, ctx.scope, ctx.profile)
+        key = (ctx.scope, ctx.profile, query)
+        if key not in ctx.memory_recalls:
+            ctx.memory_recalls[key] = await runtime.memory.recall(query, ctx.scope, ctx.profile)
+        return ctx.memory_recalls[key]
 
     @register(
         "memory_remember",
@@ -298,7 +301,9 @@ def build_tools(runtime):
                 arguments["effective_at"] = effective_at
             if action == "revise" and not effective_at:
                 raise ValueError("An actual change requires effective_at.")
-        return await runtime.mcp.call("second_brain", action, arguments, ctx.profile)
+        result = await runtime.mcp.call("second_brain", action, arguments, ctx.profile)
+        ctx.memory_recalls.clear()
+        return result
 
     @register(
         "list_mcp_tools",

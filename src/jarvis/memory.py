@@ -43,6 +43,12 @@ class Memory:
     async def recall(self, query: str, scope: str, profile: str):
         if not query.strip() or len(query) > 2000:
             raise ValueError("Memory search requires between 1 and 2,000 characters.")
+        if scope not in {"personal", "work", "test-mcp"}:
+            raise ValueError("Invalid memory scope.")
+        if profile == "local_strict":
+            raise PermissionError("The strict offline profile disables remote memory.")
+        if not self.config.settings.second_brain_url:
+            raise ValueError("Connect Second Brain in Settings to retrieve personal memories.")
         return await self.mcp.call(
             "second_brain",
             "recall",

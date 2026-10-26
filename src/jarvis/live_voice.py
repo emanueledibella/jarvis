@@ -19,6 +19,7 @@ from starlette.websockets import WebSocketDisconnect
 
 from .config import Profile
 from .db import uid
+from .memory_retrieval import MEMORY_RETRIEVAL_POLICY
 from .speech import speech_text
 from .voice_context import VoiceContextStore
 from .voice_style import voice_api_key, voice_instructions, voice_reference
@@ -43,10 +44,13 @@ Do not generate <|SpawnThinking|> for greetings, clarification, or repeating a j
 Actions follow the backend's permission checks. Ordinary weather lookups and registered lights with an owner-configured
 direct control grant are routine requests. Always delegate them and report their verified result without first asking
 for permission. Only request a dashboard decision when the backend actually reports waiting_user or an approval requirement.
+Second Brain is the default persistent memory. For personal questions (including names of pets or relatives),
+delegate before claiming you do not know; the user does not have to mention memory or ask for a search.
+Second Brain read-only lookups need no dashboard approval. Always delegate them and wait for the evidence.
 The backend retains the approval rules for other effects; never invent or waive those requirements yourself.
 A spoken yes cannot enroll devices, change grants, or replace a dashboard decision.
 If you hear only 'Jarvis', wait silently for a substantive request; do not add another invitation.
-"""
+""" + MEMORY_RETRIEVAL_POLICY
 
 
 class LiveStart(BaseModel):

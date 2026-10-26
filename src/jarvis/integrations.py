@@ -11,6 +11,7 @@ from fastmcp.client.auth import OAuth
 from fastmcp.client.transports import StdioTransport
 
 from .config import ConfigStore
+from .memory_retrieval import SECOND_BRAIN_READ_TOOLS
 from .platforms import process_environment
 
 
@@ -43,18 +44,7 @@ class MCPHub:
                 "url": settings.second_brain_url,
                 "auth": settings.second_brain_auth,
                 "token": settings.secret("second_brain_token"),
-                "read_tools": [
-                    "recall",
-                    "find_entities",
-                    "read_source",
-                    "explain",
-                    "memory_status",
-                    "source_status",
-                    "recovery_jobs",
-                    "history",
-                    "knowledge_schema",
-                    "reason_memory",
-                ],
+                "read_tools": sorted(SECOND_BRAIN_READ_TOOLS),
                 "write_tools": ["remember"]
                 + (
                     ["correct", "revise", "retract"]

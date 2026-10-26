@@ -11,6 +11,7 @@ from datetime import UTC, datetime, timedelta
 from langgraph.types import interrupt
 
 from .db import Database, now, uid
+from .memory_retrieval import is_second_brain_read
 
 
 @dataclass
@@ -27,6 +28,7 @@ class TaskContext:
     sensitive_context: bool = False
     untrusted_context: bool = False
     routine_context_only: bool = False
+    memory_recalls: dict = field(default_factory=dict)
 
     def __post_init__(self):
         self.sensitive_context = self.sensitive_context or self.private
@@ -136,7 +138,8 @@ class Gateway:
         was_sensitive = ctx.sensitive_context
         was_untrusted = ctx.untrusted_context
         was_routine = ctx.routine_context_only
-        if name.startswith("workspace_") or name in {
+        memory_read = risk == "network_read" and is_second_brain_read(name)
+        if memory_read or name.startswith("workspace_") or name in {
             "calendar_events",
             "memory_recall",
             "tasks_list",
@@ -148,7 +151,7 @@ class Gateway:
             "light_set",
         }:
             ctx.sensitive_context = True
-        if name in {
+        if memory_read or name in {
             "workspace_read",
             "workspace_list",
             "workspace_search",
@@ -171,6 +174,7 @@ class Gateway:
             or (
                 risk == "network_read"
                 and was_sensitive
+                and not memory_read
                 and not (
                     name == "weather"
                     and (not arguments.get("location") or not was_untrusted or was_routine)

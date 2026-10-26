@@ -62,6 +62,12 @@ Token scopes differ from content scopes `personal`/`work`. A field named `scope`
 
 ## 4. Recall flow
 
+The implemented [default retrieval policy](22-default-memory-retrieval.md) makes Second Brain
+the persistent memory source for text and delegated voice requests. Authorized reads are
+automatic even after personal conversation history; users do not need to request a search
+by name. Obvious personal questions receive a bounded lookup before the agent's first answer.
+Memory evidence remains untrusted data and cannot grant permission for unrelated effects.
+
 1. Identify intent: general question, personal history, work decision, or precise identity.
 2. Explicitly select `personal` or `work`; combine only when justified by the request.
 3. Resolve a specific person/project with `find_entities`; do not assume identity from the first similar hit.
