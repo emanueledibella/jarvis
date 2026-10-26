@@ -26,6 +26,7 @@ class TaskContext:
     memory_blocked: bool = False
     sensitive_context: bool = False
     untrusted_context: bool = False
+    routine_context_only: bool = False
 
     def __post_init__(self):
         self.sensitive_context = self.sensitive_context or self.private
@@ -36,6 +37,14 @@ class TaskContext:
                 re.IGNORECASE,
             )
         )
+
+    def mark_untrusted(self, *, routine: bool = False):
+        # Prior conversation and bounded weather data still protect private
+        # exports and critical actions, but do not revoke a scoped light grant.
+        self.routine_context_only = routine and (
+            not self.untrusted_context or self.routine_context_only
+        )
+        self.untrusted_context = True
 
 
 active_task: ContextVar[TaskContext] = ContextVar("jarvis_active_task")
@@ -126,6 +135,7 @@ class Gateway:
             raise PermissionError("This session does not allow memory writes.")
         was_sensitive = ctx.sensitive_context
         was_untrusted = ctx.untrusted_context
+        was_routine = ctx.routine_context_only
         if name.startswith("workspace_") or name in {
             "calendar_events",
             "memory_recall",
@@ -151,16 +161,20 @@ class Gateway:
             "tasks_list",
             "schedules_list",
             "workspace_command",
-            "weather",
         }:
-            ctx.untrusted_context = True
+            ctx.mark_untrusted()
+        if name == "weather":
+            ctx.mark_untrusted(routine=True)
         needs_approval = (
             risk in {"external", "command", "workspace", "schedule", "task", "memory"}
-            or (risk == "lighting" and was_untrusted)
+            or (risk == "lighting" and was_untrusted and not was_routine)
             or (
                 risk == "network_read"
                 and was_sensitive
-                and not (name == "weather" and not arguments.get("location"))
+                and not (
+                    name == "weather"
+                    and (not arguments.get("location") or not was_untrusted or was_routine)
+                )
             )
             or (ctx.untrusted_context and risk in {"workspace", "schedule", "task", "memory"})
         )

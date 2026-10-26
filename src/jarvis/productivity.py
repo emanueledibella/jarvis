@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import time
+import unicodedata
 from datetime import UTC, datetime, timedelta
 from urllib.parse import quote, urlencode
 from zoneinfo import ZoneInfo
@@ -32,7 +33,14 @@ class Productivity:
     async def weather(self, profile: str, location: str | None = None) -> dict:
         self.remote(profile)
         settings = self.config.settings
-        location = location or settings.weather_location
+        location = unicodedata.normalize("NFC", (location or settings.weather_location).strip())
+        if len(location) > 120 or any(
+            not (c.isalnum() or unicodedata.category(c).startswith("M") or c in " .,'’()-")
+            for c in location
+        ):
+            # A weather lookup accepts a place label, not arbitrary documents,
+            # URLs, multiline content, or a bulk export through geocoding.
+            raise ValueError("Location not found.")
         key = location or f"{settings.weather_latitude},{settings.weather_longitude}"
         cached = self.weather_cache.get(key)
         if cached and time.monotonic() - cached[0] < settings.weather_refresh_minutes * 60:

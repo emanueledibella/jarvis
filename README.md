@@ -114,6 +114,8 @@ Text chat, authorized workspace tools, and reminders work without completing eve
 
 **Configure lights:** open **Settings → Lights and devices**. Choose a model/capability profile, a name for voice commands, and either native **Hue Bluetooth without a Bridge** or a compatible **MCP lighting service**. Bluetooth pairing requires the Mac app and explicit device selection. MCP adapters use tools already allowed in Connections and configurable field mappings. Direct voice control is a revocable grant for each light; otherwise commands retain dashboard approval. See [lighting setup](docs/21-lighting-integrations.md).
 
+Ordinary weather queries, including named cities in an ongoing conversation, run without dashboard confirmation. A registered light's direct grant also survives history, natural follow-ups, and speech spelling variations. Newly read documents/pages/MCP content still cannot authorize critical effects or private exports; weather city labels are bounded inputs to the fixed weather provider.
+
 Keep the **MacBook lid open** for its built-in microphone. Apple Silicon physically disconnects it when closed, even with an external display and granted permissions. For closed-lid use, select external input in Sound → Input. Source: [Apple hardware security](https://support.apple.com/en-gb/guide/security/secbbd20b00b/1/web/1).
 
 ## Environment configuration
@@ -185,7 +187,7 @@ Read the [security policy](SECURITY.md) and [audit/remediation record](docs/17-s
 
 The [dossier](docs/README.md) contains GitHub research, 132 requirements, architecture, and decisions. The [implementation design](docs/10-progetto-esecutivo.md) records implemented choices. The [operations/coverage guide](docs/11-implementazione-e-verifica.md) distinguishes automated tests, real experiments, and integrations awaiting authorization. Existing document filenames are retained to preserve links.
 
-The current regression suite collects **191 Python tests**, with platform-specific skips, plus **119 Swift regression scenarios** on macOS. Validation also checks TypeScript/Vite, Python lint, Mac bundle compilation/signing, and actual Windows/Linux executables. See [platform verification evidence](docs/16-cross-platform-builds.md#verification-results) for the earlier portable baseline, [wake timing](docs/19-wake-response-timing.md), [spoken interruption](docs/20-spoken-interruption.md), and [lighting](docs/21-lighting-integrations.md) for the added cases.
+The current regression suite collects **202 Python tests**, with platform-specific skips, plus **119 Swift regression scenarios** on macOS. Validation also checks TypeScript/Vite, Python lint, Mac bundle compilation/signing, and actual Windows/Linux executables. See [platform verification evidence](docs/16-cross-platform-builds.md#verification-results) for the earlier portable baseline, [wake timing](docs/19-wake-response-timing.md), [spoken interruption](docs/20-spoken-interruption.md), and [lighting](docs/21-lighting-integrations.md) for the added cases.
 
 Account-specific integration tests should be recorded privately. Public regression tests use synthetic fixtures and never need a personal provider key, calendar, phone number, or memory corpus.
 
