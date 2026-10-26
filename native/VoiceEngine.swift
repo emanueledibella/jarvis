@@ -11,6 +11,8 @@ final class VoiceEngine: NSObject {
   private var recognition: SFSpeechRecognitionTask?
   private var recognitionRestart: Task<Void, Never>?
   private var recovery = RecognitionRecovery()
+  private var recognitionLiveness = RecognitionLiveness()
+  private var recognitionRecoveries = 0
   private let logger = Logger(subsystem: "it.jarvis.personal", category: "recognition")
   private var recognizer: SFSpeechRecognizer?
   private let requestLock = NSLock()
@@ -250,7 +252,13 @@ final class VoiceEngine: NSObject {
     }
     stopSpeaking()
     beginTurn("")
-    resetRecognition()
+    if usesOpenAIVoice {
+      // An explicit Talk action must work even when local wake transcription
+      // is stalled. Automatic activation still waits for a local wake/request.
+      startLive()
+    } else {
+      resetRecognition()
+    }
   }
 
   func setSession(privateMode: Bool, scope: String) {
@@ -347,7 +355,10 @@ final class VoiceEngine: NSObject {
       if self.speechRequest != nil && self.speechAudioStartFrame == nil {
         self.speechAudioStartFrame = firstFrame
       }
-      self.speechRequest?.append(converted)
+      let recognitionAudio = self.speechRequest == nil ? nil : LiveAudioBuffer.recognitionBuffer(converted)
+      if let recognitionAudio = recognitionAudio { self.speechRequest?.append(recognitionAudio) }
+      let recognitionAccepted = recognitionAudio != nil
+      let audioSeconds = Double(converted.frameLength) / 24000
       let detector = self.activityDetector
       self.requestLock.unlock()
       detector?.append(converted, atFrame: firstFrame)
@@ -356,6 +367,10 @@ final class VoiceEngine: NSObject {
         self.inputBuffers += 1
         self.lastInputBuffer = Date()
         self.inputLevel = level
+        if recognitionAccepted {
+          self.recognitionLiveness.receivedAudio(at: ProcessInfo.processInfo.systemUptime,
+            seconds: audioSeconds, level: Double(level))
+        }
         if level > 0.1 { self.lastSoundAt = Date() }
         if level > 0.035 {
           self.wakeReplyLastSoundAt = Date()
@@ -406,6 +421,7 @@ final class VoiceEngine: NSObject {
     // Invalidate before cancel: its asynchronous error must never affect a
     // replacement session, a locked screen, or a muted microphone.
     recognitionID = UUID()
+    recognitionLiveness.stop()
     recognitionRestart?.cancel()
     recognitionRestart = nil
     requestLock.lock()
@@ -439,7 +455,16 @@ final class VoiceEngine: NSObject {
   }
 
   private func startRecognition() {
-    guard liveSocket == nil, let recognizer = recognizer, capture?.isRunning == true else { return }
+    guard liveSocket == nil, capture?.isRunning == true else { return }
+    let language = settings["language"] as? String ?? "it-IT"
+    guard let recognizer = SFSpeechRecognizer(locale: Locale(identifier: language)),
+      recognizer.supportsOnDeviceRecognition else {
+      stopCapture()
+      setState("unavailable", error:
+        "On-device recognition is unavailable for this language on this Mac. Cloud fallback is disabled.")
+      return
+    }
+    self.recognizer = recognizer
     recognitionStartedAt = Date()
     guard recognizer.isAvailable else {
       handleRecognitionError(NSError(domain: "JarvisSpeechAvailability", code: 1))
@@ -457,7 +482,8 @@ final class VoiceEngine: NSObject {
     speechRequest?.endAudio()
     speechRequest = request
     speechAudioStartFrame = nil
-    if let seed = recognitionSeed, let audio = LiveAudioBuffer.buffer(seed.data) {
+    if let seed = recognitionSeed, let pcm = LiveAudioBuffer.buffer(seed.data),
+      let audio = LiveAudioBuffer.recognitionBuffer(pcm) {
       speechAudioStartFrame = seed.frame
       request.append(audio)
     }
@@ -467,11 +493,13 @@ final class VoiceEngine: NSObject {
     prefix = ""
     let requestID = UUID()
     recognitionID = requestID
+    recognitionLiveness.begin(at: ProcessInfo.processInfo.systemUptime)
     if ["recovering", "unavailable"].contains(state) { setState(liveInputPrepared ? "listening" : "armed") }
     recognition = recognizer.recognitionTask(with: request) { [weak self] result, error in
       DispatchQueue.main.async {
         guard let self = self, self.recognitionID == requestID else { return }
         self.recognitionCallbacks += 1
+        self.recognitionLiveness.receivedCallback(at: ProcessInfo.processInfo.systemUptime)
         if let result = result {
           if !result.bestTranscription.formattedString.isEmpty { self.recovery.receivedSpeech() }
           self.receive(result.bestTranscription.formattedString, transcription: result.bestTranscription)
@@ -489,6 +517,18 @@ final class VoiceEngine: NSObject {
     }
   }
   private var recognitionID = UUID()
+
+  private var recognitionTaskState: RecognitionLiveness.TaskState {
+    guard let task = recognition else { return .idle }
+    switch task.state {
+    case .starting: return .starting
+    case .running: return .running
+    case .finishing: return .finishing
+    case .canceling: return .canceling
+    case .completed: return .completed
+    @unknown default: return .unknown
+    }
+  }
 
   private func handleRecognitionError(_ error: NSError) {
     wakeReply.cancel()
@@ -981,6 +1021,14 @@ final class VoiceEngine: NSObject {
       )
       return
     }
+    if !muted && !(locked && settings["voice_on_lock_screen"] as? Bool != true)
+      && liveSocket == nil && recognitionRestart == nil && capture?.isRunning == true
+      && ["armed", "listening", "followup", "processing"].contains(state)
+      && recognitionLiveness.stalled(at: ProcessInfo.processInfo.systemUptime, task: recognitionTaskState) {
+      recognitionRecoveries += 1
+      handleRecognitionError(NSError(domain: "JarvisSpeechLiveness", code: 1))
+      return
+    }
     if liveInputPrepared {
       if let cue = wakeReplyPlayer, !cue.isPlaying { stopWakeReply() }
       if state == "listening" && !muted && !locked && wakeReplyPlayer == nil
@@ -1197,6 +1245,8 @@ final class VoiceEngine: NSObject {
       "on_device": recognizer?.supportsOnDeviceRecognition ?? false, "muted": muted,
       "locked": locked, "input_buffers": inputBuffers,
       "recognition_callbacks": recognitionCallbacks, "wake_matches": wakeMatches,
+      "recognition_task": recognitionTaskState.rawValue,
+      "recognition_recoveries": recognitionRecoveries,
       "echo_cancellation": echoCancellationEnabled ? "active" : (wantsAutomaticInterruption ? "fallback" : "off"),
       "barge_in": activityDetector != nil && echoCancellationEnabled,
       "interruptions": interruptionCount,

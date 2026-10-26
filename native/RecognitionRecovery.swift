@@ -1,5 +1,67 @@
 import Foundation
 
+// A quiet microphone is normal, including a lazily starting recognizer. Recover
+// ended tasks or sustained audible input that produces no recognition progress.
+struct RecognitionLiveness {
+  enum TaskState: String {
+    case idle, starting, running, finishing, canceling, completed, unknown
+  }
+
+  private var startedAt: TimeInterval?
+  private var callbackAt: TimeInterval?
+  private var audioAt: TimeInterval?
+  private var firstAudibleAt: TimeInterval?
+  private var lastAudibleAt: TimeInterval?
+  private var audibleSeconds: TimeInterval = 0
+
+  mutating func begin(at now: TimeInterval) {
+    self = RecognitionLiveness()
+    startedAt = now
+  }
+
+  mutating func stop() { self = RecognitionLiveness() }
+
+  mutating func receivedCallback(at now: TimeInterval) {
+    guard startedAt != nil else { return }
+    callbackAt = now
+    firstAudibleAt = nil
+    lastAudibleAt = nil
+    audibleSeconds = 0
+  }
+
+  mutating func receivedAudio(at now: TimeInterval, seconds: TimeInterval, level: Double) {
+    guard startedAt != nil, now.isFinite, seconds.isFinite, seconds > 0,
+      seconds <= 1, level.isFinite else { return }
+    audioAt = now
+    if level >= 0.1 {
+      if let previous = lastAudibleAt, now - previous > 2 {
+        firstAudibleAt = nil
+        audibleSeconds = 0
+      }
+      if firstAudibleAt == nil { firstAudibleAt = now }
+      lastAudibleAt = now
+      audibleSeconds = min(2, audibleSeconds + seconds)
+    }
+  }
+
+  func stalled(at now: TimeInterval, task: TaskState) -> Bool {
+    guard now.isFinite, let start = startedAt, now >= start,
+      let audio = audioAt, now >= audio, now - audio <= 2 else { return false }
+    switch task {
+    case .starting:
+      guard audibleSeconds >= 0.25, let first = firstAudibleAt,
+        let last = lastAudibleAt, now - last <= 10 else { return false }
+      return callbackAt == nil && now - start >= 10 && now - first >= 4
+    case .idle, .finishing, .canceling, .completed, .unknown:
+      return now - max(start, callbackAt ?? start) >= 2
+    case .running:
+      guard audibleSeconds >= 0.25, let first = firstAudibleAt,
+        let last = lastAudibleAt, now - last <= 5 else { return false }
+      return now - max(start, callbackAt ?? start) >= 6 && now - first >= 4
+    }
+  }
+}
+
 enum RecognitionRecoveryDecision: Equatable {
   case retry(after: TimeInterval)
   case unavailable(String)

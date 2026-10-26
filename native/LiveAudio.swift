@@ -91,6 +91,20 @@ final class LiveAudioBuffer: @unchecked Sendable {
     return buffer
   }
 
+  // Keep Speech.framework input in a consistent floating-point PCM format.
+  // The provider still receives the original PCM16, and both paths share the
+  // same 24 kHz frame clock, including an interruption's local recognition seed.
+  static func recognitionBuffer(_ pcm: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
+    guard pcm.format == format, pcm.frameLength > 0,
+      let input = pcm.int16ChannelData?[0],
+      let speechFormat = AVAudioFormat(standardFormatWithSampleRate: 24000, channels: 1),
+      let result = AVAudioPCMBuffer(pcmFormat: speechFormat, frameCapacity: pcm.frameLength),
+      let output = result.floatChannelData?[0] else { return nil }
+    result.frameLength = pcm.frameLength
+    for index in 0..<Int(pcm.frameLength) { output[index] = Float(input[index]) / 32768 }
+    return result
+  }
+
   func begin(afterFrame: Int64? = nil, deferred: Bool = false, seed: Data? = nil) {
     lock.lock()
     defer { lock.unlock() }

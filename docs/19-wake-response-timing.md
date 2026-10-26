@@ -19,6 +19,10 @@ Apple transcription segment timestamps are mapped to the captured 24 kHz audio f
 
 ## Audio and provider boundary
 
+The explicit **Talk to Jarvis** button and its keyboard shortcut open OpenAI Live directly when that provider is selected. They do not wait for a local transcription, so a stalled wake recognizer cannot silently block manual conversation. A wake-only pause still remains local and does not open a provider session. Existing privacy/profile, authentication, admission, timeout, and spending checks apply to manual activation as well.
+
+The local recognizer receives mono Float32 PCM at 24 kHz; provider transport remains PCM16. Interruption seeds use the same local format and frame clock. Each renewed recognition task creates a fresh speech recognizer. A local watchdog distinguishes quiet input from a task stuck starting, an ended task without a callback, or sustained audible input without recognition progress. It uses the existing bounded retry/backoff policy, respects mute/lock/capture boundaries, and never opens a cloud connection on its own. Native diagnostics expose task state and automatic recovery count without transcripts or recordings.
+
 A wake-only pause keeps a rolling queue of at most 480,000 PCM bytes (10 seconds) in RAM. The existing listening timeout closes this local opening without starting a provider session. Once a substantive local transcript starts the cloud connection, the same queue retains the request onset. After streaming begins, overflow fails closed rather than silently losing speech.
 
 The short local cue gates its own audio out of the provider stream. If the user begins during it, recognized request text stops playback and supplies a bounded, incomplete user prefix at Live startup. Backend delegation joins that prefix with the provider transcript, removing overlapping words. Cue-only partial transcripts do not start a cloud session. Private-mode prefix data follows the existing RAM-only task/transcript policy.

@@ -125,6 +125,18 @@ struct LiveAudioBufferTests {
       "The interruption history remains bounded even throughout active streaming")
     buffer.clear()
     expect(buffer.snapshot(afterFrame: 0).data.isEmpty, "Mute and privacy changes clear interruption history as well")
-    print("17 native audio buffering scenarios passed")
+    let seedPCM = LiveAudioBuffer.buffer(Data([0, 128, 0, 0, 255, 127]))!
+    let speech = LiveAudioBuffer.recognitionBuffer(seedPCM)!
+    expect(speech.format.commonFormat == .pcmFormatFloat32
+      && speech.format.sampleRate == 24000 && speech.format.channelCount == 1,
+      "Speech.framework receives a consistent mono floating-point format")
+    expect(speech.frameLength == seedPCM.frameLength,
+      "Local recognition retains the provider's frame clock and wake timestamps")
+    let samples = speech.floatChannelData![0]
+    expect(samples[0] == -1 && samples[1] == 0 && abs(samples[2] - 0.9999695) < 0.000001,
+      "PCM16 conversion preserves signed amplitude without clipping or silence")
+    expect(LiveAudioBuffer.recognitionBuffer(audio) == nil,
+      "Unexpected input formats cannot be misread as PCM16")
+    print("21 native audio buffering scenarios passed")
   }
 }
