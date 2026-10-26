@@ -40,7 +40,8 @@ No genuine API key/password was found in the scanned Git contents or matching
 private configuration comparisons. Personal author/system metadata was present;
 it was not dismissed merely because credential scanners reported no secrets.
 No actual contact or family data was identified. Fixtures use reserved example
-domains and fictional phone numbers.
+domains and fictional phone numbers. Public GitHub authorship is an accepted
+attribution; the owner chose to retain public repository visibility.
 
 ## Verification
 
@@ -51,9 +52,27 @@ file references/regex budgets, private input validation and native action claims
 Native Swift tests exercise the actual client with a fake local listener. Browser
 tests exercise the same authentication helper used by the product.
 
-Full Python, Swift, browser, frontend compilation, lint and frozen-app smoke checks
-must pass for publication. The dependency audit after the tool upgrades reports
-no known advisories in the audited environment; npm audit reports zero findings.
+Local verification on the pinned Python runtime passed 108 tests with two
+platform-specific skips. All 34 Swift scenarios and three browser authentication
+tests passed; TypeScript/Vite, lint, full Mac bundle compilation and ad-hoc
+signature verification passed. A fresh clone of the rewritten public repository
+passed Gitleaks and exact saved-secret/private-path comparisons with zero matches.
+The updated local service authenticated successfully, and saved configuration and
+credentials remained byte-for-byte unchanged.
+
+The [security CI](https://github.com/emanueledibella/jarvis/actions/runs/40283484016)
+passed the history/inventory, credential scan, Python dependency, Bandit and npm
+gates. The [native matrix](https://github.com/emanueledibella/jarvis/actions/runs/40283483993)
+passed on all three operating systems: 109 Python tests on Windows with one skip,
+108 on Linux/macOS with two skips each, plus browser/frontend checks and 34 Swift
+scenarios on macOS. Actual frozen Windows/Linux executables completed an isolated
+Deep Agents tool round-trip against a loopback model fixture. Downloaded release
+archives passed SHA256, PE/ELF architecture, source/lock/runtime provenance,
+private-file inventory and exact saved-secret/private-path comparisons. The dependency audit after the tool upgrades reports no
+known advisories in both the audited build environment and the updated production
+environment; npm audit reports zero findings. An additional advisory scan covered
+all 167 package/version pairs in the universal lock, including platform-specific
+and optional voice dependencies, with zero findings and no skipped packages.
 Checks are time-specific and need to be rerun for later dependencies/advisories.
 
 ## Residual risks and limitations
@@ -76,7 +95,8 @@ Checks are time-specific and need to be rerun for later dependencies/advisories.
   signing, every desktop integration test, or future dependency review.
 - **External cleanup boundary.** Rewritten refs and removed assets do not erase
   existing clones, downloads, GitHub cached commit views or hosting backups.
-  Cached-object removal requires GitHub Support. Public repository ownership and
+  GitHub Support controls cached-object removal; no support request or visibility
+  change was requested for accepted author attribution. Public repository ownership and
   the public GitHub account remain visible by design; this audit does not change
   the owner's account identity or unrelated repositories.
 
