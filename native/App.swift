@@ -134,7 +134,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         if window == nil {
             let configuration = WKWebViewConfiguration()
             let encoded = String(data: try! JSONSerialization.data(withJSONObject: [client.token]), encoding: .utf8)!
-            let source = "window.__JARVIS_TOKEN__ = \(encoded)[0]; window.__JARVIS_NATIVE__ = true;"
+            let origin = client.base.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            let originJSON = String(data: try! JSONSerialization.data(withJSONObject: [origin]), encoding: .utf8)!
+            let source = "if (location.origin === \(originJSON)[0]) { window.__JARVIS_TOKEN__ = \(encoded)[0]; window.__JARVIS_NATIVE__ = true; }"
             configuration.userContentController.addUserScript(WKUserScript(source: source, injectionTime: .atDocumentStart, forMainFrameOnly: true))
             let view = WKWebView(frame: .zero, configuration: configuration)
             view.navigationDelegate = self
@@ -150,7 +152,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             win.center()
             webView = view
             window = win
-            view.load(URLRequest(url: client.base))
+            Task {
+                do {
+                    _ = try await client.authenticateService()
+                    view.load(URLRequest(url: client.base))
+                } catch {
+                    statusItem.button?.toolTip = "Jarvis: local service verification failed"
+                }
+            }
         }
         NSApp.setActivationPolicy(.regular)
         window?.makeKeyAndOrderFront(nil)
@@ -223,8 +232,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     }
 
     func performNative(_ data: [String: Any]) async {
-        guard let key = data["id"] as? String, let operation = data["operation"] as? String else { return }
-        let arguments = data["arguments"] as? [String: Any] ?? [:]
+        guard let key = data["id"] as? String else { return }
+        // Claim once and retrieve authoritative arguments immediately before an OS action.
+        guard let authority = try? await client.request("/api/native/claim/" + key, method: "POST"),
+              let operation = authority["operation"] as? String else { return }
+        let arguments = authority["arguments"] as? [String: Any] ?? [:]
         var result: [String: Any]
         do {
             switch operation {
@@ -257,7 +269,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         let settings = await UNUserNotificationCenter.current().notificationSettings()
         guard settings.authorizationStatus == .authorized else { return }
         let content = UNMutableNotificationContent()
-        content.title = title
+        content.title = "Jarvis — result ready"
         content.body = "Open Jarvis to see the result."
         let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
         try? await UNUserNotificationCenter.current().add(request)

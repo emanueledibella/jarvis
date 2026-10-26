@@ -1,0 +1,40 @@
+name: Security checks
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  audit:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    env:
+      LANGSMITH_TRACING: 'false'
+      LANGCHAIN_TRACING_V2: 'false'
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '22'
+      - run: python scripts/audit-public.py --history
+      - name: Scan all reachable Git history without publishing matches
+        run: |
+          curl --fail --silent --show-error --location https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz --output /tmp/gitleaks.tar.gz
+          echo '551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  /tmp/gitleaks.tar.gz' | sha256sum --check
+          tar -xzf /tmp/gitleaks.tar.gz -C /tmp gitleaks
+          if ! /tmp/gitleaks git . --log-opts="--branches --tags --remotes=origin" --redact=100 --no-banner --no-color > /tmp/jarvis-secret-scan.log 2>&1; then
+            echo 'Secret/privacy scan failed. Reproduce locally with Gitleaks; match content is deliberately not published in CI logs.'
+            exit 1
+          fi
+      - run: python -m pip install --upgrade pip==26.2.2 uv==0.13.5
+      - run: uv sync --locked --managed-python --extra dev --extra build
+      - run: uvx --from pip-audit==2.10.1 pip-audit --path .venv/lib/python3.12/site-packages --skip-editable --desc off
+      - run: uvx --from bandit==1.9.4 bandit -r src scripts -ll
+      - run: npm ci --no-audit --no-fund
+        working-directory: web
+      - run: npm audit --audit-level=low
+        working-directory: web

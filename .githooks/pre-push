@@ -1,0 +1,16 @@
+#!/bin/sh
+set -eu
+if [ -x .venv/bin/python ]; then
+  audit_python=.venv/bin/python
+elif [ -x .venv/Scripts/python.exe ]; then
+  audit_python=.venv/Scripts/python.exe
+else
+  audit_python=python3
+fi
+"$audit_python" scripts/audit-public.py --history
+audit_scanner="$(git config --get jarvis.secretScanner || command -v gitleaks || true)"
+if [ -z "$audit_scanner" ]; then
+  echo "Install Gitleaks or configure jarvis.secretScanner before publishing."
+  exit 1
+fi
+"$audit_scanner" git . --log-opts="--branches --tags --remotes=origin" --redact=100 --no-banner --no-color

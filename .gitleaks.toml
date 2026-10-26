@@ -1,0 +1,18 @@
+[extend]
+useDefault = true
+
+[[rules]]
+id = "personal-email"
+description = "Email addresses must use reserved fixtures or public noreply identities"
+regex = '''(?i)[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}'''
+[[rules.allowlists]]
+regexTarget = "match"
+regexes = ['''(?i)@(?:example\.(?:com|net|org|invalid|test)|[a-z0-9.-]+\.example|users\.noreply\.github\.com)$''']
+
+[[rules]]
+id = "personal-home-path"
+description = "Publish placeholders, never an actual home directory"
+regex = '''(?i)(?:/(?:Users|home)/|[a-z]:\\+Users\\+)[a-z0-9._\-]+'''
+[[rules.allowlists]]
+regexTarget = "match"
+regexes = ['''(?i)(?:/|\\+)(?:user|username|name|example|owner|runner|runneradmin)$''']

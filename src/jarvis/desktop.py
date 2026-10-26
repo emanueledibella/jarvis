@@ -73,6 +73,11 @@ def launch(config, *, browser=True):
             access_log=False,
             log_level="warning",
             timeout_graceful_shutdown=5,
+            limit_concurrency=128,
+            backlog=128,
+            timeout_keep_alive=3,
+            ws_max_size=128000,
+            ws_max_queue=4,
         )
     )
 

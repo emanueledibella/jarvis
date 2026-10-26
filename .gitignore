@@ -1,5 +1,6 @@
 .venv/
 .build-venv/
+.bootstrap-venv/
 .env
 .env.*
 !.env.example

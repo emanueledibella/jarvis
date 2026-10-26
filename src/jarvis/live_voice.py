@@ -102,7 +102,7 @@ class LiveVoice:
         if (
             host not in {"127.0.0.1", "localhost"}
             or (origin and origin not in allowed_origins)
-            or not hmac.compare_digest(token, self.runtime.config.token)
+            or not hmac.compare_digest(token.encode(), self.runtime.config.token.encode())
         ):
             await websocket.close(code=1008)
             return
@@ -182,7 +182,12 @@ class LiveVoice:
             if stop.is_set():
                 raise PermissionError("The voice session was stopped before it started.")
             async with client_factory(
-                api_key=key, base_url="https://api.openai.com/v1", max_retries=0, timeout=20
+                api_key=key,
+                base_url="https://api.openai.com/v1",
+                organization="",
+                project="",
+                max_retries=0,
+                timeout=20,
             ) as client:
                 async with client.live.connect(max_retries=0) as connection:
 

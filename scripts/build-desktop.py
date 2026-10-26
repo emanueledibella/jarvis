@@ -75,6 +75,12 @@ def main():
             "api-token",
             "jarvis.sqlite3",
             "checkpoints.sqlite3",
+            "mcp-servers.json",
+            "calendar-oauth.json",
+            "credentials.json",
+            "secrets.json",
+            "auth.json",
+            "direct_url.json",
         }:
             raise SystemExit(f"Refusing to archive a private runtime file: {file.name}")
     system = {"win32": "Windows", "linux": "Linux", "darwin": "macOS"}[sys.platform]

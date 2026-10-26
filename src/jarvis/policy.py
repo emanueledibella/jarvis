@@ -24,8 +24,11 @@ class TaskContext:
     schedule_id: str | None = None
     private_results: dict = field(default_factory=dict)
     memory_blocked: bool = False
+    sensitive_context: bool = False
+    untrusted_context: bool = False
 
     def __post_init__(self):
+        self.sensitive_context = self.sensitive_context or self.private
         self.memory_blocked = self.memory_blocked or bool(
             re.search(
                 r"\b(non\s+(?:lo\s+)?(?:ricordare|memorizzare|salvare)|do\s+not\s+remember|don't\s+remember)\b",
@@ -117,15 +120,54 @@ class Gateway:
                 "Emergency stop is active. Re-enable the service from the dashboard."
             )
         ctx = active_task.get()
-        if risk in {"external", "command"} and not ctx.external_authorized:
+        if name in {"memory_remember", "memory_change"} and (ctx.private or ctx.memory_blocked):
+            raise PermissionError("This session does not allow memory writes.")
+        was_sensitive = ctx.sensitive_context
+        if name.startswith("workspace_") or name in {
+            "calendar_events",
+            "memory_recall",
+            "tasks_list",
+            "schedules_list",
+            "weather",
+            "list_mcp_tools",
+        }:
+            ctx.sensitive_context = True
+        if name in {
+            "workspace_read",
+            "workspace_list",
+            "workspace_search",
+            "calendar_events",
+            "memory_recall",
+            "web_search",
+            "read_web_page",
+            "call_mcp_tool",
+            "list_mcp_tools",
+            "tasks_list",
+            "schedules_list",
+            "workspace_command",
+            "weather",
+        }:
+            ctx.untrusted_context = True
+        needs_approval = (
+            risk in {"external", "command", "workspace", "schedule", "task", "memory"}
+            or (
+                risk == "network_read"
+                and was_sensitive
+                and not (name == "weather" and not arguments.get("location"))
+            )
+            or (ctx.untrusted_context and risk in {"workspace", "schedule", "task", "memory"})
+        )
+        if needs_approval and not ctx.external_authorized:
             if not await self.approval(ctx, name, arguments):
                 return {
                     "state": "rejected",
                     "message": "The owner did not authorize this operation.",
                 }
+        if self.blocked:
+            raise PermissionError("Emergency stop is active.")
         argument_hash = digest(arguments)
         operation_key = digest([ctx.id, name, argument_hash])
-        mutating = risk != "read"
+        mutating = risk not in {"read", "network_read"}
         if mutating:
             if operation_key in ctx.private_results:
                 return ctx.private_results[operation_key]
@@ -150,15 +192,19 @@ class Gateway:
                         "The operation outcome is uncertain: reconcile it before retrying."
                     )
         await self.db.emit("tool.started", {"tool": name}, ctx.id, private=ctx.private)
+        started = False
         try:
+            if self.blocked:
+                raise PermissionError("Emergency stop is active.")
+            started = True
             result = await function()
         except BaseException:
             if mutating:
                 # A failed/aborted network mutation may have committed remotely. The
                 # reconciliation action is explicit; failed effects are not silently replayed.
                 await self.db.execute(
-                    "UPDATE effects SET state='unknown',updated_at=? WHERE operation_key=?",
-                    (now(), operation_key),
+                    "UPDATE effects SET state=?,updated_at=? WHERE operation_key=?",
+                    ("unknown" if started else "retry_allowed", now(), operation_key),
                 )
             raise
         if mutating:

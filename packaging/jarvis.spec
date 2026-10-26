@@ -19,6 +19,8 @@ analysis = Analysis(
     hiddenimports=hidden,
     excludes=["pytest", "ruff", "faster_whisper", "tkinter"],
 )
+# Editable-install metadata contains a local checkout URL; it is not runtime data.
+analysis.datas = [entry for entry in analysis.datas if Path(entry[0]).name != "direct_url.json"]
 archive = PYZ(analysis.pure)
 executable = EXE(
     archive, analysis.scripts, [], exclude_binaries=True,

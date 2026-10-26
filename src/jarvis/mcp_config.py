@@ -28,6 +28,10 @@ class Server(BaseModel):
             or urlsplit(self.url).username
         ):
             raise ValueError("Invalid MCP endpoint.")
+        if self.url:
+            from .network import secure_endpoint
+
+            self.url = secure_endpoint(self.url)
         if self.command and not os.path.isabs(self.command):
             raise ValueError("The MCP command requires an absolute path.")
         if self.auth not in {"none", "bearer", "oauth"}:

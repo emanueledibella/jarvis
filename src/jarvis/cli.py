@@ -8,6 +8,7 @@ import sys
 import webbrowser
 
 import httpx
+from pydantic import ValidationError
 
 from .config import ConfigStore
 
@@ -45,7 +46,14 @@ def main():
     config_parser.add_argument("value", nargs="?")
     args = parser.parse_args()
     args.command = args.command or "desktop"
-    config = ConfigStore(args.env_file)
+    try:
+        config = ConfigStore(args.env_file)
+    except (ValidationError, json.JSONDecodeError):
+        print(
+            "Configuration is invalid. Check field types and endpoint settings; input values are omitted for privacy.",
+            file=sys.stderr,
+        )
+        raise SystemExit(2) from None
     url = f"http://127.0.0.1:{config.settings.api_port}"
     if args.command == "desktop-info":
         # Private IPC with the native launcher, never used by a public HTTP endpoint.
@@ -72,6 +80,11 @@ def main():
             access_log=False,
             log_level="warning",
             timeout_graceful_shutdown=5,
+            limit_concurrency=128,
+            backlog=128,
+            timeout_keep_alive=3,
+            ws_max_size=128000,
+            ws_max_queue=4,
         )
         return
     if args.command == "config":

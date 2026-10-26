@@ -11,9 +11,10 @@ from urllib.parse import urlsplit
 from uuid import UUID
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from .config import ConfigStore, Profile
 from .db import now
@@ -104,18 +105,27 @@ def create_app(
             return JSONResponse({"detail": "Origin is not allowed."}, status_code=403)
         if request.url.path.startswith("/api/"):
             token = request.headers.get("authorization", "").removeprefix("Bearer ")
-            if not hmac.compare_digest(token, config.token):
+            if not hmac.compare_digest(token.encode(), config.token.encode()):
                 return JSONResponse(
                     {"detail": "Local authentication is required."}, status_code=401
                 )
         if request.method in {"POST", "PUT", "PATCH"}:
+            if not request.url.path.startswith(("/api/", "/telephony/")):
+                return JSONResponse({"detail": "Method is not allowed."}, status_code=405)
             size = 0
             chunks = []
-            async for chunk in request.stream():
-                size += len(chunk)
-                if size > 512000:
-                    return JSONResponse({"detail": "Request exceeds 512 KB."}, status_code=413)
-                chunks.append(chunk)
+            limit = 16384 if request.url.path.startswith("/telephony/") else 512000
+            try:
+                async with asyncio.timeout(10):
+                    async for chunk in request.stream():
+                        size += len(chunk)
+                        if size > limit:
+                            return JSONResponse(
+                                {"detail": "Request exceeds its size limit."}, status_code=413
+                            )
+                        chunks.append(chunk)
+            except TimeoutError:
+                return JSONResponse({"detail": "Request body timed out."}, status_code=408)
             request._body = b"".join(chunks)
         response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
@@ -126,6 +136,15 @@ def create_app(
             "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
         )
         return response
+
+    @app.exception_handler(RequestValidationError)
+    @app.exception_handler(ValidationError)
+    async def invalid_fields(request, error):
+        # Pydantic's default errors include input values, including passwords.
+        fields = [".".join(str(p) for p in e["loc"]) or "configuration" for e in error.errors()]
+        return JSONResponse(
+            {"detail": "Invalid fields: " + ", ".join(fields[:10])}, status_code=422
+        )
 
     @app.exception_handler(ValueError)
     async def invalid(request, error):
@@ -686,6 +705,15 @@ def create_app(
             cursor, batch = row["cursor"], []
         else:
             cursor, batch = after, await runtime.db.wait_events(after)
+        if batch:
+            cursor = max(event["sequence"] for event in batch)
+        batch = [
+            event
+            for event in batch
+            if event["type"] != "native.operation"
+            or event["data"].get("id") in {"voice-session", "emergency-mute"}
+            or event["data"].get("id") in runtime.native.pending
+        ]
         return {
             "cursor": cursor,
             "events": batch,
@@ -711,6 +739,17 @@ def create_app(
                 "desktop_voice_max_session_seconds": config.settings.desktop_voice_max_session_seconds,
             },
         }
+
+    @app.post("/api/native/claim/{key}")
+    async def claim_native(key: str):
+        if key == "voice-session":
+            return {
+                "operation": "control.session",
+                "arguments": {k: runtime.voice_session[k] for k in ("private", "scope")},
+            }
+        if key == "emergency-mute" and runtime.gateway.blocked:
+            return {"operation": "control.mute", "arguments": {}}
+        return runtime.native.claim(key, stopped=runtime.gateway.blocked)
 
     @app.post("/api/native/result/{key}")
     async def native_result(key: str, data: dict):

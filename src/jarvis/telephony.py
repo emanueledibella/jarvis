@@ -95,8 +95,8 @@ class Telephony:
         ):
             missing.append("public_https_url")
         pin = settings.secret("phone_pin")
-        if pin and (not pin.isdigit() or not 4 <= len(pin) <= 8):
-            missing.append("phone_pin_4_to_8_digits")
+        if pin and not re.fullmatch(r"[0-9]{6,8}", pin):
+            missing.append("phone_pin_6_to_8_digits")
         return bool(settings.telephony_enabled and not missing), missing
 
     def audio_key(self) -> str:
@@ -201,6 +201,7 @@ class Telephony:
         settings = self.config.settings
         if (
             not settings.telephony_enabled
+            or not re.fullmatch(r"[A-Za-z0-9+/]{27}=", signature)
             or not settings.secret("telephony_auth_token")
             or not settings.telephony_public_base_url.startswith("https://")
         ):
@@ -293,7 +294,14 @@ class Telephony:
         if settings.phone_stt_provider == "openai":
             from openai import AsyncOpenAI
 
-            async with AsyncOpenAI(api_key=self.audio_key(), max_retries=0, timeout=30) as client:
+            async with AsyncOpenAI(
+                api_key=self.audio_key(),
+                base_url="https://api.openai.com/v1",
+                organization="",
+                project="",
+                max_retries=0,
+                timeout=30,
+            ) as client:
                 result = await client.audio.transcriptions.create(
                     model=settings.phone_stt_model,
                     file=("turn.wav", data, "audio/wav"),
@@ -322,7 +330,14 @@ class Telephony:
         if self.audio_key():
             from openai import AsyncOpenAI
 
-            async with AsyncOpenAI(api_key=self.audio_key(), timeout=40, max_retries=0) as client:
+            async with AsyncOpenAI(
+                api_key=self.audio_key(),
+                base_url="https://api.openai.com/v1",
+                organization="",
+                project="",
+                timeout=40,
+                max_retries=0,
+            ) as client:
                 response = await client.audio.speech.create(
                     model=settings.phone_tts_model,
                     voice=settings.phone_tts_voice,
@@ -527,17 +542,31 @@ class Telephony:
                             raise ValueError("Unsupported phone audio format.")
                         params = start.get("customParameters", {})
                         key = params.get("call_id")
-                        secret = self.media_tokens.pop(key, "")
+                        secret = self.media_tokens.get(key, "")
                         row = await self.db.fetchone("SELECT * FROM calls WHERE id=?", (key,))
                         if (
                             not row
                             or not row["auth_verified"]
                             or not secret
-                            or not hmac.compare_digest(secret, params.get("token", ""))
+                            or not isinstance(params.get("token"), str)
+                            or not hmac.compare_digest(
+                                secret.encode(), params.get("token", "").encode()
+                            )
                             or row["provider_id"] != start.get("callSid")
                             or key in self.active
+                            or row["state"]
+                            not in {
+                                "creating",
+                                "queued",
+                                "initiated",
+                                "ringing",
+                                "answered",
+                                "in-progress",
+                                "connected",
+                            }
                         ):
                             raise PermissionError("Unauthorized media session.")
+                        self.media_tokens.pop(key, None)
                         self.active.add(key)
                         if row["task_id"]:
                             origin = await self.db.fetchone(
@@ -632,9 +661,9 @@ class Telephony:
         router = APIRouter()
 
         async def signed_form(request):
-            if int(request.headers.get("content-length", "0")) > 16384:
+            if len(await request.body()) > 16384:
                 raise PermissionError("Request is too large.")
-            params = dict(await request.form())
+            params = dict(await request.form(max_files=0, max_fields=64, max_part_size=16384))
             if not self.signed(
                 request.url.path,
                 request.url.query,
@@ -706,7 +735,7 @@ class Telephony:
             if not row["auth_verified"]:
                 digits = params.get("Digits", "")
                 pin = settings.secret("phone_pin")
-                if digits and pin and hmac.compare_digest(digits, pin):
+                if digits and pin and hmac.compare_digest(digits.encode(), pin.encode()):
                     await self.db.execute("UPDATE calls SET auth_verified=1 WHERE id=?", (key,))
                 elif row["attempts"] >= 3:
                     await self.db.execute(

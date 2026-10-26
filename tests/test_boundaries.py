@@ -268,14 +268,12 @@ async def test_command_timeout_kills_worker(tmp_path):
 async def test_macos_sandbox_runs_python_and_denies_external_file_and_network(tmp_path):
     import asyncio
     import shlex
-    import shutil
     import sys
     from pathlib import Path
 
     if (
         sys.platform != "darwin"
         or not await asyncio.to_thread(Path("/usr/bin/sandbox-exec").exists)
-        or not shutil.which("python3.12")
     ):
         pytest.skip("Requires the macOS toolchain")
     root = tmp_path / "workspace"
@@ -300,7 +298,7 @@ else:
     raise AssertionError('network allowed')
 """
     result = await Workspace([str(root)]).command(
-        "python3.12 -c " + shlex.quote(script), ".", "sandbox", 5
+        shlex.join([sys.executable, "-c", script]), ".", "sandbox", 5
     )
     assert result["exit_code"] == 0, result["output"]
     assert "file-denied" in result["output"] and "network-denied" in result["output"]

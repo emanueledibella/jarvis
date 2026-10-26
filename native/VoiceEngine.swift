@@ -502,7 +502,6 @@ final class VoiceEngine: NSObject {
     let socket = liveTransport.webSocketTask(with: request)
     socket.maximumMessageSize = 1_048_576
     liveSocket = socket
-    socket.resume()
     setState("connecting")
     var metadata: [String: Any] = [
       "type": "start", "private": privateSession, "scope": voiceScope,
@@ -513,6 +512,12 @@ final class VoiceEngine: NSObject {
     liveReader = Task { [weak self] in
       guard let self = self else { return }
       do {
+        _ = try await self.client.authenticateService()
+        guard self.liveGeneration == generation && !Task.isCancelled else {
+          socket.cancel(with: .goingAway, reason: nil)
+          return
+        }
+        socket.resume()
         try await socket.send(
           .string(
             String(data: try JSONSerialization.data(withJSONObject: metadata), encoding: .utf8)!))

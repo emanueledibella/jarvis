@@ -140,25 +140,6 @@ class Settings(BaseSettings):
             raise ValueError("Unknown time zone: use an IANA name such as Europe/Rome.") from None
         return value
 
-    @field_validator("cloud_base_url", "second_brain_url")
-    @classmethod
-    def secure_endpoint(cls, value):
-        from urllib.parse import urlsplit
-
-        from .network import loopback_url
-
-        if value:
-            parts = urlsplit(value)
-            if (
-                not parts.hostname
-                or parts.username
-                or parts.password
-                or parts.fragment
-                or (parts.scheme != "https" and not loopback_url(value))
-            ):
-                raise ValueError("Use HTTPS for remote servers or HTTP on loopback.")
-        return value
-
     @field_validator("api_host")
     @classmethod
     def local_bind(cls, value):
@@ -199,6 +180,22 @@ class Settings(BaseSettings):
             raise ValueError("Set both weather coordinates.")
         return self
 
+    @field_validator(
+        "cloud_base_url", "second_brain_url", "calendar_ics_url", "telephony_public_base_url"
+    )
+    @classmethod
+    def secure_remote_urls(cls, value):
+        from .network import secure_endpoint
+
+        return secure_endpoint(value) if value else value
+
+    @field_validator("local_base_url")
+    @classmethod
+    def pin_local_url(cls, value):
+        from .network import local_endpoint
+
+        return local_endpoint(value)
+
     def secret(self, field: str) -> str:
         value = getattr(self, field)
         raw = value.get_secret_value() if isinstance(value, SecretStr) else str(value)
@@ -216,9 +213,16 @@ class Settings(BaseSettings):
             )
             return result.stdout.strip() if result.returncode == 0 else ""
         if not raw and field == "cloud_api_key":
-            return os.getenv(
-                "ANTHROPIC_API_KEY" if self.cloud_provider == "anthropic" else "OPENAI_API_KEY", ""
-            )
+            if self.cloud_provider == "openai" and self.cloud_base_url.rstrip("/") in {
+                "",
+                "https://api.openai.com/v1",
+            }:
+                return os.getenv("OPENAI_API_KEY", "")
+            if self.cloud_provider == "anthropic" and self.cloud_base_url.rstrip("/") in {
+                "",
+                "https://api.anthropic.com",
+            }:
+                return os.getenv("ANTHROPIC_API_KEY", "")
         return raw
 
     def public(self) -> dict:

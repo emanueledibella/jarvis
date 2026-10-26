@@ -1,4 +1,5 @@
 export type Json = Record<string, any>;
+import { authenticatedFetch } from "./serviceTrust";
 declare global {
   interface Window {
     __JARVIS_TOKEN__?: string;
@@ -9,15 +10,14 @@ declare global {
 const fragment = new URLSearchParams(location.hash.slice(1));
 const fromURL = fragment.get("token");
 if (fromURL) {
-  sessionStorage.setItem("jarvis-token", fromURL);
   history.replaceState(null, "", location.pathname);
 }
-let token =
-  window.__JARVIS_TOKEN__ || sessionStorage.getItem("jarvis-token") || "";
+sessionStorage.removeItem("jarvis-token");
+let token = window.__JARVIS_TOKEN__ || fromURL || "";
 export function setToken(value: string) {
   token = value;
-  sessionStorage.setItem("jarvis-token", value);
 }
+const port = import.meta.env.DEV ? 8765 : Number(location.port || 80);
 export function hasToken() {
   return Boolean(token);
 }
@@ -26,11 +26,10 @@ export async function api<T = any>(
   path: string,
   options: RequestInit = {},
 ): Promise<T> {
-  const response = await fetch("/api" + path, {
+  const response = await authenticatedFetch(token, port, "/api" + path, {
     ...options,
     headers: {
       "Content-Type": "application/json",
-      Authorization: "Bearer " + token,
       ...options.headers,
     },
   });
@@ -59,10 +58,14 @@ export async function eventStream(
   let cursor = after;
   while (!signal.aborted) {
     try {
-      const response = await fetch("/api/events?after=" + cursor, {
-        headers: { Authorization: "Bearer " + token },
-        signal,
-      });
+      const response = await authenticatedFetch(
+        token,
+        port,
+        "/api/events?after=" + cursor,
+        {
+          signal,
+        },
+      );
       if (!response.ok || !response.body) throw new Error("Stream unavailable");
       const reader = response.body.getReader();
       const decoder = new TextDecoder();

@@ -16,7 +16,7 @@ from langgraph.types import Command
 
 from .db import now, uid
 from .language import language_instructions
-from .network import loopback_url
+from .network import local_endpoint, loopback_url, secure_endpoint
 from .platforms import capabilities
 from .policy import TaskContext, active_task, digest
 from .speech import speech_text
@@ -194,10 +194,29 @@ class TaskManager:
             "model": settings.cloud_model if choose_cloud else settings.local_model,
             "base_url": settings.cloud_base_url if choose_cloud else settings.local_base_url,
         }
+        if snapshot:
+            provider = (
+                settings.cloud_provider if spec["kind"] == "cloud" else settings.local_provider
+            )
+            endpoint = (
+                settings.cloud_base_url if spec["kind"] == "cloud" else settings.local_base_url
+            )
+            default = {
+                "openai": "https://api.openai.com/v1",
+                "anthropic": "https://api.anthropic.com",
+            }.get(provider, "")
+            if spec["provider"] != provider or (spec["base_url"] or default).rstrip("/") != (
+                endpoint or default
+            ).rstrip("/"):
+                raise PermissionError(
+                    "The provider or endpoint changed. Restore its configuration or create a new task; credentials were not reused."
+                )
         if not spec["model"]:
             raise ValueError(
                 "Choose a model in Settings. Available local models are listed automatically."
             )
+        if spec["kind"] == "cloud" and not settings.secret("cloud_api_key"):
+            raise ValueError("Configure a dedicated API key for this cloud provider and endpoint.")
         spec.setdefault("max_output_tokens", settings.max_output_tokens)
         spec.setdefault("reasoning_effort", settings.cloud_reasoning_effort)
         if profile.startswith("local_") and spec["kind"] == "cloud":
@@ -211,6 +230,7 @@ class TaskManager:
         if spec["kind"] == "local":
             if not loopback_url(spec["base_url"]):
                 raise PermissionError("The local model requires a loopback endpoint.")
+            spec["base_url"] = local_endpoint(spec["base_url"])
             if spec["provider"] == "ollama":
                 from langchain_ollama import ChatOllama
 
@@ -238,15 +258,24 @@ class TaskManager:
                     use_responses_api=False,
                     http_client=DefaultHttpxClient(trust_env=False),
                     http_async_client=DefaultAsyncHttpxClient(trust_env=False),
+                    openai_organization="",
+                    openai_proxy="",
                 )
+                model.openai_organization = None
+                model.root_client.organization = model.root_async_client.organization = None
+                model.root_client.project = model.root_async_client.project = None
         elif spec["provider"] == "anthropic":
             from langchain_anthropic import ChatAnthropic
 
             model = ChatAnthropic(
-                **kwargs, api_key=settings.secret("cloud_api_key"), streaming=True
+                **kwargs,
+                api_key=settings.secret("cloud_api_key"),
+                streaming=True,
+                base_url=secure_endpoint(spec["base_url"] or "https://api.anthropic.com"),
             )
         else:
             from langchain_openai import ChatOpenAI
+            from openai import DefaultAsyncHttpxClient, DefaultHttpxClient
 
             if not settings.secret("cloud_api_key"):
                 raise ValueError("Configure the cloud provider API key.")
@@ -259,12 +288,21 @@ class TaskManager:
                 **kwargs,
                 **reasoning,
                 api_key=settings.secret("cloud_api_key"),
-                base_url=spec["base_url"]
-                or ("https://api.openai.com/v1" if spec["provider"] == "openai" else None),
+                base_url=secure_endpoint(
+                    spec["base_url"]
+                    or ("https://api.openai.com/v1" if spec["provider"] == "openai" else "")
+                ),
                 streaming=True,
                 use_responses_api=spec["provider"] == "openai",
                 store=False,
+                http_client=DefaultHttpxClient(trust_env=False),
+                http_async_client=DefaultAsyncHttpxClient(trust_env=False),
+                openai_organization="",
+                openai_proxy="",
             )
+            model.openai_organization = None
+            model.root_client.organization = model.root_async_client.organization = None
+            model.root_client.project = model.root_async_client.project = None
         return model, spec
 
     async def create(self, prompt: str, *, request_id=None, **options):
@@ -403,7 +441,7 @@ class TaskManager:
             + language_instructions(
                 self.config.settings.response_language, self.config.settings.language
             )
-            + f"\nService date: {datetime.now(UTC).isoformat()}. Scope: {ctx.scope}. Profile: {ctx.profile}. Private session: {ctx.private}. MCP servers: {mcp_names}. Enabled workspaces: {self.config.settings.workspace_roots}. Memory policy: {self.config.settings.memory_capture}."
+            + f"\nService date: {datetime.now(UTC).isoformat()}. Scope: {ctx.scope}. Profile: {ctx.profile}. Private session: {ctx.private}. MCP servers: {mcp_names}. Enabled workspace slots: {len(self.config.settings.workspace_roots)}. Use '.' for the first workspace or workspace://N/path for another slot (numbering starts at 1). Memory policy: {self.config.settings.memory_capture}."
         )
         graph = create_deep_agent(
             model=model,
@@ -448,6 +486,8 @@ class TaskManager:
                     "callbacks": [callbacks],
                 }
                 if resume:
+                    ctx.sensitive_context = True
+                    ctx.untrusted_context = True
                     snapshot = await graph.aget_state(config)
                     arguments = (
                         Command(resume={"continue": True})
@@ -484,6 +524,9 @@ class TaskManager:
                             (row["conversation_id"], row["created_at"]),
                         )
                         messages.extend(reversed(history))
+                        if history:
+                            ctx.sensitive_context = True
+                            ctx.untrusted_context = True
                     messages.append({"role": "user", "content": ctx.prompt})
                     arguments = {"messages": messages}
                 pump = asyncio.create_task(callbacks.pump())

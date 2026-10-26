@@ -193,13 +193,27 @@ class NativeBridge:
         self.status: dict = {"connected": False, "voice_state": "unavailable"}
         self.last_seen = 0.0
         self.pending: dict[str, asyncio.Future] = {}
+        self.operations: dict[str, dict] = {}
+        self.claimed: set[str] = set()
         self.calendar: dict = {"events": [], "state": "not_connected"}
 
     @property
     def connected(self):
         import time
 
-        return time.monotonic() - self.last_seen < 45
+        return self.last_seen > 0 and time.monotonic() - self.last_seen < 45
+
+    def claim(self, key: str, *, stopped=False):
+        future = self.pending.get(key)
+        operation = self.operations.get(key)
+        if not future or future.done() or not operation or key in self.claimed:
+            raise PermissionError(
+                "The native operation expired, was cancelled, or was already claimed."
+            )
+        if stopped and operation["operation"] not in {"control.mute", "control.stop"}:
+            raise PermissionError("Emergency stop is active.")
+        self.claimed.add(key)
+        return operation
 
     async def invoke(self, operation: str, arguments: dict, timeout=30):
         from .db import uid
@@ -209,6 +223,7 @@ class NativeBridge:
         key = uid()
         future = asyncio.get_running_loop().create_future()
         self.pending[key] = future
+        self.operations[key] = {"id": key, "operation": operation, "arguments": arguments}
         try:
             await self.db.emit(
                 "native.operation",
@@ -218,6 +233,8 @@ class NativeBridge:
             return await asyncio.wait_for(future, timeout)
         finally:
             self.pending.pop(key, None)
+            self.operations.pop(key, None)
+            self.claimed.discard(key)
 
     def complete(self, key: str, result: dict):
         future = self.pending.get(key)

@@ -12,4 +12,5 @@ for JARVIS_ICON_SIZE in 16 32 128 256 512; do
   sips -z "$JARVIS_RETINA_SIZE" "$JARVIS_RETINA_SIZE" assets/jarvis-icon.png --out "$JARVIS_ICON_DIR/Jarvis.iconset/icon_${JARVIS_ICON_SIZE}x${JARVIS_ICON_SIZE}@2x.png" >/dev/null
 done
 iconutil --convert icns --output native/Resources/Jarvis.icns "$JARVIS_ICON_DIR/Jarvis.iconset"
+.venv/bin/python scripts/strip-image-metadata.py assets/jarvis-icon.png native/Resources/Jarvis.icns
 print "App icon generated from web/src/assets/jarvis.svg."

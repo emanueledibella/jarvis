@@ -10,25 +10,86 @@ import sys
 import tempfile
 from pathlib import Path, PureWindowsPath
 
-from .platforms import process_environment
+from .platforms import data_directory, process_environment
 
-SENSITIVE = {".env", "api-token", "settings.json", "credentials.json", "secrets.json"}
+SENSITIVE = {
+    ".env",
+    "api-token",
+    "settings.json",
+    "credentials.json",
+    "secrets.json",
+    "mcp-servers.json",
+    "calendar-oauth.json",
+    ".mcp.json",
+    ".npmrc",
+    ".pypirc",
+    ".netrc",
+    "_netrc",
+    ".git-credentials",
+    ".bash_history",
+    ".zsh_history",
+    "auth.json",
+    "credentials",
+    "token.json",
+    "tokens.json",
+    "cookies.txt",
+}
+PRIVATE_DIRECTORIES = {
+    ".git",
+    ".runtime",
+    ".ssh",
+    ".aws",
+    ".azure",
+    ".gnupg",
+    ".kube",
+    ".docker",
+    ".codex",
+    ".config",
+    ".venv",
+    ".build-venv",
+    ".bootstrap-venv",
+    "node_modules",
+}
 
 
 class Workspace:
-    def __init__(self, roots: list[str]):
+    def __init__(self, roots: list[str], *, protected=()):
         self.roots = [Path(p).expanduser().resolve() for p in roots]
+        self.protected = [
+            data_directory().resolve(),
+            *[Path(p).expanduser().resolve() for p in protected if p],
+        ]
 
     def resolve(self, value: str, *, directory=False) -> tuple[Path, Path]:
+        if value.startswith("workspace://"):
+            from urllib.parse import urlsplit
+
+            parts = urlsplit(value)
+            if (
+                not parts.netloc.isdecimal()
+                or parts.query
+                or parts.fragment
+                or not 1 <= int(parts.netloc) <= len(self.roots)
+            ):
+                raise PermissionError("Unknown workspace slot.")
+            value = str(self.roots[int(parts.netloc) - 1] / parts.path.lstrip("/"))
         path = Path(value).expanduser()
         if not path.is_absolute():
             if not self.roots:
                 raise ValueError("No workspace is configured.")
             path = self.roots[0] / path
         absolute = Path(os.path.abspath(path))
+        physical = absolute.resolve()
+        if any(absolute.is_relative_to(p) or physical.is_relative_to(p) for p in self.protected):
+            raise PermissionError(
+                "Jarvis private configuration and runtime data are not workspace files."
+            )
         for root in self.roots:
             if absolute.is_relative_to(root):
                 rel = absolute.relative_to(root)
+                if not physical.is_relative_to(root):
+                    raise PermissionError("The symlink leaves the workspace.")
+                checked_parts = (*rel.parts, *physical.relative_to(root).parts)
                 if os.name == "nt" and any(
                     ":" in part or part.rstrip(" .") != part or PureWindowsPath(part).is_reserved()
                     for part in rel.parts
@@ -36,20 +97,15 @@ class Workspace:
                     raise PermissionError(
                         "Windows device names, alternate streams and ambiguous paths are not allowed."
                     )
-                if any(
-                    part.casefold() in {".git", ".runtime", ".ssh", ".aws", ".venv", "node_modules"}
-                    for part in rel.parts
-                ):
+                if any(part.casefold() in PRIVATE_DIRECTORIES for part in checked_parts):
                     raise PermissionError("Restricted path or excluded dependency.")
                 if any(
                     part.casefold() in SENSITIVE
                     or part.casefold().startswith(".env.")
-                    or part.casefold().endswith((".pem", ".key", ".p12"))
-                    for part in rel.parts
+                    or part.casefold().endswith((".pem", ".key", ".p12", ".pfx", ".env"))
+                    for part in checked_parts
                 ):
                     raise PermissionError("Restricted file: the tool does not read secrets.")
-                if not absolute.resolve().is_relative_to(root):
-                    raise PermissionError("The symlink leaves the workspace.")
                 if directory and not absolute.is_dir():
                     raise ValueError("Directory does not exist.")
                 return root, rel
@@ -81,7 +137,7 @@ class Workspace:
                 import stat
 
                 info = os.fstat(fd)
-                if not stat.S_ISREG(info.st_mode) or info.st_size > 256_000:
+                if not stat.S_ISREG(info.st_mode) or info.st_size > 256_000 or info.st_nlink != 1:
                     raise ValueError("A regular text file up to 256 KB is required.")
                 with os.fdopen(fd, "r", encoding="utf-8") as file:
                     fd = -1
