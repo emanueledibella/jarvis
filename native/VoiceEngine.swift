@@ -86,6 +86,7 @@ final class VoiceEngine: NSObject {
   private var outputLevel: Float = 0
   private var lastError: String?
   private var inputLevel: Float = 0
+  private var captureInputLevel: Float = 0
   private var inputBuffers = 0
   private var lastInputBuffer = Date.distantPast
   private var recognitionCallbacks = 0
@@ -362,11 +363,13 @@ final class VoiceEngine: NSObject {
       let detector = self.activityDetector
       self.requestLock.unlock()
       detector?.append(converted, atFrame: firstFrame)
-      let level = Self.rms(buffer)
+      let rawLevel = Self.rms(buffer)
+      let level = LiveAudioBuffer.level(converted)
       DispatchQueue.main.async {
         self.inputBuffers += 1
         self.lastInputBuffer = Date()
         self.inputLevel = level
+        self.captureInputLevel = rawLevel
         if recognitionAccepted {
           self.recognitionLiveness.receivedAudio(at: ProcessInfo.processInfo.systemUptime,
             seconds: audioSeconds, level: Double(level))
@@ -414,6 +417,7 @@ final class VoiceEngine: NSObject {
     if shared { replacePlaybackGraph() }
     echoCancellationEnabled = false
     inputLevel = 0
+    captureInputLevel = 0
     liveAudio.clear()
   }
 
@@ -1247,6 +1251,8 @@ final class VoiceEngine: NSObject {
       "recognition_callbacks": recognitionCallbacks, "wake_matches": wakeMatches,
       "recognition_task": recognitionTaskState.rawValue,
       "recognition_recoveries": recognitionRecoveries,
+      "capture_input_level": captureInputLevel,
+      "recognition_input_level": inputLevel,
       "echo_cancellation": echoCancellationEnabled ? "active" : (wantsAutomaticInterruption ? "fallback" : "off"),
       "barge_in": activityDetector != nil && echoCancellationEnabled,
       "interruptions": interruptionCount,

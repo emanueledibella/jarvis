@@ -26,6 +26,10 @@ final class LiveAudioBuffer: @unchecked Sendable {
     defer { lock.unlock() }
     if sourceFormat != buffer.format {
       converter = AVAudioConverter(from: buffer.format, to: pcm)
+      // Voice-processing input can include auxiliary/reference channels. Copy
+      // the processed microphone channel explicitly instead of mixing them.
+      converter?.channelMap = [0]
+      converter?.downmix = false
       sourceFormat = buffer.format
     }
     guard let converter = converter,
@@ -103,6 +107,17 @@ final class LiveAudioBuffer: @unchecked Sendable {
     result.frameLength = pcm.frameLength
     for index in 0..<Int(pcm.frameLength) { output[index] = Float(input[index]) / 32768 }
     return result
+  }
+
+  static func level(_ pcm: AVAudioPCMBuffer) -> Float {
+    guard pcm.format == format, pcm.frameLength > 0,
+      let samples = pcm.int16ChannelData?[0] else { return 0 }
+    var squares: Double = 0
+    for index in 0..<Int(pcm.frameLength) {
+      let value = Double(samples[index]) / 32768
+      squares += value * value
+    }
+    return Float(min(1, sqrt(squares / Double(pcm.frameLength)) * 8))
   }
 
   func begin(afterFrame: Int64? = nil, deferred: Bool = false, seed: Data? = nil) {

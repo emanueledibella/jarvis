@@ -58,6 +58,8 @@ class NativeStatus(BaseModel):
     wake_matches: int = Field(default=0, ge=0)
     recognition_task: Literal["idle", "starting", "running", "finishing", "canceling", "completed", "unknown"] = "idle"
     recognition_recoveries: int = Field(default=0, ge=0)
+    capture_input_level: float = Field(default=0, ge=0, le=1, allow_inf_nan=False)
+    recognition_input_level: float = Field(default=0, ge=0, le=1, allow_inf_nan=False)
     echo_cancellation: Literal["active", "fallback", "off"] = "off"
     barge_in: bool = False
     interruptions: int = Field(default=0, ge=0)

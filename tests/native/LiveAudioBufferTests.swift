@@ -137,6 +137,47 @@ struct LiveAudioBufferTests {
       "PCM16 conversion preserves signed amplitude without clipping or silence")
     expect(LiveAudioBuffer.recognitionBuffer(audio) == nil,
       "Unexpected input formats cannot be misread as PCM16")
-    print("21 native audio buffering scenarios passed")
+    let referenceFormat = AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 1)!
+    let referenceAudio = AVAudioPCMBuffer(pcmFormat: referenceFormat, frameCapacity: 480)!
+    referenceAudio.frameLength = 480
+    for index in 0..<480 {
+      referenceAudio.floatChannelData![0][index] = Float(sin(Double(index) / 10) * 0.2)
+    }
+    for channels in [2, 4] {
+      let layout = AVAudioChannelLayout(layoutTag: kAudioChannelLayoutTag_DiscreteInOrder | UInt32(channels))!
+      let multichannelFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32,
+        sampleRate: 48000, interleaved: false, channelLayout: layout)
+      let multichannel = AVAudioPCMBuffer(pcmFormat: multichannelFormat, frameCapacity: 480)!
+      multichannel.frameLength = 480
+      for channel in 0..<channels {
+        for index in 0..<480 {
+          let mic = referenceAudio.floatChannelData![0][index]
+          multichannel.floatChannelData![channel][index] = channel == 0 ? mic : -mic
+        }
+      }
+      let firstChannel = LiveAudioBuffer(), mono = LiveAudioBuffer()
+      for _ in 0..<80 {
+        firstChannel.append(multichannel)
+        mono.append(referenceAudio)
+      }
+      expect(firstChannel.snapshot(afterFrame: 0).data == mono.snapshot(afterFrame: 0).data,
+        "Multichannel capture must preserve the microphone channel without cancellation by auxiliary signals")
+    }
+    let metadataFormat = AVAudioFormat(standardFormatWithSampleRate: 48000, channels: 2)!
+    let metadata = AVAudioPCMBuffer(pcmFormat: metadataFormat, frameCapacity: 480)!
+    metadata.frameLength = 480
+    for index in 0..<480 {
+      metadata.floatChannelData![0][index] = 0
+      metadata.floatChannelData![1][index] = 0.9
+    }
+    let quietMic = LiveAudioBuffer()
+    for _ in 0..<80 { quietMic.append(metadata) }
+    let quiet = quietMic.snapshot(afterFrame: 0).data
+    expect(!quiet.isEmpty && quiet.allSatisfy { $0 == 0 },
+      "Non-microphone channels cannot become recognizer or provider input")
+    expect(LiveAudioBuffer.level(seedPCM) == 1
+      && LiveAudioBuffer.level(LiveAudioBuffer.buffer(Data(count: 20))!) == 0,
+      "The input meter measures the actual PCM sent to recognition and the provider")
+    print("25 native audio buffering scenarios passed")
   }
 }
