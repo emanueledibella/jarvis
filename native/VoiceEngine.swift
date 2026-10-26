@@ -7,7 +7,7 @@ import Speech
 @MainActor
 final class VoiceEngine: NSObject {
   private let client: ServiceClient
-  private var capture: AVAudioEngine?
+  private var capture: AudioCaptureSource?
   private var recognition: SFSpeechRecognitionTask?
   private var recognitionRestart: Task<Void, Never>?
   private var recovery = RecognitionRecovery()
@@ -315,6 +315,8 @@ final class VoiceEngine: NSObject {
   }
 
   func restartCapture(allowEchoCancellation: Bool = true) {
+    let selectedUID = settings["microphone_device_uid"] as? String ?? ""
+    let selectedInput = AudioInputSelection.resolve(selectedUID, devices: AudioInputDevices.list())
     stopSpeaking()
     stopCapture()
     guard
@@ -343,8 +345,6 @@ final class VoiceEngine: NSObject {
       return
     }
     self.recognizer = recognizer
-    let selectedUID = settings["microphone_device_uid"] as? String ?? ""
-    let selectedInput = AudioInputSelection.resolve(selectedUID, devices: AudioInputDevices.list())
     _ = inputRouteWatch.observe(selectedUID, device: selectedInput)
     inputDeviceMissing = selectedInput == nil
     guard let selectedInput = selectedInput else {
@@ -353,15 +353,27 @@ final class VoiceEngine: NSObject {
         : "The selected microphone is disconnected. Reconnect it or choose another microphone in Voice settings.")
       return
     }
+    if AudioInputSelection.needsIndependentCapture(selectedUID, device: selectedInput) {
+      do {
+        let recorder = try SelectedAudioInput(uid: selectedUID, receive: makeCaptureHandler())
+        capture = recorder
+        try recorder.start()
+        lastInputBuffer = Date()
+        resetRecognition()
+        setState("armed")
+      } catch {
+        stopCapture()
+        setState("unavailable", error: "Could not select this microphone. Refresh the microphone list or choose another input in Voice settings.")
+      }
+      return
+    }
     var engine = wantsAutomaticInterruption && allowEchoCancellation ? output : AVAudioEngine()
     var input = engine.inputNode
-    let cloudAudio = liveAudio
     if wantsAutomaticInterruption && allowEchoCancellation {
       do {
         // Both sides share VoiceProcessingIO, including the actual player. A
         // capture-only processing graph has no valid far-end echo reference.
         try input.setVoiceProcessingEnabled(true)
-        if !selectedUID.isEmpty { try AudioInputDevices.select(selectedInput, on: input) }
         guard input.isVoiceProcessingEnabled else {
           throw ServiceClient.ClientError.server("Echo cancellation is unavailable.")
         }
@@ -377,14 +389,6 @@ final class VoiceEngine: NSObject {
         echoCancellationEnabled = false
       }
     }
-    do {
-      if !selectedUID.isEmpty { try AudioInputDevices.select(selectedInput, on: input) }
-    } catch {
-      if engine === output { replacePlaybackGraph() }
-      echoCancellationEnabled = false
-      setState("unavailable", error: "Could not select this microphone. Refresh the microphone list or choose another input in Voice settings.")
-      return
-    }
     let format = input.outputFormat(forBus: 0)
     logger.info(
       "Capture format: rate=\(format.sampleRate, privacy: .public) channels=\(format.channelCount, privacy: .public)"
@@ -395,7 +399,31 @@ final class VoiceEngine: NSObject {
       setState("unavailable", error: "Microphone is unavailable.")
       return
     }
-    input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
+    let receiveAudio = makeCaptureHandler()
+    input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in receiveAudio(buffer) }
+    do {
+      engine.prepare()
+      try engine.start()
+      capture = engine
+      lastInputBuffer = Date()
+      resetRecognition()
+      setState("armed")
+    } catch {
+      input.removeTap(onBus: 0)
+      let retryWithoutProcessing = echoCancellationEnabled
+      if engine === output { replacePlaybackGraph() }
+      echoCancellationEnabled = false
+      if retryWithoutProcessing {
+        restartCapture(allowEchoCancellation: false)
+        return
+      }
+      setState("unavailable", error: "Audio startup failed: check the device and permissions.")
+    }
+  }
+
+  private func makeCaptureHandler() -> (AVAudioPCMBuffer) -> Void {
+    let cloudAudio = liveAudio
+    return { [weak self] buffer in
       guard let self = self else { return }
       let firstFrame = cloudAudio.position()
       guard let converted = cloudAudio.append(buffer) else { return }
@@ -430,24 +458,6 @@ final class VoiceEngine: NSObject {
         }
       }
     }
-    do {
-      engine.prepare()
-      try engine.start()
-      capture = engine
-      lastInputBuffer = Date()
-      resetRecognition()
-      setState("armed")
-    } catch {
-      input.removeTap(onBus: 0)
-      let retryWithoutProcessing = echoCancellationEnabled
-      if engine === output { replacePlaybackGraph() }
-      echoCancellationEnabled = false
-      if retryWithoutProcessing {
-        restartCapture(allowEchoCancellation: false)
-        return
-      }
-      setState("unavailable", error: "Audio startup failed: check the device and permissions.")
-    }
   }
 
   private func stopCapture() {
@@ -458,7 +468,7 @@ final class VoiceEngine: NSObject {
     let shared = capture === output
     if let engine = capture {
       engine.stop()
-      engine.inputNode.removeTap(onBus: 0)
+      (engine as? AVAudioEngine)?.inputNode.removeTap(onBus: 0)
     }
     capture = nil
     if shared { replacePlaybackGraph() }

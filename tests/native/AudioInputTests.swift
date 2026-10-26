@@ -28,7 +28,8 @@ struct AudioInputTests {
     expect(watch.observe("", device: builtIn), "Following default responds to a route change")
     expect(watch.observe(builtIn.uid, device: builtIn), "An explicit choice replaces follow-default mode")
     builtIn.isDefault = false
-    expect(!watch.observe(builtIn.uid, device: builtIn), "Other apps changing the default cannot move a pinned input")
+    expect(watch.observe(builtIn.uid, device: builtIn), "A new system default rebuilds capture to preserve the pinned microphone")
+    expect(!watch.observe(builtIn.uid, device: builtIn), "A stable independent input does not restart capture")
     expect(watch.observe(builtIn.uid, device: nil), "Disconnecting pauses the pinned input")
     expect(!watch.observe(builtIn.uid, device: nil), "A disconnected input does not cause a restart loop")
     expect(watch.observe(builtIn.uid, device: builtIn), "Reconnecting restores the same microphone")
@@ -38,6 +39,14 @@ struct AudioInputTests {
     expect(!watch.observe(builtIn.uid, device: renamed), "Display-name changes cannot interrupt capture")
     expect(!builtIn.catalogEntry.keys.contains("id"), "Transient hardware IDs are not exposed in settings")
     expect(Set(builtIn.catalogEntry.keys) == Set(["uid", "name", "is_default", "bluetooth"]), "Only the local picker metadata is returned")
+    expect(AudioInputSelection.needsIndependentCapture(builtIn.uid, device: builtIn), "A microphone different from the default uses device-bound capture")
+    expect(!AudioInputSelection.needsIndependentCapture("", device: builtIn), "Follow-default retains shared echo cancellation")
+    builtIn.isDefault = true
+    expect(!AudioInputSelection.needsIndependentCapture(builtIn.uid, device: builtIn), "A pinned microphone matching the default retains shared processing")
+    expect(AudioInputSelection.isSelectable(uid: "fixture-usb-input", aggregate: false), "Physical and ordinary virtual microphones remain selectable")
+    expect(!AudioInputSelection.isSelectable(uid: "fixture-private-aggregate", aggregate: true), "Processing aggregates are not physical input choices")
+    expect(!AudioInputSelection.isSelectable(uid: "CADefaultDeviceAggregate-fixture", aggregate: false), "Temporary default-route aggregates are excluded even before transport settles")
+    expect(!AudioInputSelection.isSelectable(uid: "VPAUAggregateAudioDevice-fixture", aggregate: false), "Temporary echo-processing inputs are excluded")
     print("\(checks) native audio input scenarios passed")
   }
 }

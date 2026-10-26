@@ -24,12 +24,19 @@ device resumes capture, subject to the existing mute/lock/permission controls. F
 the system default instead follows changes made in macOS. Device availability is checked
 locally every two seconds while voice is enabled and unmuted.
 
-The selected device is applied to the input node's Audio Unit before starting capture,
-using [Apple's `AUAudioUnit.setDeviceID`](https://developer.apple.com/documentation/audiotoolbox/auaudiounit/setdeviceid(_:)).
-Jarvis does not change the system default input. If the device cannot support the shared
-echo-processing graph with this route, capture uses the existing protected playback
-fallback. Automatic interruption is available only when local echo cancellation succeeds;
-the interface reports the actual mode and the global shortcut remains available.
+When the chosen microphone differs from the system default, a device-bound
+[`AVCaptureDeviceInput`](https://developer.apple.com/documentation/avfoundation/avcapturedeviceinput)
+captures its audio directly. PCM buffers feed the existing local recognition and voice
+transport without changing the system input or output. This independent route uses
+protected playback and manual interruption. When following the default, or when a pinned
+device matches the default, the existing shared echo-processing graph remains available.
+Changing the system default rebuilds the appropriate capture path while preserving a
+pinned microphone. The interface reports actual echo cancellation/interruption availability;
+the global shortcut remains available in protected mode.
+
+Private processing aggregates are excluded from the picker. Audio is copied out of capture
+sample buffers before entering the common pipeline, preserving channel layout and sample
+rate while avoiding retained pointers into a recycled capture buffer.
 
 The [wake watchdog](23-automatic-wake-recovery.md) still recovers a stalled recognizer or
 capture graph. A disconnected pinned input waits for reconnection rather than repeatedly
@@ -51,7 +58,8 @@ reports the feature as unavailable and does not queue native operations.
 
 Native tests cover default versus pinned inputs, missing devices, duplicate names, exact
 UID matching, disconnect/reconnect, hardware-ID changes, and unrelated default/name
-changes. Python tests exercise environment precedence, validation, authenticated catalog
+changes, and when to use independent capture. PCM tests verify frame/channel fidelity,
+owned buffer memory, and rejection of unready samples. Python tests exercise environment precedence, validation, authenticated catalog
 retrieval through the actual bridge, settings synchronization, event redaction, and the
 portable boundary. UI tests verify English/Italian labels, an unavailable saved selection,
 disabled controls, and HTML escaping of device names. The full native bundle and web UI
