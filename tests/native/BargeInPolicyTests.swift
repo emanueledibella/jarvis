@@ -38,6 +38,19 @@ struct BargeInPolicyTests {
     policy.begin(atFrame: 50000)
     expect(policy.take(startFrame: 50000, endFrame: 62000, confidence: 0.8,
       currentFrame: 63000, echoProtected: true, playing: true), "A later assistant answer can be interrupted independently")
-    print("14 native spoken interruption scenarios passed")
+    policy.reset()
+    policy.begin(atFrame: 70000)
+    policy.releaseInput(atFrame: 85000)
+    expect(policy.take(startFrame: 80000, endFrame: 92000, confidence: 0.95,
+      currentFrame: 93000, echoProtected: true, playing: false), "A word spoken over the last syllable is recovered after playback ends")
+    policy.reset()
+    policy.begin(atFrame: 70000)
+    policy.releaseInput(atFrame: 85000)
+    expect(!policy.take(startFrame: 86000, endFrame: 98000, confidence: 0.95,
+      currentFrame: 99000, echoProtected: true, playing: false), "A fully ungated follow-up must not open an unnecessary replacement connection")
+    policy.begin(atFrame: 100000)
+    expect(policy.playbackStart == 100000 && policy.inputReleasedAt == nil,
+      "The next answer resets the old question's acoustic hangover")
+    print("17 native spoken interruption scenarios passed")
   }
 }

@@ -21,6 +21,7 @@ final class VoiceEngine: NSObject {
   private var detectionGeneration = UUID()
   private var echoCancellationEnabled = false
   private var bargeIn = BargeInPolicy()
+  private var playbackInputGated = false
   private var interruptionCount = 0
   private var output = AVAudioEngine()
   private var player = AVAudioPlayerNode()
@@ -258,7 +259,7 @@ final class VoiceEngine: NSObject {
       voiceScope = scope
       conversationID = nil
       sessionGeneration = UUID()
-      closeLive()
+      stopSpeaking()
       liveAudio.clear()
       recognitionSeed = nil
       if !muted && !locked { resetRecognition() }
@@ -706,7 +707,7 @@ final class VoiceEngine: NSObject {
       liveSocket != nil || endingLive,
       bargeIn.take(startFrame: start, endFrame: end, confidence: confidence,
         currentFrame: liveAudio.position(), echoProtected: echoCancellationEnabled,
-        playing: pendingBuffers > 0 || player.isPlaying) else { return }
+        playing: pendingBuffers > 0 || player.isPlaying || playbackInputGated) else { return }
     let seed = liveAudio.snapshot(afterFrame: max(0, start - 2400))
     guard !seed.data.isEmpty else { return }
     let resume = liveResumeID ?? nextResumeID
@@ -860,7 +861,10 @@ final class VoiceEngine: NSObject {
     if Self.rms(converted) > 0.01 {
       bargeIn.begin(atFrame: liveAudio.position())
       lastLiveSpeech = Date()
-      if settings["desktop_voice_duplex"] as? String != "full" { liveAudio.setGated(true) }
+      if settings["desktop_voice_duplex"] as? String != "full" {
+        liveAudio.setGated(true)
+        playbackInputGated = true
+      }
       if state != "speaking" { setState("speaking") }
     }
     try enqueuePlayback(converted, realtime: true)
@@ -911,6 +915,7 @@ final class VoiceEngine: NSObject {
       return
     }
     stopSpeechDetection()
+    playbackInputGated = false
     speechGeneration = UUID()
     player.stop()
     stopOutputIfSeparate()
@@ -1000,7 +1005,13 @@ final class VoiceEngine: NSObject {
         && current.timeIntervalSince(lastPlaybackSound) > 0.4
       {
         liveAudio.setGated(false)
-        bargeIn.reset()
+        if playbackInputGated {
+          bargeIn.releaseInput(atFrame: liveAudio.position())
+          playbackInputGated = false
+        }
+        if let released = bargeIn.inputReleasedAt, liveAudio.position() - released > 24000 {
+          bargeIn.reset()
+        }
       }
     } else if state == "listening" {
       let silence = max(lastTextAt, lastSoundAt)
@@ -1156,6 +1167,7 @@ final class VoiceEngine: NSObject {
 
   func stopSpeaking(handoff: Bool = false) {
     closeLive(handoff: handoff)
+    playbackInputGated = false
     endingLive = false
     speechGeneration = UUID()
     synth.stopSpeaking(at: .immediate)

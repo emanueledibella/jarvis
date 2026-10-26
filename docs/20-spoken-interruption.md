@@ -14,7 +14,7 @@ Automatic mode puts microphone capture and the response player in the **same AVA
 
 The already-processed microphone stream is converted once to mono PCM16 at 24 kHz. The local Apple SoundAnalysis classifier checks 500 ms overlapping windows for speech; loudness alone never triggers interruption. The model is supplied by macOS, without an external model download or cloud classification request. See [SNClassifySoundRequest](https://developer.apple.com/documentation/soundanalysis/snclassifysoundrequest).
 
-The policy requires at least 0.80 speech confidence, active playback, enabled echo processing, and a fresh window captured after playback began. It rejects delayed results from the original question, malformed timestamps, and results more than 750 ms behind capture. Overlapping classifications can interrupt the same answer only once. Analysis work runs away from the audio tap and has a bounded one-second queue; overload or classifier failure preserves the gated fallback.
+The policy requires at least 0.80 speech confidence, active playback, enabled echo processing, and a fresh window captured after playback began. It rejects delayed results from the original question, malformed timestamps, and results more than 750 ms behind capture. Overlapping classifications can interrupt the same answer only once. A one-second recovery window also accepts speech that began during the gated playback tail; fully ungated follow-ups keep the existing connection. Analysis work runs away from the audio tap and has a bounded one-second queue; overload or classifier failure preserves the gated fallback.
 
 The provider uplink stays silent during playback. A 1.5-second, processed microphone history remains local so the user's onset can be recovered when an interruption is confirmed. Playback is stopped immediately after that local confirmation. The audio snapshot seeds both the local recognizer and the new provider connection. Gating stays in place until actual queued playback and its trailing echo interval have finished; a gap between network packets alone is insufficient to reopen the uplink.
 
@@ -32,7 +32,7 @@ Interruption opens another voice connection only when recognized user speech sta
 
 ## Verification and remaining device check
 
-The current suite collects 138 Python tests and runs 81 native Swift scenarios. Added cases cover stale speech windows, protected fallback, single-trigger behavior, preserved audio onset, gated wire samples, bounded buffers, single-use context, privacy boundaries, timed RAM cleanup, and non-replay of accepted tasks. Frontend checks retain full English/Italian copy coverage.
+The current suite collects 138 Python tests and runs 84 native Swift scenarios. Added cases cover stale speech windows, protected fallback, single-trigger behavior, preserved audio onset, gated wire samples, bounded buffers, single-use context, privacy boundaries, timed RAM cleanup, and non-replay of accepted tasks. Frontend checks retain full English/Italian copy coverage.
 
 An offline probe also exercised the actual Apple classifier with a bundled synthetic cue, without microphone capture or speaker playback. It identified speech and preserved absolute stream frame positions. That probe does not validate acoustic echo removal.
 
