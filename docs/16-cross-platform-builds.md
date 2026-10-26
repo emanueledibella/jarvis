@@ -50,15 +50,15 @@ Build and launch commands for each OS are in the [README](../README.md#build-and
 
 ## Verification results
 
-The hardened preview was built from `b858bfd6ea41e686364a799b4a3c77495d94cf8b`; [native CI and frozen-app checks](https://github.com/emanueledibella/jarvis/actions/runs/40284754035) passed on all three systems. The [security gate](https://github.com/emanueledibella/jarvis/actions/runs/40284754112) passed independently.
+The current preview was built from `0e403738272ebfe6cb13b02e380bf4f6efed7bd8`; [native CI and frozen-app checks](https://github.com/emanueledibella/jarvis/actions/runs/40289020296) passed on all three systems. The [security gate](https://github.com/emanueledibella/jarvis/actions/runs/40289020314) passed independently.
 
 The release executable records its source revision in `BUILD-INFO.json`. CI evidence is available in the repository’s Portable builds workflow.
 
 | Host | Python tests | Frontend | Executable validation |
 | --- | --- | --- | --- |
-| Windows Server 2022, x86-64 | 111 passed, one macOS-only skip | TypeScript/Vite passed | Native PyInstaller EXE, isolated frozen-app smoke test |
-| Ubuntu 22.04, x86-64 | 110 passed, two platform-specific skips | TypeScript/Vite passed | Native PyInstaller ELF, isolated frozen-app smoke test |
-| macOS, ARM64 | 110 passed, two platform-specific skips; 34 Swift scenarios passed | TypeScript/Vite passed | Native Swift bundle compiled and ad-hoc signature verified locally in a separate build directory |
+| Windows Server 2022, x86-64 | 118 passed, one macOS-only skip | TypeScript/Vite passed | Native PyInstaller EXE, isolated frozen-app smoke test |
+| Ubuntu 22.04, x86-64 | 117 passed, two platform-specific skips | TypeScript/Vite passed | Native PyInstaller ELF, isolated frozen-app smoke test |
+| macOS, ARM64 | 117 passed, two platform-specific skips; 40 Swift scenarios passed | TypeScript/Vite passed | Native Swift bundle compiled and ad-hoc signature verified locally |
 
 Release archives are additionally checked for their SHA256, executable format, bundled frontend, source/lockfile identifiers, and absence of private runtime filenames. No production service restart or microphone activation is needed for this verification. No paid model request is made.
 

@@ -31,7 +31,7 @@ The bundle is compiled/ad-hoc signed for local use. It references this project a
 
 ## Build and run on Windows or Linux
 
-Download the [portable preview release](https://github.com/emanueledibella/jarvis/releases/tag/v0.1.0-portable-preview.3): [Windows ZIP with EXE](https://github.com/emanueledibella/jarvis/releases/download/v0.1.0-portable-preview.3/Jarvis-Windows-x86_64.zip) · [Linux TAR.GZ](https://github.com/emanueledibella/jarvis/releases/download/v0.1.0-portable-preview.3/Jarvis-Linux-x86_64.tar.gz). SHA256 checksum files are included on the release page.
+Download the [portable preview release](https://github.com/emanueledibella/jarvis/releases/tag/v0.1.0-portable-preview.4): [Windows ZIP with EXE](https://github.com/emanueledibella/jarvis/releases/download/v0.1.0-portable-preview.4/Jarvis-Windows-x86_64.zip) · [Linux TAR.GZ](https://github.com/emanueledibella/jarvis/releases/download/v0.1.0-portable-preview.4/Jarvis-Linux-x86_64.tar.gz). SHA256 checksum files are included on the release page.
 
 The portable preview includes the Python runtime pinned in `.python-version` and the same React dashboard. Extract the **entire** archive, keeping the executable beside `_internal`. Windows starts with `Jarvis.exe`; Linux starts with `./Jarvis`. The launcher opens the local authenticated dashboard. Keep its console open; **Ctrl+C** stops the service. Closing the browser tab keeps tasks running.
 
