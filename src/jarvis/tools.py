@@ -10,7 +10,9 @@ from zoneinfo import ZoneInfo
 from langchain_core.tools import StructuredTool, ToolException
 
 from .lighting import LightChange
-from .policy import active_task
+from .network import public_url
+from .policy import active_task, digest
+from .retrieval import RECOVERABLE_READ_TOOLS, InformationUnavailable
 from .scheduler import ScheduleInput
 from .workspace import Workspace
 
@@ -106,6 +108,8 @@ def build_tools(runtime):
                             else runtime.config.settings.command_timeout_seconds + 5
                         ):
                             result = await function(**arguments)
+                        if name == "weather":
+                            active_task.get().public_tool_reads.add(digest([name, arguments]))
                         encoded = json.dumps(result, ensure_ascii=False, default=str)
                         if len(encoded) > 32000:
                             return {
@@ -121,6 +125,19 @@ def build_tools(runtime):
                     result = await runtime.gateway.invoke(name, arguments, operation_risk, execute)
                 except (ValueError, PermissionError, FileNotFoundError) as error:
                     raise ToolException(str(error)) from None
+                except Exception as error:
+                    if name not in RECOVERABLE_READ_TOOLS:
+                        raise
+                    await runtime.db.emit(
+                        "tool.failed", {"tool": name, "error": type(error).__name__},
+                        active_task.get().id, private=active_task.get().private,
+                    )
+                    # Read errors must leave the agent able to choose another
+                    # source. Never export raw provider errors or credentials.
+                    result = {
+                        "state": "unavailable", "tool": name, "error": type(error).__name__,
+                        "message": "This read could not retrieve the requested information. Try another authorized source; use web search for public facts. Private facts still require their private source.",
+                    }
                 return json.dumps(result, ensure_ascii=False, default=str)
 
             # Infer the schema from the typed implementation, retaining the gateway
@@ -140,6 +157,53 @@ def build_tools(runtime):
             return function
 
         return decorate
+
+    async def public_web_recovery(query: str):
+        ctx = active_task.get()
+        if ctx.profile == "local_strict" or runtime.gateway.blocked:
+            raise PermissionError("Public web recovery is suspended by the current policy.")
+        async with ctx.web_recovery_locks.setdefault(query, asyncio.Lock()):
+            if query in ctx.web_recoveries:
+                return ctx.web_recoveries[query]
+            ctx.grant_public_query(query)
+            result = {"state": "unavailable", "attempted": True, "query": query, "results": [], "pages": []}
+            by_name = {tool.name: tool for tool in tools}
+            try:
+                async with asyncio.timeout(min(runtime.config.settings.tool_timeout_seconds / 3, 10)):
+                    search = json.loads(await by_name["web_search"].ainvoke({"query": query, "limit": 3}))
+                result["results"] = [
+                    {"title": str(item.get("title", ""))[:500], "url": str(item.get("url", ""))[:2048],
+                     "snippet": str(item.get("snippet", ""))[:1000]}
+                    for item in search.get("results", [])[:3] if isinstance(item, dict)
+                ]
+
+                async def read_result(item):
+                    if item["url"] not in ctx.public_pages:
+                        return None
+                    try:
+                        async with asyncio.timeout(min(runtime.config.settings.tool_timeout_seconds / 3, 8)):
+                            page = json.loads(await by_name["read_web_page"].ainvoke({"url": item["url"]}))
+                        if page.get("text", "").strip():
+                            return {
+                                "url": page.get("url", item["url"]), "title": page.get("title", ""),
+                                "text": page["text"][:4000], "truncated": page.get("truncated", False) or len(page["text"]) > 4000,
+                            }
+                    except Exception:
+                        pass
+                    return None
+
+                pages = await asyncio.gather(*(read_result(item) for item in result["results"]))
+                result["pages"] = [page for page in pages if page][:2]
+                if result["pages"]:
+                    result["state"] = "ready"
+                elif result["results"]:
+                    result["state"] = "snippets_only"
+                result["message"] = "Use the page evidence to answer the public question. Snippets alone are unverified. Check dates, location, and whether the source actually supplies the missing information."
+            except Exception as error:
+                result["error"] = type(error).__name__
+                result["message"] = "The public web lookup was attempted but did not return usable evidence. Explain what remains unknown; do not invent results or repeat the same failed search."
+            ctx.web_recoveries[query] = result
+            return result
 
     @register(
         "current_time",
@@ -167,13 +231,39 @@ def build_tools(runtime):
 
     @register(
         "weather",
-        "Read current weather and daily forecasts for the configured location or a requested city. days is 1–16, default 7 including today. For tomorrow, a weekend, or a specific period, set start_date (YYYY-MM-DD) and days; the entire range must fit within today and the next 15 days. Verify relative dates with current_time. Use daily.time and daily weather/rain/temperature values for future dates, not current conditions. Returns units, coverage, source, freshness, and stale status.",
+        "Read current weather and daily forecasts for the configured location or a requested city. days is 1–16, default 7 including today; start_date is YYYY-MM-DD. Verify relative dates with current_time. The forecast API covers today and the next 15 days. Still call this tool for a requested later date: it can research public web sources when the API lacks coverage or data, without promising that exact forecasts exist. Use daily.time for forecast dates, not current conditions. Returns source, freshness, coverage, public_web_query, and any web_recovery evidence.",
         "network_read",
     )
     async def weather(location: str | None = None, days: int = 7, start_date: str | None = None):
-        return await runtime.productivity.weather(
-            active_task.get().profile, location, days=days, start_date=start_date
-        )
+        ctx = active_task.get()
+        query = None
+        try:
+            request = runtime.productivity.weather_request(ctx.profile, location, days=days, start_date=start_date)
+            query = request.public_query
+            if query:
+                ctx.grant_public_query(query)
+            async with asyncio.timeout(min(runtime.config.settings.tool_timeout_seconds / 3, 10)):
+                result = await runtime.productivity.weather(ctx.profile, location, days=days, start_date=start_date)
+        except InformationUnavailable as error:
+            query = query or error.public_query
+            result = {"state": "unavailable", "message": str(error), "public_web_query": error.public_query}
+        except (TimeoutError, ConnectionError):
+            result = {"state": "unavailable", "message": "The weather lookup did not return in time.", "public_web_query": query}
+        result = {**result, "public_web_query": query}
+        if query:
+            # Only the adapter can construct this query from a validated place
+            # label and dates. No transcript, memory, coordinates, or error text.
+            ctx.grant_public_query(query)
+            result = {**result, "public_web_query": query}
+            daily = result.get("daily", {})
+            no_values = bool(daily) and not any(
+                value is not None for name in ("weather_code", "temperature_2m_min", "temperature_2m_max")
+                for value in daily.get(name, [])
+            )
+            if (result.get("state") in {"unavailable", "error", "empty", "not_found", "not_configured"} or result.get("stale")
+                    or result.get("forecast", {}).get("complete") is False or no_values):
+                result = {**result, "web_recovery": await public_web_recovery(query)}
+        return result
 
     @register(
         "calendar_events", "Read actual events from the connected calendar for the next few days."
@@ -230,11 +320,39 @@ def build_tools(runtime):
 
     @register(
         "web_search",
-        "Search the web for current information. Snippets are clues: open relevant sources with read_web_page and cite the links.",
+        "Search the web for public information when a previous read fails or lacks needed data. Use public_web_query when provided; for weather you may append one of hourly, humidity, rain, wind, snow, temperature. Snippets are leads: read relevant pages with read_web_page. Never export private results or credentials. Routine weather does not need spoken provider names.",
         "network_read",
     )
     async def web_search(query: str, limit: int = 5):
-        return await runtime.productivity.search(query, active_task.get().profile, limit)
+        ctx = active_task.get()
+        root = ctx.public_query_roots.get(query)
+        if root:
+            async with ctx.web_recovery_locks.setdefault(("search", query), asyncio.Lock()):
+                if query in ctx.public_search_results:
+                    return {**ctx.public_search_results[query], "cached": True}
+                attempts = ctx.public_search_attempts.setdefault(root, set())
+                if query in attempts or len(attempts) >= 2:
+                    return {"state": "unavailable", "query": query, "results": [], "cached": True,
+                            "message": "This lookup was already attempted or its two-query recovery budget is exhausted. Use the evidence already returned and explain remaining uncertainty."}
+                attempts.add(query)
+                result = await runtime.productivity.search(query, ctx.profile, min(limit, 5))
+                result = allow_public_pages(ctx, result, limit)
+                ctx.public_search_results[query] = result
+                return result
+        return await runtime.productivity.search(query, ctx.profile, limit)
+
+    def allow_public_pages(ctx, result, limit):
+        if result.get("results"):
+            for item in result.get("results", [])[:min(limit, 5)]:
+                url = item.get("url", "")
+                try:
+                    if isinstance(url, str) and len(url) <= 2048:
+                        canonical = public_url(url)
+                        ctx.public_pages.add(canonical)
+                        item["url"] = canonical
+                except ValueError:
+                    continue
+        return result
 
     @register(
         "read_web_page",
@@ -331,7 +449,14 @@ def build_tools(runtime):
         from .schemas import validate_arguments
 
         ctx = active_task.get()
-        tools = await runtime.mcp.discover(server, ctx.profile)
+        try:
+            tools = await runtime.mcp.discover(server, ctx.profile)
+        except PermissionError:
+            raise
+        except Exception as error:
+            ctx.sensitive_context = True
+            return {"state": "unavailable", "stage": "discovery", "effect_executed": False,
+                    "error": type(error).__name__, "message": "MCP discovery failed before any operation started. Try another authorized information source or public documentation; private access still requires the configured connection."}
         spec = next((x for x in tools if x["name"] == tool and x["enabled"]), None)
         if not spec:
             raise PermissionError("Tool is not allowed by the server policy.")
@@ -344,13 +469,22 @@ def build_tools(runtime):
                 raise PermissionError("The tool must use the conversation scope.")
             arguments = {**arguments, "scope": ctx.scope}
         await validate_arguments(spec["schema"], arguments)
-        result = await runtime.gateway.invoke(
-            "mcp__" + server + "__" + tool,
-            arguments,
-            "external" if spec["risk"] == "write" else "network_read",
-            lambda: runtime.mcp.call(server, tool, arguments, ctx.profile),
-        )
-        ctx.sensitive_context = True
+        try:
+            result = await runtime.gateway.invoke(
+                "mcp__" + server + "__" + tool,
+                arguments,
+                "external" if spec["risk"] == "write" else "network_read",
+                lambda: runtime.mcp.call(server, tool, arguments, ctx.profile),
+            )
+        except PermissionError:
+            raise
+        except Exception as error:
+            if spec["risk"] == "write":
+                raise
+            result = {"state": "unavailable", "error": type(error).__name__,
+                      "message": "This read-only MCP tool did not retrieve the information. Try another authorized source or research public documentation; do not publish private facts or bypass connection permissions."}
+        finally:
+            ctx.sensitive_context = True
         return result
 
     @register("tasks_list", "Read tasks and the actual state of background work.")

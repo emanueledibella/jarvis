@@ -138,10 +138,12 @@ async def test_live_delegation_uses_deep_agent_once_and_accounts_audio(runtime, 
     assert connection.configuration["store"] is False
     assert connection.configuration["delegation"] == {"type": "client"}
     from jarvis.language import language_instructions
+    from jarvis.retrieval import WEB_FALLBACK_POLICY
     from jarvis.voice_style import SOURCE_POLICY
 
     assert language_instructions("auto", "it-IT") in connection.configuration["instructions"]
     assert SOURCE_POLICY in connection.configuration["instructions"]
+    assert WEB_FALLBACK_POLICY in connection.configuration["instructions"]
     assert runtime.config.settings.desktop_voice_style in connection.configuration["instructions"]
     assert connection.configuration["audio"]["output"]["voice"] == (
         {"id": voice} if voice.startswith("voice_") else voice

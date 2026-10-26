@@ -54,8 +54,9 @@ Select an installed model with structured tool support. Verify a real `current_t
 ## Weather forecasts
 
 The `weather` tool provides current conditions and daily forecasts, with seven days starting
-today by default. Optional `days` (1–16) and ISO `start_date` select a specific period; the
-whole interval must fit within today and the following 15 days in the configured time zone.
+today by default. Optional `days` (1–16) and ISO `start_date` select a specific period. The
+forecast API covers today and the following 15 days in the configured time zone; a later
+date can still trigger public web research rather than an immediate capability refusal.
 Relative dates such as tomorrow or the weekend are resolved using `current_time`. The
 agent uses `daily.time` and the corresponding forecast values, separately from `current`.
 
@@ -74,6 +75,47 @@ No unused hourly arrays are requested. The horizon and daily variables follow th
 zone changes, invalid/out-of-range arguments before any network request, partial/malformed
 provider data, stale fallback, strict offline mode, and ongoing text/live task permissions.
 Fixtures are synthetic and never use a personal location or paid model.
+
+## Tool recovery and web research
+
+Text and voice share a recovery policy: a failed, empty, incomplete, or stale read is not
+an immediate reason to stop. Correct invalid arguments, use another suitable authorized
+source, and research public facts with `web_search` and `read_web_page` before reporting
+that the information remains unavailable. Private memories, calendars, files, account
+permissions, and uncertain mutations cannot be replaced by a public search.
+
+Read-only network failures produce sanitized, recoverable tool outcomes rather than
+aborting the entire agent task. MCP discovery failure explicitly means no operation has
+started; an uncertain MCP write keeps its effect ledger and is never silently replayed.
+Raw provider errors and credentials are not included in public lookup queries.
+
+Weather has a deterministic recovery path. Its adapter validates the place, date, and
+length and constructs a public query using only the place label and requested dates.
+Unavailability, partial coverage, stale fallback, and entirely missing forecast values
+trigger one search and parallel reads of at most three result pages. Up to two page
+excerpts enter the evidence. The primary result and `web_recovery` remain separate.
+When an otherwise successful result lacks a requested detail, the agent can use
+`public_web_query`, optionally adding one fixed weather focus: hourly, humidity, rain,
+wind, snow, or temperature. Exact query grants and resulting public URLs avoid redundant
+approvals without permitting private content to become another query or URL.
+
+At most two distinct queries per validated weather topic are attempted in a task, with
+task-local deduplication of repeated searches/recovery. Read/search/page stages have
+bounded timeouts within the tool budget. The keyless DuckDuckGo provider tries its Lite
+entry point once if HTML returns no usable results; it does not silently change provider.
+Successful complete tools do not trigger extra web requests. Coordinates without a
+configured place label are not copied into public search. Grants/caches stay in task RAM.
+
+Sources must match the requested location/date and actually supply the needed fact.
+Snippets, seasonal averages, old articles, missing values, and unsupported exact forecasts
+must not be presented as verified future observations. If alternate sources also fail,
+Jarvis explains what was tried and what remains unknown. Routine weather does not need
+mandatory spoken provider names. Offline mode, emergency stop, denied permissions, and
+private-data export controls remain authoritative.
+
+`tests/test_web_recovery.py` covers the recovery chain, timeouts, focused queries and
+budgets, deduplication, HTML/Lite parsing, failure of both sources, MCP read/write outcomes,
+scope/egress protections, and ongoing text/live conversations with synthetic evidence.
 
 ## Memory and authentication
 

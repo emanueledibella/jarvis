@@ -6,8 +6,9 @@ import json
 import os
 import time
 import unicodedata
+from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
-from urllib.parse import quote, urlencode
+from urllib.parse import parse_qs, quote, urlencode, urljoin, urlsplit
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -15,8 +16,38 @@ from bs4 import BeautifulSoup
 
 from .config import ConfigStore
 from .network import fetch_public
+from .retrieval import InformationUnavailable
 
 MAX_FORECAST_DAYS = 16
+
+
+@dataclass(frozen=True)
+class WeatherRequest:
+    location: str
+    today: date
+    first: date
+    public_query: str | None
+
+
+def duckduckgo_results(raw: bytes, limit: int) -> list[dict]:
+    soup = BeautifulSoup(raw, "html.parser")
+    candidates = []
+    for item in soup.select(".result"):
+        link = item.select_one(".result__a")
+        if link:
+            candidates.append((link, item.select_one(".result__snippet")))
+    if not candidates:
+        for link in soup.select("a.result-link"):
+            row = link.find_parent("tr")
+            following = row.find_next_sibling("tr") if row else None
+            candidates.append((link, following.select_one(".result-snippet") if following else None))
+    results = []
+    for link, snippet in candidates[:limit]:
+        url = urljoin("https://duckduckgo.com/", link.get("href", ""))
+        url = parse_qs(urlsplit(url).query).get("uddg", [url])[0]
+        results.append({"title": link.get_text(" ", strip=True), "url": url,
+                        "snippet": snippet.get_text(" ", strip=True) if snippet else ""})
+    return results
 
 
 class Productivity:
@@ -32,10 +63,10 @@ class Productivity:
                 "This capability uses the network and is not allowed in the strict local profile."
             )
 
-    async def weather(
+    def weather_request(
         self, profile: str, location: str | None = None, *, days: int = 7,
         start_date: str | None = None,
-    ) -> dict:
+    ) -> WeatherRequest:
         self.remote(profile)
         settings = self.config.settings
         if type(days) is not int or not 1 <= days <= MAX_FORECAST_DAYS:
@@ -48,11 +79,6 @@ class Productivity:
         except (TypeError, ValueError):
             raise ValueError("start_date must be an ISO date (YYYY-MM-DD).") from None
         last_available = today + timedelta(days=MAX_FORECAST_DAYS - 1)
-        if not today <= first <= last_available or first + timedelta(days=days - 1) > last_available:
-            raise ValueError(
-                f"Forecasts are available from {today.isoformat()} through {last_available.isoformat()} "
-                "(up to 16 days including today). Choose a date range within that window."
-            )
         location = unicodedata.normalize("NFC", (location or settings.weather_location).strip())
         if len(location) > 120 or any(
             not (c.isalnum() or unicodedata.category(c).startswith("M") or c in " .,'’()-")
@@ -61,6 +87,22 @@ class Productivity:
             # A weather lookup accepts a place label, not arbitrary documents,
             # URLs, multiline content, or a bulk export through geocoding.
             raise ValueError("Location not found.")
+        public_query = f"weather forecast {location} {first.isoformat()} {days} days" if location else None
+        if not today <= first <= last_available or first + timedelta(days=days - 1) > last_available:
+            raise InformationUnavailable(
+                f"Forecasts are available from {today.isoformat()} through {last_available.isoformat()} "
+                "(up to 16 days including today). Exact forecasts outside that window may not exist.",
+                public_query=public_query,
+            )
+        return WeatherRequest(location, today, first, public_query)
+
+    async def weather(
+        self, profile: str, location: str | None = None, *, days: int = 7,
+        start_date: str | None = None,
+    ) -> dict:
+        request = self.weather_request(profile, location, days=days, start_date=start_date)
+        settings = self.config.settings
+        location, today, first, public_query = request.location, request.today, request.first, request.public_query
         # A new local day/time zone must not reuse yesterday's current conditions
         # or shift the meaning of a relative forecast. Cache the full horizon and
         # return only the requested dates to keep model context small.
@@ -68,7 +110,7 @@ class Productivity:
                settings.timezone, today.isoformat())
         cached = self.weather_cache.get(key)
         if cached and time.monotonic() - cached[0] < settings.weather_refresh_minutes * 60:
-            return self.weather_range(cached[1], first, days)
+            return {**self.weather_range(cached[1], first, days), "public_web_query": public_query}
         lat, lon, place = settings.weather_latitude, settings.weather_longitude, location
         try:
             if location:
@@ -115,11 +157,12 @@ class Productivity:
             }
             selected = self.weather_range(result, first, days)
             self.weather_cache[key] = (time.monotonic(), result)
-            return selected
-        except Exception:
+            return {**selected, "public_web_query": public_query}
+        except Exception as error:
             if cached:
-                return self.weather_range({**cached[1], "stale": True}, first, days)
-            raise
+                return {**self.weather_range({**cached[1], "stale": True}, first, days), "public_web_query": public_query}
+            message = str(error) if isinstance(error, ValueError) else "The weather service could not retrieve the requested data."
+            raise InformationUnavailable(message, public_query=public_query) from None
 
     @staticmethod
     def weather_range(value: dict, first: date, days: int) -> dict:
@@ -192,34 +235,23 @@ class Productivity:
                     for r in response.json().get("results", [])
                 ]
             else:
-                # The no-key public HTML endpoint is best-effort; blocked requests remain
-                # an explicit integration error rather than synthetic search results.
-                _, raw, _ = await fetch_public(
-                    "https://html.duckduckgo.com/html/?" + urlencode({"q": query})
-                )
-                soup = BeautifulSoup(raw, "html.parser")
                 results = []
-                for item in soup.select(".result"):
-                    link = item.select_one(".result__a")
-                    if not link:
+                # A blocked/empty HTML entry point is not proof that no public
+                # information exists. Try Lite once, without changing provider.
+                for endpoint in ("https://html.duckduckgo.com/html/", "https://lite.duckduckgo.com/lite/"):
+                    try:
+                        async with asyncio.timeout(min(settings.tool_timeout_seconds / 8, 4)):
+                            _, raw, _ = await fetch_public(endpoint + "?" + urlencode({"q": query}))
+                        results = duckduckgo_results(raw, limit)
+                    except PermissionError:
+                        raise
+                    except Exception:
                         continue
-                    url = link.get("href", "")
-                    if url.startswith("//"):
-                        url = "https:" + url
-                    from urllib.parse import parse_qs, urlsplit
-
-                    url = parse_qs(urlsplit(url).query).get("uddg", [url])[0]
-                    snippet = item.select_one(".result__snippet")
-                    results.append(
-                        {
-                            "title": link.get_text(" ", strip=True),
-                            "url": url,
-                            "snippet": snippet.get_text(" ", strip=True) if snippet else "",
-                        }
-                    )
+                    if results:
+                        break
                 if not results:
                     raise ValueError(
-                        "The keyless search engine returned no results. Configure Brave or Tavily for reliable search."
+                        "The keyless search endpoints returned no usable results. Configure Brave or Tavily for reliable search."
                     )
         return {
             "query": query,

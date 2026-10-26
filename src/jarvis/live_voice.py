@@ -20,6 +20,7 @@ from starlette.websockets import WebSocketDisconnect
 from .config import Profile
 from .db import uid
 from .memory_retrieval import MEMORY_RETRIEVAL_POLICY
+from .retrieval import WEB_FALLBACK_POLICY
 from .speech import speech_text
 from .voice_context import VoiceContextStore
 from .voice_style import voice_api_key, voice_instructions, voice_reference
@@ -54,7 +55,7 @@ Always delegate these requests and wait for their actual outcome; do not ask for
 The backend retains the approval rules for other effects; never invent or waive those requirements yourself.
 A spoken yes cannot enroll devices, change grants, or replace a dashboard decision.
 If you hear only 'Jarvis', wait silently for a substantive request; do not add another invitation.
-""" + MEMORY_RETRIEVAL_POLICY
+""" + MEMORY_RETRIEVAL_POLICY + WEB_FALLBACK_POLICY
 
 
 class LiveStart(BaseModel):

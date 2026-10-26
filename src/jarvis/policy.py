@@ -12,6 +12,7 @@ from langgraph.types import interrupt
 
 from .db import Database, now, uid
 from .memory_retrieval import is_second_brain_read
+from .retrieval import PUBLIC_QUERY_FOCUS
 
 
 @dataclass
@@ -29,6 +30,14 @@ class TaskContext:
     untrusted_context: bool = False
     routine_context_only: bool = False
     memory_recalls: dict = field(default_factory=dict)
+    public_queries: set[str] = field(default_factory=set)
+    public_pages: set[str] = field(default_factory=set)
+    public_tool_reads: set[str] = field(default_factory=set)
+    public_query_roots: dict = field(default_factory=dict)
+    public_search_attempts: dict = field(default_factory=dict)
+    public_search_results: dict = field(default_factory=dict)
+    web_recoveries: dict = field(default_factory=dict)
+    web_recovery_locks: dict = field(default_factory=dict)
 
     def __post_init__(self):
         self.sensitive_context = self.sensitive_context or self.private
@@ -47,6 +56,11 @@ class TaskContext:
             not self.untrusted_context or self.routine_context_only
         )
         self.untrusted_context = True
+
+    def grant_public_query(self, query: str):
+        for candidate in (query, *(query + " " + focus for focus in PUBLIC_QUERY_FOCUS)):
+            self.public_queries.add(candidate)
+            self.public_query_roots[candidate] = query
 
 
 active_task: ContextVar[TaskContext] = ContextVar("jarvis_active_task")
@@ -139,6 +153,14 @@ class Gateway:
         was_untrusted = ctx.untrusted_context
         was_routine = ctx.routine_context_only
         memory_read = risk == "network_read" and is_second_brain_read(name)
+        public_read = risk == "network_read" and (
+            (name == "web_search" and isinstance(arguments.get("query"), str)
+             and arguments["query"] in ctx.public_queries
+             and type(arguments.get("limit", 5)) is int and 1 <= arguments.get("limit", 5) <= 5)
+            or (name == "read_web_page" and isinstance(arguments.get("url"), str)
+                and arguments["url"] in ctx.public_pages)
+            or (name == "weather" and digest([name, arguments]) in ctx.public_tool_reads)
+        )
         # Dedicated memory writes keep their source/privacy/connection checks and
         # effect ledger, but the owner does not need to approve each operation.
         memory_write = (name, risk) in {
@@ -181,6 +203,7 @@ class Gateway:
                 risk == "network_read"
                 and was_sensitive
                 and not memory_read
+                and not public_read
                 and not (
                     name == "weather"
                     and (not arguments.get("location") or not was_untrusted or was_routine)
