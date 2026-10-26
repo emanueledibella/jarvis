@@ -1,5 +1,31 @@
 import Foundation
 
+// Evaluated on the voice engine's main actor immediately before rebuilding
+// capture. A recovery queued before a mute, lock, wake, or conversation must
+// never override the newer user action or interrupt live audio.
+struct WakeRecoveryGuard {
+  var enabled = false
+  var voiceEnabled = false
+  var wakeEnabled = false
+  var muted = true
+  var locked = true
+  var allowWhenLocked = false
+  var permissionsGranted = false
+  var live = false
+  var playing = false
+  var state = "unavailable"
+  var transientFailure = false
+  var callbacks = 0
+  var wakeMatches = 0
+
+  func allows(expectedCallbacks: Int, expectedWakeMatches: Int) -> Bool {
+    enabled && voiceEnabled && wakeEnabled && !muted && (!locked || allowWhenLocked)
+      && permissionsGranted && !live && !playing
+      && (["armed", "recovering"].contains(state) || (state == "unavailable" && transientFailure))
+      && callbacks == expectedCallbacks && wakeMatches == expectedWakeMatches
+  }
+}
+
 // A quiet microphone is normal, including a lazily starting recognizer. Recover
 // ended tasks or sustained audible input that produces no recognition progress.
 struct RecognitionLiveness {

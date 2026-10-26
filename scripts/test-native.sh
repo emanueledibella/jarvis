@@ -6,6 +6,8 @@ JARVIS_NATIVE_TEST_DIR="$(mktemp -d "${TMPDIR:-/tmp}/jarvis-native-tests.XXXXXX"
 trap 'rm -rf "$JARVIS_NATIVE_TEST_DIR"' EXIT
 swiftc -swift-version 5 native/RecognitionRecovery.swift tests/native/RecognitionRecoveryTests.swift -o "$JARVIS_NATIVE_TEST_DIR/recognition-tests"
 "$JARVIS_NATIVE_TEST_DIR/recognition-tests"
+swiftc -swift-version 5 native/RecognitionRecovery.swift tests/native/WakeRecoveryGuardTests.swift -o "$JARVIS_NATIVE_TEST_DIR/wake-recovery-tests"
+"$JARVIS_NATIVE_TEST_DIR/wake-recovery-tests"
 swiftc -swift-version 5 -framework AVFoundation native/Client.swift native/LiveAudio.swift tests/native/LiveAudioBufferTests.swift -o "$JARVIS_NATIVE_TEST_DIR/audio-tests"
 "$JARVIS_NATIVE_TEST_DIR/audio-tests"
 swiftc -swift-version 5 -framework NaturalLanguage native/SpokenLanguage.swift tests/native/SpokenLanguageTests.swift -o "$JARVIS_NATIVE_TEST_DIR/language-tests"

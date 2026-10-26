@@ -18,6 +18,7 @@ from .policy import Gateway
 from .productivity import Productivity
 from .scheduler import Scheduler
 from .telephony import Telephony
+from .wake_watchdog import WakeWatchdog
 
 
 class Runtime:
@@ -41,6 +42,7 @@ class Runtime:
         # contents never belong in this preference record.
         self.voice_session = {"private": None, "scope": None}
         self.voice_session_lock = asyncio.Lock()
+        self.wake_watchdog = WakeWatchdog(self)
         self.lock_file = None
         self.connect_jobs: dict[str, asyncio.Task] = {}
 
@@ -63,6 +65,7 @@ class Runtime:
         self.gateway.blocked = bool(blocked and blocked["value"] == "1")
         self.memory.suspended = self.gateway.blocked
         await self.tasks.start()
+        self.wake_watchdog.start()
         if scheduler:
             await self.scheduler.start()
         settings = self.config.settings
@@ -81,6 +84,7 @@ class Runtime:
         await self.db.emit("service.status", {"state": "ready"})
 
     async def close(self):
+        await self.wake_watchdog.close()
         self.scheduler.stop()
         self.live_voice.stop_all()
         await self.telephony.stop_all()
@@ -105,6 +109,7 @@ class Runtime:
             "profile": settings.profile,
             "native": {**self.native.status, "connected": self.native.connected},
             "audio": self.audio,
+            "wake_recovery": self.wake_watchdog.status(),
             "models": {
                 "local": settings.local_model,
                 "cloud": settings.cloud_model,

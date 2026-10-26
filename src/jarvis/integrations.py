@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import re
+import time
 from pathlib import Path
 
 from fastmcp import Client
@@ -182,16 +183,20 @@ class NativeBridge:
         self.db = db
         self.status: dict = {"connected": False, "voice_state": "unavailable"}
         self.last_seen = 0.0
+        self.status_received_at = 0.0
         self.pending: dict[str, asyncio.Future] = {}
         self.operations: dict[str, dict] = {}
         self.claimed: set[str] = set()
+        self.guards = {}
         self.calendar: dict = {"events": [], "state": "not_connected"}
 
     @property
     def connected(self):
-        import time
-
         return self.last_seen > 0 and time.monotonic() - self.last_seen < 45
+
+    def update_status(self, status: dict):
+        self.status = status
+        self.last_seen = self.status_received_at = time.monotonic()
 
     def claim(self, key: str, *, stopped=False):
         future = self.pending.get(key)
@@ -202,10 +207,20 @@ class NativeBridge:
             )
         if stopped and operation["operation"] not in {"control.mute", "control.stop"}:
             raise PermissionError("Emergency stop is active.")
+        guard = self.guards.get(key)
+        if guard is not None:
+            try:
+                allowed = guard()
+            except Exception:
+                allowed = False
+            if not allowed:
+                error = PermissionError("Automatic voice recovery cancelled: listening state changed.")
+                future.set_exception(error)
+                raise error
         self.claimed.add(key)
         return operation
 
-    async def invoke(self, operation: str, arguments: dict, timeout=30):
+    async def invoke(self, operation: str, arguments: dict, timeout=30, *, guard=None):
         from .db import uid
 
         if not self.connected:
@@ -214,6 +229,8 @@ class NativeBridge:
         future = asyncio.get_running_loop().create_future()
         self.pending[key] = future
         self.operations[key] = {"id": key, "operation": operation, "arguments": arguments}
+        if guard is not None:
+            self.guards[key] = guard
         try:
             await self.db.emit(
                 "native.operation",
@@ -225,6 +242,7 @@ class NativeBridge:
             self.pending.pop(key, None)
             self.operations.pop(key, None)
             self.claimed.discard(key)
+            self.guards.pop(key, None)
 
     def complete(self, key: str, result: dict):
         future = self.pending.get(key)

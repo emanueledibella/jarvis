@@ -20,6 +20,10 @@ PRIVATE_FILES = {
     "credentials.json",
     "secrets.json",
     "auth.json",
+    ".netrc",
+    ".npmrc",
+    "lights.json",
+    "project-root.txt",
     "requirements.lock",
 }
 
@@ -61,10 +65,12 @@ def main():
             continue
         if (
             path.name.casefold() in PRIVATE_FILES
+            or (path.name.casefold().startswith(".env.") and path.name.casefold() != ".env.example")
             or path.suffix.lower()
             in {".db", ".sqlite", ".sqlite3", ".pem", ".p12", ".pfx", ".key", ".log", ".bundle"}
             or any(
                 p in {"output", ".runtime", "oauth", ".venv", ".build-venv", ".bootstrap-venv"}
+                or p.casefold().endswith(".app")
                 for p in path.parts
             )
         ):

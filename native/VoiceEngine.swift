@@ -286,6 +286,29 @@ final class VoiceEngine: NSObject {
     }
   }
 
+  func recoverWake(expectedCallbacks: Int, expectedWakeMatches: Int) -> [String: Any] {
+    let permission = WakeRecoveryGuard(
+      enabled: enabled,
+      voiceEnabled: settings["voice_enabled"] as? Bool != false,
+      wakeEnabled: settings["wake_enabled"] as? Bool != false,
+      muted: muted, locked: locked,
+      allowWhenLocked: settings["voice_on_lock_screen"] as? Bool == true,
+      permissionsGranted: AVCaptureDevice.authorizationStatus(for: .audio) == .authorized
+        && SFSpeechRecognizer.authorizationStatus() == .authorized,
+      live: liveSocket != nil || liveInputPrepared || endingLive,
+      playing: pendingBuffers > 0 || player.isPlaying || synth.isSpeaking || wakeReplyPlayer?.isPlaying == true,
+      state: state,
+      transientFailure: lastError?.hasPrefix("The local speech service keeps stopping.") == true,
+      callbacks: recognitionCallbacks, wakeMatches: wakeMatches)
+    guard permission.allows(expectedCallbacks: expectedCallbacks, expectedWakeMatches: expectedWakeMatches)
+    else { return ["state": "cancelled"] }
+    // This does not change the mute preference, request permissions, open a
+    // cloud voice session, or play audio. The synchronous actor guard above
+    // makes a newer local mute/lock/conversation authoritative.
+    restartCapture()
+    return ["state": state]
+  }
+
   func restartCapture(allowEchoCancellation: Bool = true) {
     stopSpeaking()
     stopCapture()
@@ -1251,6 +1274,7 @@ final class VoiceEngine: NSObject {
       "recognition_callbacks": recognitionCallbacks, "wake_matches": wakeMatches,
       "recognition_task": recognitionTaskState.rawValue,
       "recognition_recoveries": recognitionRecoveries,
+      "wake_recovery_supported": true,
       "capture_input_level": captureInputLevel,
       "recognition_input_level": inputLevel,
       "echo_cancellation": echoCancellationEnabled ? "active" : (wantsAutomaticInterruption ? "fallback" : "off"),

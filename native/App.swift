@@ -265,6 +265,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                 }
             case "control.mute": voice.mute(); result = ["state": "muted"]
             case "control.unmute": try voice.unmute(); result = ["state": "armed"]
+            case "control.recover_wake":
+                result = voice.recoverWake(expectedCallbacks: arguments["recognition_callbacks"] as? Int ?? -1,
+                                           expectedWakeMatches: arguments["wake_matches"] as? Int ?? -1)
             case "control.listen":
                 if let privacy = arguments["private"] as? Bool, let scope = arguments["scope"] as? String { voice.setSession(privateMode: privacy, scope: scope) }
                 try voice.listen(); result = ["state": "listening"]

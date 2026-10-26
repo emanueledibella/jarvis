@@ -58,6 +58,7 @@ class NativeStatus(BaseModel):
     wake_matches: int = Field(default=0, ge=0)
     recognition_task: Literal["idle", "starting", "running", "finishing", "canceling", "completed", "unknown"] = "idle"
     recognition_recoveries: int = Field(default=0, ge=0)
+    wake_recovery_supported: bool = False
     capture_input_level: float = Field(default=0, ge=0, le=1, allow_inf_nan=False)
     recognition_input_level: float = Field(default=0, ge=0, le=1, allow_inf_nan=False)
     echo_cancellation: Literal["active", "fallback", "off"] = "off"
@@ -732,8 +733,7 @@ def create_app(
     @app.post("/api/native/status")
     async def native_status(data: NativeStatus):
         old = runtime.native.status
-        runtime.native.status = data.model_dump()
-        runtime.native.last_seen = time.monotonic()
+        runtime.native.update_status(data.model_dump())
         if old != runtime.native.status:
             await runtime.db.emit("voice.state", runtime.native.status)
         return {"state": "ok"}
