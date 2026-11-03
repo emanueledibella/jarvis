@@ -1,5 +1,6 @@
 export type Json = Record<string, any>;
 import { authenticatedFetch } from "./serviceTrust";
+import { remoteClient } from "./remoteClient";
 declare global {
   interface Window {
     __JARVIS_TOKEN__?: string;
@@ -19,6 +20,7 @@ export function setToken(value: string) {
 }
 const port = import.meta.env.DEV ? 8765 : Number(location.port || 80);
 export function hasToken() {
+  if (remoteClient.enabled) return remoteClient.authenticated;
   return Boolean(token);
 }
 
@@ -26,13 +28,16 @@ export async function api<T = any>(
   path: string,
   options: RequestInit = {},
 ): Promise<T> {
-  const response = await authenticatedFetch(token, port, "/api" + path, {
+  const request = {
     ...options,
     headers: {
       "Content-Type": "application/json",
       ...options.headers,
     },
-  });
+  };
+  const response = remoteClient.enabled
+    ? await remoteClient.request("/api" + path, request)
+    : await authenticatedFetch(token, port, "/api" + path, request);
   if (!response.ok) {
     const detail = await response.json().catch(() => ({}));
     throw new Error(
@@ -56,6 +61,27 @@ export async function eventStream(
   after = 0,
 ) {
   let cursor = after;
+  if (remoteClient.enabled) {
+    while (!signal.aborted) {
+      try {
+        const response = await remoteClient.request("/remote/v1/events?after=" + cursor, { signal });
+        if (!response.ok) throw new Error("Event connection unavailable.");
+        const batch = await response.json();
+        cursor = batch.cursor;
+        onEvent({ type: "connection", data: { state: "connected" } });
+        for (const event of batch.events) {
+          if (event.type === "notification.created" && window.jarvisCompanion?.notify)
+            void window.jarvisCompanion.notify({ sequence: event.sequence, created_at: event.created_at }).catch(() => {});
+          onEvent(event);
+        }
+      } catch {
+        if (signal.aborted) return;
+        onEvent({ type: "connection", data: { state: "reconnecting" } });
+        await new Promise((resolve) => setTimeout(resolve, 1500));
+      }
+    }
+    return;
+  }
   while (!signal.aborted) {
     try {
       const response = await authenticatedFetch(

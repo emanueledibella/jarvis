@@ -17,16 +17,38 @@ from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlsplit
 
+import httpx
 import numpy as np
 from fastapi import APIRouter, Request, WebSocket
-from fastapi.responses import Response
+from fastapi.responses import JSONResponse, Response
 from twilio.request_validator import RequestValidator
 from twilio.twiml.voice_response import Connect, Gather, VoiceResponse
 
 from .db import now, uid
-from .phone_prompts import phone_language, phone_message
+from .phone_prompts import phone_language, phone_message, phone_opening
 from .speech import speech_text
+from .telephony_ingress import webhook_signature
+from .telephony_tunnel import TelephonyTunnel
 from .voice_style import voice_api_key
+
+TERMINAL_CALL_STATES = {
+    "completed",
+    "failed",
+    "busy",
+    "no-answer",
+    "canceled",
+    "verified_not_created",
+}
+CALL_RANK = {
+    "creating": 0,
+    "unknown": 0,
+    "queued": 1,
+    "initiated": 1,
+    "ringing": 2,
+    "answered": 3,
+    "in-progress": 3,
+    "connected": 4,
+}
 
 
 def decode_mulaw(data: bytes) -> np.ndarray:
@@ -61,22 +83,34 @@ class Telephony:
         self.runtime, self.db, self.config = runtime, runtime.db, runtime.config
         self.media_tokens: dict[str, str] = {}
         self.active: set[str] = set()
+        self.prepared_voice: dict = {}
         self.lock = asyncio.Lock()
+        self.refresh_lock = asyncio.Lock()
+        self.last_refresh = 0.0
         self.local_stt = None
         self.sockets = set()
+        self.tunnel = TelephonyTunnel(self)
 
-    def ready(self) -> tuple[bool, list[str]]:
+    @property
+    def public_base_url(self) -> str:
+        if self.config.settings.telephony_tunnel_mode == "managed":
+            return self.tunnel.url
+        return self.config.settings.telephony_public_base_url
+
+    def ready(self, *, transport=True) -> tuple[bool, list[str]]:
         settings = self.config.settings
         missing = []
         for name in [
             "telephony_account_id",
             "telephony_from_number",
             "owner_phone_number",
-            "telephony_public_base_url",
         ]:
             if not getattr(settings, name):
                 missing.append(name)
-        for name in ["telephony_auth_token", "phone_pin"]:
+        required_secrets = ["telephony_auth_token"]
+        if settings.phone_pin_enabled:
+            required_secrets.append("phone_pin")
+        for name in required_secrets:
             if not settings.secret(name):
                 missing.append(name)
         for name in ["telephony_from_number", "owner_phone_number"]:
@@ -94,14 +128,19 @@ class Telephony:
 
             if find_spec("faster_whisper") is None:
                 missing.append("extra_voice")
-        if settings.telephony_public_base_url and (
-            urlsplit(settings.telephony_public_base_url).scheme != "https"
-            or not urlsplit(settings.telephony_public_base_url).hostname
+        if transport and not self.public_base_url:
+            missing.append("telephony_public_base_url")
+        if transport and self.public_base_url and (
+            urlsplit(self.public_base_url).scheme != "https"
+            or not urlsplit(self.public_base_url).hostname
         ):
             missing.append("public_https_url")
-        pin = settings.secret("phone_pin")
-        if pin and not re.fullmatch(r"[0-9]{6,8}", pin):
-            missing.append("phone_pin_6_to_8_digits")
+        if transport and settings.telephony_tunnel_mode == "managed" and self.tunnel.state != "running":
+            missing.append("telephony_tunnel")
+        if settings.phone_pin_enabled:
+            pin = settings.secret("phone_pin")
+            if pin and not re.fullmatch(r"[0-9]{6,8}", pin):
+                missing.append("phone_pin_6_to_8_digits")
         return bool(settings.telephony_enabled and not missing), missing
 
     def audio_key(self) -> str:
@@ -113,6 +152,43 @@ class Telephony:
 
     def message(self, name: str, **values) -> str:
         return phone_message(self.config.settings, name, **values)
+
+    def requires_pin(self, direction: str) -> bool:
+        # Caller ID can be spoofed. Only an owner-authorized outbound call may
+        # waive the PIN; inbound access always needs the configured secret.
+        return direction == "inbound" or self.config.settings.phone_pin_enabled
+
+    def prepare_voice(self, row: dict):
+        if (
+            not self.uses_desktop_voice()
+            or not row["auth_verified"]
+            or row["id"] in self.active
+            or row["id"] in self.prepared_voice
+            or self.runtime.gateway.blocked
+            or self.config.settings.profile == "local_strict"
+        ):
+            return
+        from .phone_live import PhoneLive
+
+        voice = PhoneLive(self, None, row, None, None, "personal")
+        self.prepared_voice[row["id"]] = voice
+        voice.job = asyncio.create_task(voice.prepare())
+
+        def finished(job):
+            if self.prepared_voice.get(row["id"]) is voice:
+                self.prepared_voice.pop(row["id"], None)
+            if not job.cancelled():
+                job.exception()  # A failed preparation falls back to normal startup.
+
+        voice.job.add_done_callback(finished)
+
+    async def close_prepared_voice(self, key: str):
+        voice = self.prepared_voice.pop(key, None)
+        if voice:
+            voice.stop.set()
+            voice.attached.set()
+            voice.job.cancel()
+            await asyncio.gather(voice.job, return_exceptions=True)
 
     async def reservation(self, *, inbound=False):
         settings = self.config.settings
@@ -139,6 +215,163 @@ class Telephony:
         current = datetime.now(ZoneInfo(self.config.settings.timezone)).time().replace(tzinfo=None)
         return begin <= current < end if begin < end else current >= begin or current < end
 
+    def probe_proof(self, challenge: str) -> str:
+        return hmac.new(
+            self.config.token.encode(), ("jarvis-telephony:" + challenge).encode(), "sha256"
+        ).hexdigest()
+
+    async def check_reachability(self):
+        """Prove the public proxy reaches this instance before making a paid call."""
+        settings = self.config.settings
+        url = self.public_base_url.rstrip("/") + "/telephony/status"
+        challenge = secrets.token_urlsafe(24)
+        params = {"JarvisProbe": challenge}
+        signature = RequestValidator(settings.secret("telephony_auth_token")).compute_signature(
+            url, params
+        )
+        try:
+            async with (
+                asyncio.timeout(8),
+                httpx.AsyncClient(timeout=5, trust_env=False, follow_redirects=False) as client,
+            ):
+                async with client.stream(
+                    "POST", url, data=params, headers={"X-Twilio-Signature": signature}
+                ) as response:
+                    response.raise_for_status()
+                    body = bytearray()
+                    async for chunk in response.aiter_bytes():
+                        body.extend(chunk)
+                        if len(body) > 4096:
+                            raise ValueError("Proxy response exceeds its size limit.")
+                proof = json.loads(body).get("proof", "")
+                if isinstance(proof, str) and hmac.compare_digest(
+                    proof.encode(), self.probe_proof(challenge).encode()
+                ):
+                    return
+        except (httpx.HTTPError, TimeoutError, ValueError, AttributeError):
+            pass
+        raise ValueError(
+            "The public telephony proxy is unreachable or does not reach this Jarvis instance. Check the tunnel URL before calling."
+        )
+
+    def verify_carrier_call(self, row: dict, call):
+        settings = self.config.settings
+        expected_to, expected_from = settings.owner_phone_number, settings.telephony_from_number
+        if row["direction"] == "inbound":
+            expected_to, expected_from = expected_from, expected_to
+        if (
+            (row["provider_id"] and row["provider_id"] != call.sid)
+            or call.to != expected_to
+            or call._from != expected_from
+        ):
+            raise ValueError("The SID does not match the call's authorized numbers.")
+        if (
+            call.date_created
+            and abs((call.date_created - datetime.fromisoformat(row["created_at"])).total_seconds())
+            > 300
+        ):
+            raise ValueError("The SID does not match the request time.")
+
+    def settled_reservation(self, state: str, duration=None, price=None) -> float | None:
+        if state not in TERMINAL_CALL_STATES:
+            return None
+        # Use rounded actual minutes at the configured conservative rate. Keep
+        # the full reservation when the carrier has not reported usage yet.
+        amount = None
+        if duration is not None and str(duration).isdecimal():
+            amount = (
+                max(1, math.ceil(int(duration) / 60)) * self.config.settings.phone_minute_rate_usd
+            )
+        if price is not None:
+            try:
+                price = abs(float(price))
+                if math.isfinite(price):
+                    amount = max(amount or 0, price)
+            except (TypeError, ValueError):
+                pass
+        return amount
+
+    async def update_status(
+        self, row: dict, sid: str, state: str, *, ended_at=None, reservation=None
+    ):
+        if state not in CALL_RANK and state not in TERMINAL_CALL_STATES:
+            return
+        if row["state"] in TERMINAL_CALL_STATES:
+            if row["state"] != state:
+                return
+        elif state not in TERMINAL_CALL_STATES and CALL_RANK[state] < CALL_RANK.get(
+            row["state"], 0
+        ):
+            return
+        terminal = state in TERMINAL_CALL_STATES
+        ended = (ended_at or row["ended_at"] or now()) if terminal else None
+        reserved = row["reservation_usd"] if reservation is None or not terminal else reservation
+        if (row["state"], row["ended_at"], row["reservation_usd"]) == (state, ended, reserved):
+            return
+        changed = await self.db.execute(
+            "UPDATE calls SET provider_id=?,state=?,ended_at=?,reservation_usd=? WHERE id=? AND state=? AND (provider_id IS NULL OR provider_id=?)",
+            (sid, state, ended, reserved, row["id"], row["state"], sid),
+        )
+        if changed:
+            if terminal:
+                self.active.discard(row["id"])
+                self.media_tokens.pop(row["id"], None)
+                await self.close_prepared_voice(row["id"])
+            await self.db.emit("call.status", {"id": row["id"], "state": state}, row["task_id"])
+            if (
+                state in {"answered", "in-progress"}
+                and row["direction"] == "outbound"
+                and not self.requires_pin("outbound")
+                and self.uses_desktop_voice()
+            ):
+                # A signed/carrier-verified answer to an owner-authorized outbound
+                # call can prepare the voice while Twilio finishes its own preamble.
+                await self.db.execute("UPDATE calls SET auth_verified=1 WHERE id=?", (row["id"],))
+                self.prepare_voice({**row, "auth_verified": 1, "state": state, "provider_id": sid})
+
+    async def refresh_calls(self, *, force=False):
+        settings = self.config.settings
+        if (
+            settings.profile == "local_strict"
+            or not settings.telephony_enabled
+            or not settings.telephony_account_id
+            or not settings.secret("telephony_auth_token")
+        ):
+            return
+        async with self.refresh_lock:
+            if not force and time.monotonic() - self.last_refresh < 15:
+                return
+            rows = await self.db.fetchall(
+                "SELECT * FROM calls WHERE provider_id IS NOT NULL AND state IN ('creating','queued','initiated','ringing','answered','in-progress','connected','unknown') LIMIT 10"
+            )
+            if not rows:
+                return
+            self.last_refresh = time.monotonic()
+            from twilio.http.http_client import TwilioHttpClient
+            from twilio.rest import Client
+
+            client = Client(
+                settings.telephony_account_id,
+                settings.secret("telephony_auth_token"),
+                http_client=TwilioHttpClient(timeout=8),
+            )
+            for row in rows:
+                try:
+                    call = await asyncio.to_thread(client.calls(row["provider_id"]).fetch)
+                    self.verify_carrier_call(row, call)
+                except Exception:
+                    # A failed lookup is not evidence the call ended. In particular,
+                    # an uncertain creation without a SID still needs manual review.
+                    continue
+                ended = call.end_time.astimezone(UTC).isoformat() if call.end_time else None
+                await self.update_status(
+                    row,
+                    call.sid,
+                    call.status,
+                    ended_at=ended,
+                    reservation=self.settled_reservation(call.status, call.duration, call.price),
+                )
+
     async def call_owner(self, event_key: str, reason: str, task_id=None, *, authorized=False):
         if self.runtime.gateway.blocked:
             raise PermissionError("Emergency stop is active.")
@@ -157,17 +390,30 @@ class Telephony:
             )
             if existing:
                 return existing
+            await self.refresh_calls(force=True)
             active = await self.db.fetchone(
                 "SELECT id FROM calls WHERE state IN ('creating','queued','initiated','ringing','answered','in-progress','connected','unknown') LIMIT 1"
             )
             if active:
                 raise ValueError("A call is already active or awaiting reconciliation.")
             settings = self.config.settings
+            if self.runtime.gateway.blocked or settings.profile == "local_strict":
+                raise PermissionError("Telephony is unavailable for this session.")
             reservation = await self.reservation()
+            base = self.public_base_url.rstrip("/")
+            await self.check_reachability()
+            if (
+                settings is not self.config.settings
+                or base != self.public_base_url.rstrip("/")
+                or not self.ready()[0]
+            ):
+                raise ValueError("Telephony settings changed. Review them before calling again.")
+            if self.runtime.gateway.blocked or settings.profile == "local_strict":
+                raise PermissionError("Telephony is unavailable for this session.")
             key = uid()
             await self.db.execute(
                 "INSERT INTO calls(id,event_key,task_id,direction,state,reservation_usd,detail,created_at) VALUES(?,?,?,'outbound','creating',?,?,?)",
-                (key, event_key, task_id, reservation, reason[:1000], now()),
+                (key, event_key, task_id, reservation, reason, now()),
             )
             from twilio.http.http_client import TwilioHttpClient
             from twilio.rest import Client
@@ -177,7 +423,6 @@ class Telephony:
                 settings.secret("telephony_auth_token"),
                 http_client=TwilioHttpClient(timeout=20),
             )
-            base = settings.telephony_public_base_url.rstrip("/")
             try:
                 result = await asyncio.to_thread(
                     client.calls.create,
@@ -214,15 +459,55 @@ class Telephony:
             not settings.telephony_enabled
             or not re.fullmatch(r"[A-Za-z0-9+/]{27}=", signature)
             or not settings.secret("telephony_auth_token")
-            or not settings.telephony_public_base_url.startswith("https://")
+            or not self.public_base_url.startswith("https://")
         ):
             return False
-        url = settings.telephony_public_base_url.rstrip("/") + path + ("?" + query if query else "")
+        url = self.public_base_url.rstrip("/") + path + ("?" + query if query else "")
         validator = RequestValidator(settings.secret("telephony_auth_token"))
         variants = [url, url.replace("https://", "wss://", 1)] if websocket else [url]
         return any(validator.validate(candidate, params, signature) for candidate in variants)
 
-    async def stop_all(self):
+    async def configure_inbound_webhooks(self) -> bool:
+        """Point the explicitly enabled incoming line at this activation's URL."""
+        settings = self.config.settings
+        if not settings.phone_inbound_enabled:
+            return False
+        from twilio.http.async_http_client import AsyncTwilioHttpClient
+        from twilio.rest import Client
+
+        http_client = AsyncTwilioHttpClient(timeout=8)
+        try:
+            async with asyncio.timeout(20):
+                client = Client(
+                    settings.telephony_account_id,
+                    settings.secret("telephony_auth_token"),
+                    http_client=http_client,
+                )
+                numbers = await client.incoming_phone_numbers.list_async(
+                    phone_number=settings.telephony_from_number, limit=2
+                )
+                if len(numbers) != 1 or numbers[0].phone_number != settings.telephony_from_number:
+                    raise ValueError("The incoming Twilio number could not be found.")
+                base = self.public_base_url.rstrip("/")
+                await numbers[0].update_async(
+                    voice_url=base + "/telephony/voice", voice_method="POST",
+                    voice_application_sid="",
+                    status_callback=base + "/telephony/status", status_callback_method="POST",
+                )
+            return True
+        except Exception:
+            raise ValueError("Could not update incoming call webhooks. Check the Twilio account and number.") from None
+        finally:
+            await http_client.close()
+
+    async def stop_all(self, *, carrier_settings=None):
+        await self.tunnel.stop()
+        async with self.lock:
+            await self._stop_calls(carrier_settings or self.config.settings)
+
+    async def _stop_calls(self, settings):
+        for key in list(self.prepared_voice):
+            await self.close_prepared_voice(key)
         for socket in list(self.sockets):
             with contextlib.suppress(Exception):
                 await socket.close(code=1000)
@@ -239,8 +524,8 @@ class Telephony:
                     from twilio.rest import Client
 
                     client = Client(
-                        self.config.settings.telephony_account_id,
-                        self.config.settings.secret("telephony_auth_token"),
+                        settings.telephony_account_id,
+                        settings.secret("telephony_auth_token"),
                         http_client=TwilioHttpClient(timeout=8),
                     )
                     await asyncio.to_thread(
@@ -285,17 +570,17 @@ class Telephony:
             http_client=TwilioHttpClient(timeout=10),
         )
         call = await asyncio.to_thread(client.calls(provider_id).fetch)
-        if call.to != settings.owner_phone_number or call.from_ != settings.telephony_from_number:
-            raise ValueError("The SID does not match the call's authorized numbers.")
-        if (
-            call.date_created
-            and abs((call.date_created - datetime.fromisoformat(row["created_at"])).total_seconds())
-            > 300
-        ):
-            raise ValueError("The SID does not match the request time.")
+        self.verify_carrier_call(row, call)
         await self.db.execute(
-            "UPDATE calls SET provider_id=?,state=?,detail=? WHERE id=?",
-            (provider_id, call.status, note[:1000], key),
+            "UPDATE calls SET detail=? WHERE id=?",
+            (note[:1000], key),
+        )
+        await self.update_status(
+            row,
+            provider_id,
+            call.status,
+            ended_at=call.end_time.astimezone(UTC).isoformat() if call.end_time else None,
+            reservation=self.settled_reservation(call.status, call.duration, call.price),
         )
         return {"state": call.status, "provider_id": provider_id}
 
@@ -405,8 +690,9 @@ class Telephony:
                 return encode_mulaw(np.frombuffer(file.readframes(file.getnframes()), dtype="<i2"))
 
     async def media(self, websocket: WebSocket):
+        signature = webhook_signature(websocket.headers)
         if (
-            not self.ready()[0]
+            not signature
             or self.config.settings.profile == "local_strict"
             or self.runtime.gateway.blocked
         ):
@@ -415,23 +701,30 @@ class Telephony:
         if not self.signed(
             websocket.url.path,
             websocket.url.query,
-            websocket.headers.get("x-twilio-signature", ""),
+            signature,
             {},
             websocket=True,
         ):
             await websocket.close(code=1008)
             return
-        await websocket.accept()
+        if not self.ready()[0]:
+            await websocket.close(code=1008)
+            return
+        if len(self.sockets) >= 2:
+            await websocket.close(code=1008)
+            return
+        # Reserve admission before the handshake yields to another connection.
         self.sockets.add(websocket)
-        key = stream_sid = conversation_id = None
+        key = claimed_key = stream_sid = conversation_id = None
         session_scope = "personal"
+        session_direction = "outbound"
         answer = None
         speaking = False
         frames = []
         voiced_frames = quiet_frames = 0
         pending_approval = None
 
-        async def speak(text):
+        async def speak(text, *, approval_mark=None):
             nonlocal speaking
             data = await self.tts(text)
             speaking = True
@@ -448,7 +741,11 @@ class Telephony:
                     )
                     await asyncio.sleep(0.02)
                 await websocket.send_json(
-                    {"event": "mark", "streamSid": stream_sid, "mark": {"name": "reply-complete"}}
+                    {
+                        "event": "mark",
+                        "streamSid": stream_sid,
+                        "mark": {"name": approval_mark or "reply-complete"},
+                    }
                 )
             finally:
                 speaking = False
@@ -481,8 +778,13 @@ class Telephony:
                         "id": proposal["id"],
                         "task_id": task["id"],
                         "expires_at": proposal["expires_at"],
+                        "mark": "approval-" + secrets.token_urlsafe(16),
+                        "heard": False,
                     }
-                    await speak(self.message("approval", tool=proposal["tool"], arguments=brief))
+                    await speak(
+                        self.message("approval", tool=proposal["tool"], arguments=brief),
+                        approval_mark=pending_approval["mark"],
+                    )
                     return
                 if row["state"] in {"failed", "cancelled"}:
                     await speak(self.message("failed"))
@@ -524,26 +826,60 @@ class Telephony:
             except Exception:
                 await speak(self.message("request_failed"))
 
+        async def incoming():
+            source = websocket.iter_text()
+            deadline = time.monotonic() + 5
+            while True:
+                try:
+                    async with asyncio.timeout_at(None if claimed_key else deadline):
+                        raw = await anext(source)
+                except StopAsyncIteration:
+                    return
+                yield raw
+
         try:
+            await websocket.accept()
             async with asyncio.timeout(self.config.settings.phone_max_call_seconds):
-                events = websocket.iter_text()
+                events = incoming()
                 async for raw in events:
                     if len(raw) > 100_000:
                         raise ValueError("Phone frame exceeds the size limit.")
                     event = json.loads(raw)
+                    if not isinstance(event, dict):
+                        raise ValueError("Invalid phone event.")
+                    if (
+                        claimed_key
+                        and session_direction == "inbound"
+                        and not self.config.settings.phone_inbound_enabled
+                    ):
+                        raise PermissionError("Inbound phone access was disabled.")
                     if event.get("event") == "start":
                         if stream_sid:
                             raise PermissionError("Media session has already started.")
                         start = event["start"]
+                        if not isinstance(start, dict):
+                            raise ValueError("Invalid phone start event.")
                         fmt = start.get("mediaFormat", {})
                         if (
-                            fmt.get("encoding") != "audio/x-mulaw"
+                            not isinstance(fmt, dict)
+                            or fmt.get("encoding") != "audio/x-mulaw"
                             or int(fmt.get("sampleRate", 0)) != 8000
                             or int(fmt.get("channels", 0)) != 1
                         ):
                             raise ValueError("Unsupported phone audio format.")
                         params = start.get("customParameters", {})
+                        if not isinstance(params, dict):
+                            raise ValueError("Invalid phone parameters.")
                         key = params.get("call_id")
+                        if not isinstance(key, str) or not 1 <= len(key) <= 128:
+                            raise PermissionError("Unauthorized media session.")
+                        if start.get("accountSid") != self.config.settings.telephony_account_id:
+                            raise PermissionError("Unauthorized media account.")
+                        if (
+                            not isinstance(start.get("streamSid"), str)
+                            or not 1 <= len(start["streamSid"]) <= 64
+                        ):
+                            raise ValueError("Invalid media stream identifier.")
                         secret = self.media_tokens.get(key, "")
                         row = await self.db.fetchone("SELECT * FROM calls WHERE id=?", (key,))
                         if (
@@ -570,6 +906,8 @@ class Telephony:
                             raise PermissionError("Unauthorized media session.")
                         self.media_tokens.pop(key, None)
                         self.active.add(key)
+                        claimed_key = key
+                        session_direction = row["direction"]
                         if row["task_id"]:
                             origin = await self.db.fetchone(
                                 "SELECT conversation_id,scope FROM tasks WHERE id=?",
@@ -591,31 +929,55 @@ class Telephony:
                             from .phone_live import PhoneLive
 
                             try:
-                                await PhoneLive(
-                                    self, websocket, row, stream_sid, conversation_id, session_scope
-                                ).run(events)
+                                prepared = self.prepared_voice.get(key)
+                                if prepared:
+                                    try:
+                                        prepared.attach(
+                                            websocket, stream_sid, conversation_id, session_scope, events
+                                        )
+                                    except (PermissionError, ValueError):
+                                        await self.close_prepared_voice(key)
+                                        prepared = None
+                                if prepared:
+                                    self.prepared_voice.pop(key, None)
+                                    await prepared.job
+                                else:
+                                    await PhoneLive(
+                                        self, websocket, row, stream_sid, conversation_id, session_scope
+                                    ).run(events)
                             except Exception as error:
                                 await self.db.emit(
                                     "call.voice_error", {"id": key, "code": type(error).__name__}
                                 )
-                                raise ValueError("The phone voice connection was interrupted.") from None
+                                raise ValueError(
+                                    "The phone voice connection was interrupted."
+                                ) from None
                             finally:
                                 with contextlib.suppress(Exception):
                                     await websocket.close()
                             break
                         answer = asyncio.create_task(
                             speak(
-                                self.message("verified")
-                                + (
-                                    " " + self.message("reason", reason=row["detail"][:400])
-                                    if row["detail"]
-                                    else ""
+                                phone_opening(
+                                    self.config.settings,
+                                    row,
+                                    verified=self.requires_pin(row["direction"]),
                                 )
                             )
                         )
+                    elif event.get("event") == "mark" and pending_approval:
+                        if (
+                            pending_approval["mark"]
+                            and event.get("mark", {}).get("name") == pending_approval["mark"]
+                        ):
+                            pending_approval["heard"] = True
                     elif event.get("event") == "dtmf" and stream_sid and pending_approval:
                         digit = event.get("dtmf", {}).get("digit")
                         if digit not in {"1", "2"}:
+                            continue
+                        if digit == "1" and not pending_approval["heard"]:
+                            # Keep the readback playing; only the matching carrier
+                            # playback acknowledgment can authorize keypad approval.
                             continue
                         proposal, pending_approval = pending_approval, None
                         if answer:
@@ -628,19 +990,21 @@ class Telephony:
                             await self.runtime.tasks.resume(task_id)
                             answer = asyncio.create_task(wait_task({"id": task_id}))
                         except ValueError:
-                            answer = asyncio.create_task(
-                                speak(self.message("expired"))
-                            )
+                            answer = asyncio.create_task(speak(self.message("expired")))
                     elif event.get("event") == "media" and stream_sid:
-                        pcm = decode_mulaw(
-                            base64.b64decode(event["media"]["payload"], validate=True)
-                        )
+                        data = base64.b64decode(event["media"]["payload"], validate=True)
+                        if not data or len(data) > 8000:
+                            raise ValueError("Invalid phone input audio.")
+                        pcm = decode_mulaw(data)
                         level = float(np.sqrt(np.mean(pcm.astype(np.float64) ** 2)))
                         voice = level > 550
                         if voice:
                             voiced_frames += 1
                             quiet_frames = 0
                             if speaking and voiced_frames >= 3:
+                                if pending_approval:
+                                    pending_approval["heard"] = False
+                                    pending_approval["mark"] = None
                                 if answer:
                                     answer.cancel()
                                 await websocket.send_json(
@@ -658,7 +1022,9 @@ class Telephony:
                             frames, voiced_frames, quiet_frames = [], 0, 0
                     elif event.get("event") == "stop":
                         break
-        except (TimeoutError, ValueError, PermissionError):
+                    elif not claimed_key and event.get("event") != "connected":
+                        raise PermissionError("Media session has not started.")
+        except (TimeoutError, ValueError, PermissionError, TypeError, KeyError, AttributeError):
             with contextlib.suppress(Exception):
                 await websocket.close(code=1008)
         finally:
@@ -667,11 +1033,11 @@ class Telephony:
                 answer.cancel()
                 with contextlib.suppress(asyncio.CancelledError, Exception):
                     await answer
-            if key:
-                self.active.discard(key)
+            if claimed_key:
+                self.active.discard(claimed_key)
                 await self.db.execute(
                     "UPDATE calls SET state='completed',ended_at=? WHERE id=? AND state='connected'",
-                    (now(), key),
+                    (now(), claimed_key),
                 )
 
     def router(self):
@@ -680,27 +1046,37 @@ class Telephony:
         async def signed_form(request):
             if len(await request.body()) > 16384:
                 raise PermissionError("Request is too large.")
-            params = dict(await request.form(max_files=0, max_fields=64, max_part_size=16384))
+            form = await request.form(max_files=0, max_fields=64, max_part_size=16384)
+            if len(form.multi_items()) != len(form):
+                raise PermissionError("Duplicate webhook fields are not allowed.")
+            if len(request.query_params.multi_items()) != len(request.query_params):
+                raise PermissionError("Duplicate webhook parameters are not allowed.")
+            params = dict(form)
             if not self.signed(
                 request.url.path,
                 request.url.query,
-                request.headers.get("x-twilio-signature", ""),
+                webhook_signature(request.headers),
                 params,
             ):
                 raise PermissionError("Invalid telephony signature.")
+            if (
+                params.get("AccountSid", self.config.settings.telephony_account_id)
+                != self.config.settings.telephony_account_id
+            ):
+                raise PermissionError("Invalid telephony account.")
             return params
 
         @router.post("/telephony/voice")
         async def voice(request: Request):
+            try:
+                params = await signed_form(request)
+            except PermissionError:
+                return Response(status_code=403)
             if (
                 not self.ready()[0]
                 or self.config.settings.profile == "local_strict"
                 or self.runtime.gateway.blocked
             ):
-                return Response(status_code=403)
-            try:
-                params = await signed_form(request)
-            except PermissionError:
                 return Response(status_code=403)
             settings = self.config.settings
             key = request.query_params.get("call_id")
@@ -710,8 +1086,21 @@ class Telephony:
             if not re.fullmatch(r"CA[0-9a-fA-F]{32}", sid):
                 return Response(status_code=403)
             if row is None:
-                if key or params.get("From") != settings.owner_phone_number:
-                    result.hangup()
+                if (
+                    key
+                    or not settings.phone_inbound_enabled
+                    or params.get("From") != settings.owner_phone_number
+                    or params.get("Direction", "inbound") != "inbound"
+                ):
+                    if key:
+                        result.hangup()
+                    else:
+                        result.reject()
+                    return Response(str(result), media_type="text/xml")
+                # Outbound hands-free mode must not authenticate spoofable inbound
+                # caller ID. Without an inbound PIN there is no remote entry.
+                if not re.fullmatch(r"[0-9]{6,8}", settings.secret("phone_pin")):
+                    result.reject()
                     return Response(str(result), media_type="text/xml")
                 async with self.lock:
                     row = await self.db.fetchone("SELECT * FROM calls WHERE provider_id=?", (sid,))
@@ -720,12 +1109,12 @@ class Telephony:
                             "SELECT id FROM calls WHERE state IN ('creating','queued','initiated','ringing','answered','in-progress','connected','unknown') LIMIT 1"
                         )
                         if active:
-                            result.hangup()
+                            result.reject(reason="busy")
                             return Response(str(result), media_type="text/xml")
                         try:
                             reserve = await self.reservation(inbound=True)
                         except ValueError:
-                            result.hangup()
+                            result.reject(reason="busy")
                             return Response(str(result), media_type="text/xml")
                         key = uid()
                         await self.db.execute(
@@ -736,24 +1125,26 @@ class Telephony:
                             "SELECT * FROM calls WHERE provider_id=?", (sid,)
                         )
                 key = row["id"]
-            if row["state"] in {
-                "completed",
-                "failed",
-                "busy",
-                "no-answer",
-                "canceled",
-                "verified_not_created",
-            }:
+            if row["direction"] == "inbound" and not settings.phone_inbound_enabled:
+                result.hangup()
+                return Response(str(result), media_type="text/xml")
+            if row["state"] not in CALL_RANK or row["state"] == "unknown":
                 result.hangup()
                 return Response(str(result), media_type="text/xml")
             if row["provider_id"] and row["provider_id"] != sid:
                 return Response(status_code=403)
             await self.db.execute("UPDATE calls SET provider_id=? WHERE id=?", (sid, key))
-            if not row["auth_verified"]:
+            if not row["auth_verified"] and not self.requires_pin(row["direction"]):
+                # The owner has waived the PIN gate. The signed webhook, allowed
+                # caller/recipient, Call SID and one-use media token still apply.
+                await self.db.execute("UPDATE calls SET auth_verified=1 WHERE id=?", (key,))
+                row["auth_verified"] = 1
+            elif not row["auth_verified"]:
                 digits = params.get("Digits", "")
                 pin = settings.secret("phone_pin")
                 if digits and pin and hmac.compare_digest(digits.encode(), pin.encode()):
                     await self.db.execute("UPDATE calls SET auth_verified=1 WHERE id=?", (key,))
+                    row["auth_verified"] = 1
                 elif row["attempts"] >= 3:
                     await self.db.execute(
                         "UPDATE calls SET state='failed',ended_at=? WHERE id=?", (now(), key)
@@ -761,13 +1152,19 @@ class Telephony:
                     result.hangup()
                     return Response(str(result), media_type="text/xml")
                 else:
-                    await self.db.execute("UPDATE calls SET attempts=attempts+1 WHERE id=?", (key,))
+                    admitted = await self.db.execute(
+                        "UPDATE calls SET attempts=attempts+1 WHERE id=? AND attempts<3 AND auth_verified=0",
+                        (key,),
+                    )
+                    if not admitted:
+                        result.hangup()
+                        return Response(str(result), media_type="text/xml")
                     gather = Gather(
                         action_on_empty_result=True,
                         input="dtmf",
                         num_digits=len(pin),
                         timeout=8,
-                        action=settings.telephony_public_base_url.rstrip("/")
+                        action=self.public_base_url.rstrip("/")
                         + "/telephony/voice?call_id="
                         + key,
                         method="POST",
@@ -781,11 +1178,15 @@ class Telephony:
                     result.append(gather)
                     result.hangup()
                     return Response(str(result), media_type="text/xml")
-            token = secrets.token_urlsafe(32)
+            if key in self.active:
+                result.hangup()
+                return Response(str(result), media_type="text/xml")
+            token = self.media_tokens.get(key) or secrets.token_urlsafe(32)
             self.media_tokens[key] = token
+            self.prepare_voice(row)
             connect = Connect()
             stream = connect.stream(
-                url=settings.telephony_public_base_url.rstrip("/").replace("https://", "wss://", 1)
+                url=self.public_base_url.rstrip("/").replace("https://", "wss://", 1)
                 + "/telephony/media"
             )
             stream.parameter(name="call_id", value=key)
@@ -799,34 +1200,32 @@ class Telephony:
                 params = await signed_form(request)
             except PermissionError:
                 return Response(status_code=403)
+            # Reuse an already proxied webhook path; a signed probe has no call
+            # fields and cannot create, end, or authorize a phone conversation.
+            if set(params) == {"JarvisProbe"}:
+                challenge = params["JarvisProbe"]
+                if not re.fullmatch(r"[A-Za-z0-9_-]{16,128}", challenge):
+                    return Response(status_code=400)
+                return JSONResponse({"proof": self.probe_proof(challenge)})
             sid = params.get("CallSid")
+            if not isinstance(sid, str) or not re.fullmatch(r"CA[0-9a-fA-F]{32}", sid):
+                return Response(status_code=403)
             key = request.query_params.get("call_id")
             row = await self.db.fetchone(
                 "SELECT * FROM calls WHERE id=? OR provider_id=? LIMIT 1", (key, sid)
             )
-            if row and (not row["provider_id"] or row["provider_id"] == sid):
+            if (
+                row
+                and row["state"] not in TERMINAL_CALL_STATES
+                and (not row["provider_id"] or row["provider_id"] == sid)
+            ):
                 state = params.get("CallStatus", "unknown")
-                terminal = {"completed", "failed", "busy", "no-answer", "canceled"}
-                rank = {
-                    "creating": 0,
-                    "queued": 1,
-                    "initiated": 1,
-                    "ringing": 2,
-                    "answered": 3,
-                    "in-progress": 3,
-                    "connected": 4,
-                    "unknown": 0,
-                }
-                if row["state"] not in terminal and (
-                    state in terminal or rank.get(state, -1) >= rank.get(row["state"], 0)
-                ):
-                    await self.db.execute(
-                        "UPDATE calls SET provider_id=?,state=?,ended_at=? WHERE id=?",
-                        (sid, state, now() if state in terminal else None, row["id"]),
-                    )
-                    await self.db.emit(
-                        "call.status", {"id": row["id"], "state": state}, row["task_id"]
-                    )
+                await self.update_status(
+                    row,
+                    sid,
+                    state,
+                    reservation=self.settled_reservation(state, params.get("CallDuration")),
+                )
             return Response(status_code=204)
 
         @router.websocket("/telephony/media")

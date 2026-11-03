@@ -15,4 +15,8 @@ description = "Publish placeholders, never an actual home directory"
 regex = '''(?i)(?:/(?:Users|home)/|[a-z]:\\+Users\\+)[a-z0-9._\-]+'''
 [[rules.allowlists]]
 regexTarget = "match"
-regexes = ['''(?i)(?:/|\\+)(?:user|username|name|example|owner|runner|runneradmin)$''']
+regexes = [
+    '''(?i)(?:/|\\+)(?:user|username|name|example|owner|runner|runneradmin)$''',
+    # Gmail's current-user API resource is not a local home directory.
+    '''^/users/me$''',
+]

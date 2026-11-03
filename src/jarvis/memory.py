@@ -18,6 +18,10 @@ class Memory:
             raise PermissionError("Memory is disabled.")
         if not self.config.settings.second_brain_url:
             raise ValueError("Connect Second Brain before saving memories.")
+        from .remote_context import active_client
+        client = active_client.get()
+        if client and (client.session["private"] or client.session["scope"] != scope):
+            raise PermissionError("Memory writes require the current non-private scope.")
         if scope not in {"personal", "work", "test-mcp"}:
             raise ValueError("Invalid memory scope.")
         key = uid()

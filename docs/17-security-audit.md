@@ -105,3 +105,106 @@ Checks are time-specific and need to be rerun for later dependencies/advisories.
 Low residuals above are deliberate technical trust boundaries, not silently
 suppressed high/medium findings. Private incident evidence is kept outside the
 published tree. No original private values are reproduced in this report.
+
+## October 27: public telephony ingress review
+
+The review covered the running Cloudflare/Caddy route, loopback listeners,
+HTTP and WebSocket authentication, inbound caller identity, media admission,
+keypad approvals and installed Python/JavaScript dependencies. Adversarial tests
+used isolated databases and synthetic signed carrier messages. No real phone
+call, model inference, credential rotation or third-party message was required.
+
+| Confirmed finding | Severity | Remediation |
+| --- | --- | --- |
+| Disabling the outbound PIN also allowed inbound callers to authenticate using spoofable caller ID alone | High | Incoming calls are now opt-in and always require a PIN. The owner's outbound hands-free preference remains available and unchanged. |
+| Rejected or duplicate media starts could finalize another call before validating the one-use media token | Medium | Only the connection that successfully claims a call may release its active state or finalize it. Wrong-token, wrong-account and duplicate-session attempts cannot mutate the victim call. |
+| Legacy phone approvals could accept a keypad confirmation before the readback was acknowledged as played | Medium | Bind approval to a unique playback mark. Early digits cannot approve; interrupted audio invalidates the mark. |
+| Rejected inbound calls used Hangup, which could still answer and bill the call | Medium | Use Reject as the first verb for disabled, unrecognized, unconfigured, busy or over-budget initial inbound calls. |
+| Slow requests and idle or malformed media could consume shared resources or raise unhandled errors | Medium | Reject malformed signature headers before body reads and perform cryptographic checks before voice setup. Limit public pending webhooks to eight, media sockets to two, media setup to five seconds and input audio frames to one second. Enforce proxy body/connection/time limits separately from the private API. |
+| Duplicate webhook form/query/signature fields were parsed ambiguously | Low | Reject duplicates before dispatch and validate the carrier account when supplied, including the media start account. |
+
+External checks verified that the dashboard, API, settings, health, documentation,
+environment and Git paths are not exposed by the public proxy. Unsigned webhook
+requests and unsigned audio upgrades were refused. The Caddy administrator remains
+disabled, and backend/proxy listeners remain bound to loopback. The proxy only
+forwards POST voice/status webhooks and GET media handshakes; upstream connections
+are capped to protect local controls.
+
+Installed Python packages were checked with pip-audit 2.10.1, with the editable
+application reviewed as source. npm audit reported no known advisories, and
+Bandit 1.9.4 reported no medium/high findings. Scanner tools ran from a separate
+temporary environment, without changing application dependencies.
+
+Verification passed 439 Python tests with two platform-specific skips and nine
+browser/interface tests. Lint, TypeScript/Vite and Caddy configuration validation
+passed. The hardened proxy configuration was applied through its reload signal,
+and the supervised backend was restarted with no active calls or tasks. Repeated
+live probes confirmed private/encoded routes blocked, unsigned HTTP/audio denied,
+ambiguous forms rejected and oversized bodies refused. Signed instance and audio
+transport probes succeeded without creating a phone call. The private settings
+file was unchanged, including the owner's outbound PIN preference and secrets.
+
+## October 30: assistant feature boundaries
+
+The [assistant expansion record](27-assistant-expansion.md) contains a separate
+requirements/security analysis and verification gate for each feature. New mail,
+Jira/GitHub and Home Assistant connections use dedicated private credentials,
+exact scope/target grants and bounded transport. Mail/home uncertain-effect
+receipts block blind retries; review binds current content/arguments and policy.
+Home state readback remains separate from command acceptance. Generic MCP cannot
+bypass the managed integration adapters.
+
+Documents, source events and chosen-window text remain untrusted evidence rather
+than owner testimony. Automatic event analysis is read-only at the gateway,
+including after checkpoint reconstruction. Native capture uses a one-window
+system picker, guarded claims/completions and a ten-minute RAM lifetime. Private
+attachments have session-bound RAM storage and actual expiry timers. Persistent
+feature writes recheck privacy revisions, scope and emergency state after waits.
+
+macOS document parsing additionally has OS-enforced file/network confinement and
+an empty working directory. An actual subprocess probe verifies rejection of
+private/outside reads, outside writes and loopback connections. Separate workers
+have timeout, size and supported resource limits; Windows/Linux do not claim the
+same OS confinement. Native parser vulnerabilities remain a residual risk.
+Publication inventory also rejects all newly introduced credential filenames.
+
+The local final gate passed 550 Python cases (two skips), ten frontend checks and
+181 native scenarios, with a compiled/signed Mac bundle. Synthetic browser and
+actual MCP protocol fixtures exercised configured flows; no personal mailbox,
+organization account or physical device was used as a test target. Real consent,
+permissions, device state and signed mobile/platform acceptance remain separate
+deployment checks described in [the setup guide](29-assistant-setup.md).
+
+References: [Twilio signatures](https://www.twilio.com/docs/usage/security),
+[caller ID spoofing](https://help.twilio.com/articles/46755020494875),
+[Reject before answering](https://www.twilio.com/docs/voice/twiml/reject),
+[Caddy upstream connection limits](https://caddyserver.com/docs/caddyfile/directives/reverse_proxy).
+
+These results cover the inspected application and current configuration. They do
+not establish the absence of every possible vulnerability or prevent a network
+outage or volumetric denial of service. With outbound PIN verification disabled,
+whoever answers the owner's configured number can converse with Jarvis; that is
+the owner's explicitly requested hands-free policy. Phone conversations retain
+the normal tool permission and approval gateway.
+
+## November 3: publication check for the remote core and companions
+
+The publication check covers the complete source tree, new companion assets,
+deployment examples, and named branch/tag/origin history. Gitleaks 8.30.1 runs
+with full redaction. Independent home-path checks and read-only exact comparisons
+with sensitive local configuration values complement the scanner's default
+exceptions. No credentials or private configuration values were detected in the
+publishable files. Environment files, runtime databases, signing credentials,
+device configuration, and build outputs remain excluded from publication.
+PNG assets contain no identifying ancillary metadata; signing/project files
+contain no personal development-team identifier or embedded signing passwords.
+
+Gmail's literal `/users/me` API resource is explicitly allowed as a match,
+without exempting the surrounding source file. The iOS icon has a filename that
+does not resemble an email address. Independent rule checks still reject private
+macOS/Linux home paths and non-example email addresses.
+
+Verification passed 617 Python tests with two platform-specific skips, 14 web
+tests, two desktop companion tests, and 181 native scenarios. Python lint and the
+TypeScript/Vite production build also passed. These checks do not replace signed
+device testing or establish the absence of every possible vulnerability.

@@ -224,6 +224,22 @@ def system_executable(name: str) -> str:
     return str(Path(buffer.value) / name)
 
 
+def read_bytes(path: Path, limit=3_000_000) -> bytes:
+    import msvcrt
+    with locked_directory(path.parent):
+        handle = open_handle(path)
+        try:
+            fd = msvcrt.open_osfhandle(handle, os.O_RDONLY | os.O_BINARY)
+        except BaseException:
+            api()[0].CloseHandle(handle)
+            raise
+        with os.fdopen(fd, "rb") as file:
+            data = file.read(limit + 1)
+            if len(data) > limit:
+                raise ValueError("Document exceeds its size limit.")
+            return data
+
+
 def replace_file(source: Path, target: Path):
     if target.exists():
         # ReplaceFile preserves the destination's ACL instead of broadening it

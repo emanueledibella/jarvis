@@ -1,12 +1,23 @@
 # Implemented environment configuration
 
-Based on the `Settings` schema for version 0.1.0, updated October 26, 2026. All 93 settings appear below.
+Based on the `Settings` schema for version 0.1.0, updated October 27, 2026.
 
 Precedence: process environment → `.env` → private GUI settings → defaults. Source checkouts default to the repository `.env`; portable executables default to `.env` inside their private application data directory. Select another file with `JARVIS_ENV_FILE` or `jarvis --env-file /path/file.env ...`. Environment-provided fields are locked in the GUI. Editing `.env` requires a service restart; closing only the window does not restart the backend.
 
 Keys accept direct values. On macOS they also accept `keychain:account` references in the `Jarvis` Keychain service; those references fail explicitly on Windows/Linux. The GUI never returns saved secret values. Saving a blank password field retains its existing value. To remove it, explicitly edit private configuration with the service stopped. Local API tokens differ from provider credentials.
 
+The remote core treats migrated macOS Keychain references as unavailable credentials
+on other operating systems, so the administrator can enter replacement server keys
+in a companion. It does not export the Mac's Keychain. The standalone mode retains
+the explicit unsupported-platform error.
+
 `api_host` stays loopback. Change `api_port`, `data_dir`, and `ui_dir` before startup through env. `record_audio` and `allow_cloud_fallback` can only be false: hybrid selects a provider at task start, without silently retrying another provider. Interrupting a task does not move its checkpoint to cloud.
+
+`telephony_tunnel_mode` selects `external` (the compatible default) or `managed`.
+Managed mode provides Activate/Deactivate controls for supervised Caddy and
+Cloudflare child processes, uses the generated URL in memory, and requires an
+explicit activation after restarting Jarvis. Leave the enabled/mode fields unset
+in the environment to control them from Settings. See [managed telephony](26-managed-telephony.md).
 
 Ollama uses its root endpoint, such as `http://127.0.0.1:11434`. LM Studio/compatible gateways use the full API endpoint, such as `http://127.0.0.1:1234/v1`. Not all model/template pairs support tools; run the Settings test.
 
@@ -14,9 +25,11 @@ Ollama uses its root endpoint, such as `http://127.0.0.1:11434`. LM Studio/compa
 
 `JARVIS_LANGUAGE` selects local wake/Apple transcription, retaining `it-IT` by default. `JARVIS_RESPONSE_LANGUAGE=auto` follows the language of substantive user requests. Explicit language tags select a preferred reply language; the user can still ask to switch. OpenAI conversation audio is not restricted to the wake locale. An explicitly selected Apple TTS voice overrides automatic voice choice.
 
-The monthly ledger covers cloud LLM requests and OpenAI Live sessions on desktop and phone. Voice reserves maximum duration plus closing margin; absent final usage retains that reservation. Phone Live uses the phone duration limit and the desktop voice rate. Rates are owner-declared and omit cache discounts. Daily phone reservations separately use rounded maximum minutes/configured conservative carrier rates, adding inbound PIN tolerance. Accounting periods are UTC. Numbers, carrier charges, legacy phone STT/TTS, web services, and provider bills must still be checked in their accounts: estimates are not carrier-enforced billing limits.
+The monthly ledger covers cloud LLM requests and OpenAI Live sessions on desktop and phone. Voice reserves maximum duration plus closing margin; absent final usage retains that reservation. Phone Live uses the phone duration limit and the desktop voice rate. Rates are owner-declared and omit cache discounts. Daily phone reservations separately use rounded maximum minutes/configured conservative carrier rates, adding PIN tolerance for inbound calls. Accounting periods are UTC. Numbers, carrier charges, legacy phone STT/TTS, web services, and provider bills must still be checked in their accounts: estimates are not carrier-enforced billing limits.
 
 When `JARVIS_DESKTOP_VOICE_PROVIDER=openai_live`, phone conversation audio reuses `JARVIS_DESKTOP_VOICE_MODEL`, `JARVIS_DESKTOP_VOICE_NAME`, `JARVIS_DESKTOP_VOICE_STYLE`, the shared response-language policy and the desktop voice key (with the same OpenAI model-key fallback). The separate phone STT/TTS settings apply only to the legacy pipeline when desktop Live is not selected. The carrier's pre-authentication PIN prompt is localized in Italian/English; PIN digits never enter the Live session.
+
+`JARVIS_PHONE_PIN_ENABLED=true` requires a PIN when Jarvis calls the owner. The Telephony checkbox can disable this outbound verification, allowing an owner-authorized call to connect without keypad input. Incoming calls are disabled by default; enable `JARVIS_PHONE_INBOUND_ENABLED` or the separate Telephony checkbox to call Jarvis yourself. Incoming calls always require the configured 6–8 digit PIN because caller ID alone can be spoofed; without a configured PIN, incoming access is rejected. Disabling outbound verification retains any saved PIN for inbound use or later re-enabling. Rejected initial incoming calls use TwiML `Reject` before answering, rather than `Hangup`. Call authorization and tool permissions remain separate.
 
 | Variable | Type / values | Default | Constraints |
 | --- | --- | --- | --- |
@@ -100,6 +113,8 @@ When `JARVIS_DESKTOP_VOICE_PROVIDER=openai_live`, phone conversation audio reuse
 | `JARVIS_TELEPHONY_AUTH_TOKEN` | string | `secret, empty` |  |
 | `JARVIS_TELEPHONY_FROM_NUMBER` | string | `` |  |
 | `JARVIS_OWNER_PHONE_NUMBER` | string | `` |  |
+| `JARVIS_PHONE_INBOUND_ENABLED` | boolean | `false` | Explicitly allow inbound calls, which always require the PIN |
+| `JARVIS_PHONE_PIN_ENABLED` | boolean | `true` | Require a PIN when Jarvis calls the owner; inbound calls always require a PIN |
 | `JARVIS_PHONE_PIN` | string | `secret, empty` |  |
 | `JARVIS_PHONE_API_KEY` | string | `secret, empty` |  |
 | `JARVIS_PHONE_MAX_CALL_SECONDS` | integer | `180` | minimum: 30, maximum: 3600 |

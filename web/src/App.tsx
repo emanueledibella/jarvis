@@ -47,9 +47,28 @@ import { Memory, Integrations } from "./Memory";
 import Settings from "./Settings";
 import CommandCenter, { SystemClock, VoiceSignal } from "./CommandCenter";
 import brandIcon from "./assets/jarvis.svg";
+import Today from "./Today";
+import Organizer from "./Organizer";
+import Mail from "./Mail";
+import Automations from "./Automations";
+import Documents from "./Documents";
+import Screen from "./Screen";
+import Development from "./Development";
+import HomeAssistant from "./HomeAssistant";
+import "./assistant.css";
+import { remoteClient } from "./remoteClient";
+import { RemoteModelSettings } from "./Remote";
 
 type Page =
   | "home"
+  | "today"
+  | "organizer"
+  | "mail"
+  | "automations"
+  | "documents"
+  | "screen"
+  | "development"
+  | "homeAssistant"
   | "chat"
   | "tasks"
   | "routines"
@@ -59,6 +78,10 @@ type Page =
 
 export default function App() {
   useI18n();
+  const [attachments, setAttachments] = useState<string[]>([]);
+  const [mobileMenu, setMobileMenu] = useState(false);
+  const [, setSessionRevision] = useState(-1);
+  const attachmentSession = useRef(crypto.randomUUID());
   const [authenticated, setAuthenticated] = useState(hasToken()),
     [entryToken, setEntryToken] = useState(""),
     [page, setPage] = useState<Page>("home"),
@@ -141,16 +164,20 @@ export default function App() {
     [],
   );
   function applyPreference(value: Json) {
+    if (remoteClient.enabled && value.client_session_id && value.client_session_id !== remoteClient.sessionId) return;
     if (value.revision < privacyRevision.current) return;
     const changed =
       privateRef.current !== value.private || scopeRef.current !== value.scope;
     privacyRevision.current = value.revision;
+    setSessionRevision(value.revision);
     privateRef.current = value.private;
     scopeRef.current = value.scope;
     setPrivateMode(value.private);
     setScope(value.scope);
     setPrivacyReady(true);
     if (changed) {
+      setAttachments([]);
+      attachmentSession.current = crypto.randomUUID();
       setConversation(null);
       setMessages([]);
     }
@@ -160,6 +187,17 @@ export default function App() {
       .then(applyPreference)
       .catch(() => setPrivacyReady(false));
   }
+  useEffect(() => {
+    const openTasks = () => { setPage("tasks"); };
+    const shared = (event: Event) => {
+      const id = (event as CustomEvent).detail?.id;
+      if (typeof id === "string") { setAttachments(items => [...new Set([...items, id])]); setPage("chat"); }
+    };
+    window.addEventListener("jarvis-session-changed", syncPreference);
+    window.addEventListener("jarvis-remote-open-tasks", openTasks);
+    window.addEventListener("jarvis-shared-source", shared);
+    return () => { window.removeEventListener("jarvis-session-changed", syncPreference); window.removeEventListener("jarvis-remote-open-tasks", openTasks); window.removeEventListener("jarvis-shared-source", shared); };
+  }, []);
   async function preference(privateValue: boolean, scopeValue: string) {
     setPrivacyReady(false);
     try {
@@ -250,6 +288,7 @@ export default function App() {
       });
   }, [messages, deltas, page]);
   const openSettings = (section: string) => {
+    if (remoteClient.enabled && section === "voice") { window.dispatchEvent(new Event("jarvis-remote-voice")); return; }
     setSettingsSection(section);
     setPage("settings");
   };
@@ -277,7 +316,8 @@ export default function App() {
       ? "processing"
       : voiceState;
   const unread = notifications.filter((n) => !n.read).length;
-  async function send(value = text) {
+  useEffect(() => { if (status.emergency_stop) window.dispatchEvent(new Event("jarvis-emergency-stop")); }, [status.emergency_stop]);
+  async function send(value = text, attachedIds = attachments) {
     if (!value.trim() || sending) return;
     if (!privacyReady) {
       notify("Wait for privacy settings to load.", true);
@@ -291,6 +331,7 @@ export default function App() {
         scope,
         privateMode,
         external,
+        attachedIds,
       ]);
       if (submission.current?.signature !== signature)
         submission.current = { signature, id: crypto.randomUUID() };
@@ -302,10 +343,14 @@ export default function App() {
         external_authorized: external,
         privacy_revision: privacyRevision.current,
         request_id: submission.current.id,
+        attachment_ids: attachedIds,
+        attachment_session: attachmentSession.current,
       });
       submission.current = null;
+      if (remoteClient.enabled) remoteClient.bindConversation(task.conversation_id);
       setConversation(task.conversation_id);
       setText("");
+      setAttachments([]);
       setExternal(false);
       setPage("chat");
       refresh();
@@ -316,6 +361,10 @@ export default function App() {
     }
   }
   async function native(action: string) {
+    if (remoteClient.enabled) {
+      window.dispatchEvent(new Event("jarvis-remote-voice"));
+      return;
+    }
     if (portableText) {
       notify(
         "Desktop voice requires the native macOS app. Use text on this platform.",
@@ -340,7 +389,14 @@ export default function App() {
       notify(e.message, true);
     }
   }
-  function newChat() {
+  async function newChat() {
+    if (remoteClient.enabled) {
+      setPrivacyReady(false);
+      await remoteClient.selectConversation();
+      privacyRevision.current = -1;
+      if (!(await preference(privateMode, scope))) return;
+    }
+    setAttachments([]);
     setConversation(null);
     setMessages([]);
     setText("");
@@ -348,12 +404,18 @@ export default function App() {
     input.current?.focus();
   }
   async function chooseConversation(c: Json) {
+    if (remoteClient.enabled) {
+      setPrivacyReady(false);
+      await remoteClient.selectConversation(c.id);
+      privacyRevision.current = -1;
+    }
     if (!(await preference(false, c.scope))) return;
     setConversation(c.id);
     setPage("chat");
   }
   const composer = (
     <div className="composer-wrap">
+      {!!attachments.length && <div className="assistant-actions"><Badge>{tr("Attached sources")}: {attachments.length}</Badge><button className="btn" onClick={() => setPage("documents")}>{tr("Review attachments")}</button><button className="btn" onClick={() => setAttachments([])}>{tr("Clear attachments")}</button></div>}
       <div className="composer">
         <textarea
           ref={input}
@@ -422,7 +484,7 @@ export default function App() {
             <button
               className="icon-btn"
               aria-label={tr("Talk to Jarvis")}
-              disabled={!privacyReady || portableText}
+              disabled={!privacyReady || (portableText && !remoteClient.enabled)}
               onClick={() => native("listen")}
             >
               <Mic size={17} />
@@ -524,9 +586,17 @@ export default function App() {
           {(
             [
               { id: "home", label: tr("Overview"), icon: LayoutDashboard },
+              { id: "today", label: tr("Today"), icon: Sun },
+              { id: "organizer", label: tr("Activities"), icon: Check },
+              { id: "mail", label: tr("Mail"), icon: MessageSquare },
+              { id: "documents", label: tr("Documents"), icon: Link2 },
+              { id: "screen", label: tr("Screen context"), icon: Computer },
+              { id: "development", label: tr("Jira and GitHub"), icon: Workflow },
+              { id: "homeAssistant", label: "Home Assistant", icon: Sun },
               { id: "chat", label: tr("Conversation"), icon: MessageSquare },
               { id: "tasks", label: tr("Tasks"), icon: Workflow },
               { id: "routines", label: tr("Routines"), icon: CalendarClock },
+              { id: "automations", label: tr("Automations"), icon: Bell },
               { id: "memory", label: tr("Memory"), icon: Brain },
               { id: "integrations", label: tr("Connections"), icon: Link2 },
             ] as { id: Page; label: string; icon: any }[]
@@ -608,7 +678,7 @@ export default function App() {
             />
             <span>
               <Mic size={12} />
-              {!status.native?.connected
+              {remoteClient.enabled ? tr("Push to talk") : !status.native?.connected
                 ? tr("Not connected")
                 : status.native?.muted
                   ? tr("Microphone muted")
@@ -654,7 +724,7 @@ export default function App() {
             <div>
               <strong>{tr("Your workspace")}</strong>
               <small>
-                {portableText ? tr("Local computer") : tr("Personal Mac")}
+                {remoteClient.enabled ? tr("Remote core") : portableText ? tr("Local computer") : tr("Personal Mac")}
               </small>
             </div>
             <ShieldCheck size={14} />
@@ -670,6 +740,14 @@ export default function App() {
               {
                 {
                   home: tr("Overview"),
+                  today: tr("Today"),
+                  organizer: tr("Activities"),
+                  mail: tr("Mail"),
+                  documents: tr("Documents"),
+                  screen: tr("Screen context"),
+                  development: tr("Jira and GitHub"),
+                  homeAssistant: "Home Assistant",
+                  automations: tr("Automations"),
                   chat: tr("Conversation"),
                   tasks: tr("Tasks"),
                   routines: tr("Routines"),
@@ -712,7 +790,7 @@ export default function App() {
             >
               <span className="tiny-dot" />
               {connection === "connected"
-                ? tr("Local service")
+                ? (remoteClient.enabled ? tr("Remote core") : tr("Local service"))
                 : tr("Reconnecting")}
             </span>
             <button
@@ -749,12 +827,12 @@ export default function App() {
                 "mic-status " + (status.native?.muted ? "muted-mic" : "")
               }
               onClick={() =>
-                portableText
+                remoteClient.enabled ? native("listen") : portableText
                   ? newChat()
                   : native(status.native?.muted ? "unmute" : "mute")
               }
               aria-label={
-                portableText
+                remoteClient.enabled ? tr("Talk to Jarvis") : portableText
                   ? tr("Open text conversation")
                   : status.native?.muted
                     ? tr("Unmute microphone")
@@ -769,7 +847,7 @@ export default function App() {
                 <Mic size={14} />
               )}
               <span>
-                {portableText
+                {remoteClient.enabled ? tr("Push to talk") : portableText
                   ? tr("Text mode")
                   : status.native?.connected
                     ? status.native?.muted
@@ -806,8 +884,13 @@ export default function App() {
         <div
           className={"content-area " + (page === "chat" ? "chat-content" : "")}
         >
+          {!["home", "chat", "tasks", "routines", "memory", "integrations", "settings"].includes(page) && <div className="assistant-scope-bar">
+            <label>{tr("Conversation scope")} <select value={scope} disabled={!privacyReady} onChange={(e) => preference(privateMode, e.target.value)}><option value="personal">{tr("Personal")}</option><option value="work">{tr("Work")}</option></select></label>
+            <button className="btn" disabled={!privacyReady} aria-pressed={privateMode} onClick={() => preference(!privateMode, scope)}><LockKeyhole size={13} />{tr(privateMode ? "Private" : "Private session")}</button>
+          </div>}
           {page === "home" && (
             <CommandCenter
+              remoteCore={remoteClient.enabled}
               status={status}
               dashboard={dashboard}
               tasks={tasks}
@@ -828,6 +911,14 @@ export default function App() {
               }}
             />
           )}
+          {page === "today" && <Today key={scope + ":" + privacyRevision.current} scope={scope} privateMode={privateMode} privacyRevision={privacyRevision.current} notify={notify} onAsk={(prompt) => { void send(prompt); }} />}
+          {page === "organizer" && <Organizer key={scope + ":" + privacyRevision.current} scope={scope} privateMode={privateMode} privacyRevision={privacyRevision.current} notify={notify} onAsk={(prompt) => { void send(prompt); }} />}
+          {page === "mail" && <Mail key={scope + ":" + privacyRevision.current} scope={scope} privateMode={privateMode} privacyRevision={privacyRevision.current} notify={notify} onAsk={(prompt) => { void send(prompt); }} />}
+          {page === "automations" && <Automations key={scope + ":" + privacyRevision.current} scope={scope} privateMode={privateMode} privacyRevision={privacyRevision.current} notify={notify} onAsk={(prompt) => { void send(prompt); }} />}
+          {page === "documents" && <Documents key={scope + ":" + privacyRevision.current} scope={scope} privateMode={privateMode} privacyRevision={privacyRevision.current} sessionId={attachmentSession.current} selected={attachments} onSelect={setAttachments} notify={notify} onAsk={(prompt, ids) => { void send(prompt, ids); }} />}
+          {page === "screen" && <Screen key={scope + ":" + privacyRevision.current} scope={scope} privacyRevision={privacyRevision.current} sessionId={attachmentSession.current} nativeAvailable={!!status.native?.connected} notify={notify} onAsk={(prompt) => { void send(prompt); }} />}
+          {page === "development" && <Development key={scope + ":" + privacyRevision.current} scope={scope} privateMode={privateMode} privacyRevision={privacyRevision.current} notify={notify} onAsk={(prompt) => { void send(prompt); }} />}
+          {page === "homeAssistant" && <HomeAssistant key={scope + ":" + privacyRevision.current} scope={scope} privateMode={privateMode} privacyRevision={privacyRevision.current} notify={notify} onAsk={(prompt) => { void send(prompt); }} />}
           {page === "chat" && (
             <div className="chat-view">
               <div className="chat-heading">
@@ -945,12 +1036,13 @@ export default function App() {
             />
           )}{" "}
           {page === "memory" && (
-            <Memory notify={notify} openSettings={openSettings} />
+            <Memory selectedScope={remoteClient.enabled ? scope : undefined} onScopeChange={remoteClient.enabled ? (value) => preference(privateMode, value) : undefined} notify={notify} openSettings={openSettings} />
           )}{" "}
           {page === "integrations" && (
             <Integrations notify={notify} openSettings={openSettings} />
           )}{" "}
           {page === "settings" && (
+            remoteClient.enabled ? <RemoteModelSettings notify={(message) => notify(message)} /> :
             <Settings
               platform={status.platform}
               nativeVoice={status.native}
@@ -984,6 +1076,13 @@ export default function App() {
           </button>
         </div>
       )}
+      {remoteClient.enabled && <nav className="remote-mobile-nav" aria-label={tr("Main navigation")}>
+        {([["home", "Overview", LayoutDashboard], ["today", "Today", CalendarClock], ["chat", "Chat", MessageSquare], ["tasks", "Tasks", Check]] as const).map(([id, label, Icon]) => <button key={id} className={page === id ? "active" : ""} onClick={() => setPage(id)}><Icon size={19} /><span>{tr(label)}</span></button>)}
+        <button aria-expanded={mobileMenu} onClick={() => setMobileMenu(true)}><Workflow size={19} /><span>{tr("More")}</span></button>
+      </nav>}
+      {mobileMenu && <Modal title={tr("More sections")} onClose={() => setMobileMenu(false)}><div className="modal-body remote-mobile-sections">
+        {([["organizer", "Activities"], ["mail", "Mail"], ["documents", "Documents"], ["screen", "Screen context"], ["development", "Jira and GitHub"], ["homeAssistant", "Home Assistant"], ["routines", "Routines"], ["automations", "Automations"], ["memory", "Memory"], ["integrations", "Connections"], ["settings", "Settings"]] as const).map(([id, label]) => <button className="btn" key={id} onClick={() => { setPage(id); setMobileMenu(false); }}>{tr(label)}</button>)}
+      </div></Modal>}
       {showNotifications && (
         <Modal
           title={tr("Your notifications")}

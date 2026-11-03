@@ -1,0 +1,27 @@
+.remote-shell {height:100dvh;display:flex;flex-direction:column;padding-top:env(safe-area-inset-top);box-sizing:border-box}
+.remote-shell>.app-shell{flex:1;min-height:0;height:auto}
+.remote-toolbar{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:42px;padding:4px 16px;background:var(--panel,#091824);border-bottom:1px solid var(--border,#234052);color:var(--text,#d7e6ed);font-size:12px}
+.remote-toolbar>span,.remote-toolbar>div,.remote-toolbar button{display:flex;align-items:center;gap:7px}
+.remote-toolbar button{border:0;background:transparent;color:inherit;cursor:pointer;padding:8px}
+.remote-connect form,.remote-form{display:grid;gap:16px;max-width:480px;width:100%}
+.remote-connect label,.remote-panel label{display:grid;gap:7px;text-align:left;margin:12px 0}
+.remote-connect input,.remote-panel input:not([type=checkbox]),.remote-panel textarea,.remote-panel select{box-sizing:border-box;width:100%;padding:11px;border:1px solid var(--border,#284250);border-radius:8px;background:var(--panel,#091824);color:var(--text,#d7e6ed);font:inherit}
+.remote-connect small{max-width:480px;line-height:1.6}
+.remote-panel section{margin:20px 0}.remote-panel .btn{margin:6px 8px 6px 0}
+.remote-device{display:grid;gap:9px;border:1px solid var(--border,#284250);border-radius:12px;padding:14px;margin-bottom:12px}
+.remote-device strong{display:flex;align-items:center;gap:8px}.remote-device small,.remote-path{overflow-wrap:anywhere}
+.remote-message{padding:12px;border-left:3px solid #36d7e5;white-space:pre-wrap;overflow-wrap:anywhere}
+@media(max-width:760px){.remote-toolbar{padding:3px 8px;font-size:11px;flex-wrap:wrap}.remote-toolbar button{padding:6px}.remote-panel{max-height:75dvh;overflow:auto}.remote-shell .content-area{padding-bottom:env(safe-area-inset-bottom)}.remote-shell .modal{max-width:calc(100vw - 16px)}}
+.remote-shared { padding: 1rem; margin: .5rem; border: 1px solid var(--border, #314552); border-radius: 12px; background: var(--panel, #0e202b); }
+.remote-shared > div { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; margin: .5rem 0; }
+.remote-shared span { overflow-wrap: anywhere; flex: 1; min-width: 150px; }
+.remote-mobile-nav { display:none; }
+.remote-mobile-sections { display:grid; grid-template-columns:1fr 1fr; gap:12px; max-height:70dvh; overflow:auto; }
+@media(max-width:760px) {
+  .remote-shell>.app-shell { display:flex; flex-direction:column; overflow:hidden; }
+  .remote-shell .sidebar { display:none; }
+  .remote-shell .workspace { flex:1; min-height:0; }
+  .remote-mobile-nav { display:flex; flex-shrink:0; justify-content:space-around; padding:6px 4px calc(6px + env(safe-area-inset-bottom)); border-top:1px solid var(--line); background:var(--panel,#091824); }
+  .remote-mobile-nav button { display:flex; flex:1; flex-direction:column; align-items:center; gap:5px; border:0; background:transparent; color:var(--muted,#91abb8); font:inherit; font-size:11px; cursor:pointer; min-height:44px; }
+  .remote-mobile-nav button.active { color:var(--accent,#36d7e5); }
+}

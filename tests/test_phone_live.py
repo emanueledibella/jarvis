@@ -73,6 +73,7 @@ class PhoneSocket:
             {
                 "event": "start",
                 "start": {
+                    "accountSid": self.runtime.config.settings.telephony_account_id,
                     "streamSid": "MZtest",
                     "callSid": "CA" + "c" * 32,
                     "mediaFormat": {"encoding": "audio/x-mulaw", "sampleRate": 8000, "channels": 1},
@@ -123,8 +124,9 @@ def install_provider(monkeypatch, connection, captured):
 
 
 @pytest.mark.parametrize("voice", ["cedar", "voice_saved_desktop_test"])
-async def test_phone_inherits_desktop_voice_key_language_and_delegates(runtime, monkeypatch, voice):
-    configure(runtime, desktop_voice_name=voice)
+@pytest.mark.parametrize("pin_enabled", [True, False])
+async def test_phone_inherits_desktop_voice_key_language_and_delegates(runtime, monkeypatch, voice, pin_enabled):
+    configure(runtime, desktop_voice_name=voice, phone_pin_enabled=pin_enabled)
     await call_row(runtime)
     monkeypatch.setattr(runtime.tasks, "model", model_factory())
     socket = PhoneSocket(runtime)
@@ -146,8 +148,12 @@ async def test_phone_inherits_desktop_voice_key_language_and_delegates(runtime, 
     assert runtime.config.settings.desktop_voice_style in session["instructions"]
     assert language_instructions("auto", "it-IT") in session["instructions"]
     assert session["store"] is False and session["delegation"] == {"type": "client"}
-    assert "it-IT" in session["input"][0]["content"][0]["text"]
-    assert "Sono Jarvis" in connection.commentary[0]["content"]
+    opening = session["input"][0]["content"][0]["text"]
+    assert "it-IT" in opening
+    assert "Sono Jarvis" in opening and "Test call requested by the owner" in opening
+    assert "Come posso aiutarti" not in opening
+    assert ("Identità verificata" in opening) is pin_enabled
+    assert all(item.get("delegation_id") for item in connection.commentary)
     assert "123456" not in json.dumps(session)
     assert connection.audio == [payload]
     assert any(event["event"] == "media" for event in socket.events)
@@ -181,12 +187,13 @@ def test_phone_reuses_desktop_key_without_requiring_legacy_audio_key(config, mon
     assert "desktop_voice_api_key" in Runtime(config).telephony.ready()[1]
 
 
-async def test_phone_never_connects_to_live_before_pin_verification(runtime, monkeypatch):
-    configure(runtime)
+@pytest.mark.parametrize("pin_enabled", [True, False])
+async def test_phone_never_connects_to_live_before_call_authorization(runtime, monkeypatch, pin_enabled):
+    configure(runtime, phone_pin_enabled=pin_enabled)
     await call_row(runtime, authenticated=False)
 
     def forbidden(**kwargs):
-        raise AssertionError("No audio provider connection before PIN verification")
+        raise AssertionError("No audio provider connection before call authorization")
 
     monkeypatch.setattr("jarvis.phone_live.AsyncOpenAI", forbidden)
     socket = PhoneSocket(runtime)

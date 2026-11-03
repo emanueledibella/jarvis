@@ -1,11 +1,45 @@
 # Example for a separately installed Caddy. Replace the domain with yours.
 # Do not expose /api, /assets, or the dashboard.
+{
+	admin off
+	servers {
+		timeouts {
+			read_header 5s
+			read_body 10s
+			idle 30s
+		}
+	}
+}
+
 phone.example.com {
-    @phone path /telephony/voice /telephony/status /telephony/media
-    handle @phone {
-        reverse_proxy 127.0.0.1:8765
-    }
-    handle {
-        respond "Not found" 404
-    }
+	@phone {
+		path /telephony/voice /telephony/status
+		method POST
+	}
+	handle @phone {
+		request_body {
+			max_size 16KB
+		}
+		reverse_proxy 127.0.0.1:8765 {
+			transport http {
+				max_conns_per_host 8
+				response_header_timeout 10s
+			}
+		}
+	}
+	@media {
+		path /telephony/media
+		method GET
+	}
+	handle @media {
+		reverse_proxy 127.0.0.1:8765 {
+			transport http {
+				max_conns_per_host 8
+				response_header_timeout 10s
+			}
+		}
+	}
+	handle {
+		respond "Not found" 404
+	}
 }

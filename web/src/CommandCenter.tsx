@@ -111,6 +111,7 @@ const memoryPoints = [
 
 type Destination = "tasks" | "routines" | "memory" | "integrations";
 type Props = {
+  remoteCore?: boolean;
   status: Json;
   dashboard: Json;
   tasks: Json[];
@@ -128,6 +129,7 @@ type Props = {
 };
 
 export default function CommandCenter({
+  remoteCore = false,
   status,
   dashboard,
   tasks,
@@ -147,7 +149,7 @@ export default function CommandCenter({
   const activeTasks = tasks.filter((t) =>
     ["queued", "running", "waiting_user"].includes(t.state),
   );
-  const portableText = status.platform?.native_voice === false;
+  const portableText = !remoteCore && status.platform?.native_voice === false;
   const routines = schedules.filter((s) => s.enabled);
   const memoryConnected = status.memory?.connection === "connected";
   const mcp = Object.values(status.mcp || {}) as Json[];
@@ -166,7 +168,7 @@ export default function CommandCenter({
     .slice(0, 2);
   const weather = dashboard.weather || {};
   const online = connection === "connected" && !status.emergency_stop;
-  const voiceReady =
+  const voiceReady = remoteCore ? online :
     status.native?.connected &&
     !status.native?.muted &&
     ["armed", "listening", "speaking", "followup"].includes(orbState);
@@ -537,7 +539,7 @@ export default function CommandCenter({
                   : tr("Set up")}
               </span>
             </button>
-            <button onClick={() => onSettings("models")}>
+            {!remoteCore && <button onClick={() => onSettings("models")}>
               <span className="system-icon violet">
                 <Computer size={15} />
               </span>
@@ -554,7 +556,7 @@ export default function CommandCenter({
               >
                 {status.models?.local ? tr("Configured") : tr("Set up")}
               </span>
-            </button>
+            </button>}
             <button onClick={() => onPage("integrations")}>
               <span className="system-icon mint">
                 <Layers3 size={15} />
@@ -610,7 +612,7 @@ export default function CommandCenter({
         </span>
         <span>
           <ShieldCheck size={11} />{" "}
-          {portableText
+          {remoteCore ? tr("Your Jarvis. Your controls.") : portableText
             ? tr("Your computer. Your controls.")
             : tr("Your Mac. Your controls.")}
         </span>

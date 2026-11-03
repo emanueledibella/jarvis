@@ -24,6 +24,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     var interfaceLanguage = InterfaceLanguage.configured(UserDefaults.standard.string(forKey: "interfaceLanguage"))
     let interfaceMessages = InterfaceLanguage.messages()
     var webReady = false
+    let screenContext = ScreenContext()
+    var screenLocked = false
 
     func ui(_ source: String) -> String { interfaceLanguage.text(source, messages: interfaceMessages) }
 
@@ -258,6 +260,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         var result: [String: Any]
         do {
             switch operation {
+            case "screen.capture":
+                result = try await screenContext.capture { [weak self] in
+                    guard let self else { return false }
+                    return !self.screenLocked
+                        && self.nativeSettings["privacy_revision"] as? Int == arguments["privacy_revision"] as? Int
+                        && self.nativeSettings["voice_scope"] as? String == arguments["scope"] as? String
+                        && self.nativeSettings["private_session"] as? Bool == arguments["private"] as? Bool
+                }
+            case "document.ocr":
+                result = try await DocumentOCR.recognize(arguments["image"] as? String ?? "")
             case "audio.inputs":
                 result = ["devices": Array(AudioInputDevices.list().prefix(128)).map { $0.catalogEntry }]
             case "control.enable":
@@ -274,6 +286,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                 if let privacy = arguments["private"] as? Bool, let scope = arguments["scope"] as? String { voice.setSession(privateMode: privacy, scope: scope) }
                 try voice.listen(); result = ["state": "listening"]
             case "control.session":
+                screenContext.cancel()
                 voice.setSession(privateMode: arguments["private"] as? Bool ?? false, scope: arguments["scope"] as? String ?? "personal")
                 result = ["state":"updated"]
             case "control.stop": voice.stopSpeaking(); hue.shutdown(); result = ["state": "stopped"]
@@ -305,10 +318,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             Task { @MainActor in self?.voice.restartCapture() }
         }
         DistributedNotificationCenter.default().addObserver(forName: NSNotification.Name("com.apple.screenIsLocked"), object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in self?.voice.setLocked(true) }
+            Task { @MainActor in
+                self?.screenLocked = true
+                self?.screenContext.cancel()
+                self?.voice.setLocked(true)
+            }
         }
         DistributedNotificationCenter.default().addObserver(forName: NSNotification.Name("com.apple.screenIsUnlocked"), object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in self?.voice.setLocked(false) }
+            Task { @MainActor in
+                self?.screenLocked = false
+                self?.voice.setLocked(false)
+            }
         }
     }
 

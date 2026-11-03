@@ -1,6 +1,7 @@
 import asyncio
 import base64
 import json
+from unittest.mock import AsyncMock
 
 import httpx
 import numpy as np
@@ -18,6 +19,7 @@ def phone_config(config):
     config.update(
         {
             "telephony_enabled": True,
+            "phone_inbound_enabled": True,
             "telephony_account_id": "AC" + "1" * 32,
             "telephony_auth_token": "test-carrier-secret",
             "telephony_from_number": "+12025550101",
@@ -40,10 +42,13 @@ def signed(config, path, params):
     }
 
 
-@pytest.mark.parametrize("language,locale,prompt", [
-    ("auto", "it-IT", "Digita il tuo codice personale"),
-    ("en", "en-GB", "Enter your personal code"),
-])
+@pytest.mark.parametrize(
+    "language,locale,prompt",
+    [
+        ("auto", "it-IT", "Digita il tuo codice personale"),
+        ("en", "en-GB", "Enter your personal code"),
+    ],
+)
 async def test_phone_signature_pin_and_no_data_before_identity(config, language, locale, prompt):
     phone_config(config)
     config.update({"response_language": language})
@@ -86,7 +91,7 @@ async def test_phone_signature_pin_and_no_data_before_identity(config, language,
         denied = await client.post(
             "/telephony/voice", data=another, headers=signed(config, "/telephony/voice", another)
         )
-        assert "<Hangup" in denied.text and "<Gather" not in denied.text
+        assert "<Reject" in denied.text and "<Gather" not in denied.text
         assert len(await runtime.db.fetchall("SELECT * FROM calls")) == 1
 
 
@@ -161,6 +166,7 @@ async def test_strict_mode_rejects_remote_and_arbitrary_stdio(runtime):
 
 async def test_outbound_timeout_does_not_create_a_second_call(runtime, monkeypatch):
     phone_config(runtime.config)
+    monkeypatch.setattr(runtime.telephony, "check_reachability", AsyncMock())
     attempts = []
 
     class Calls:
@@ -251,6 +257,8 @@ async def test_phone_dtmf_approves_only_the_proposal_read_back(runtime, tmp_path
         model_factory("workspace_command", {"command": "echo approved", "cwd": "."}),
     )
     utterances = []
+    playback_marks = []
+    playback_ready = asyncio.Event()
 
     async def tts(text):
         utterances.append(text)
@@ -283,13 +291,17 @@ async def test_phone_dtmf_approves_only_the_proposal_read_back(runtime, tmp_path
             pass
 
         async def send_json(self, event):
-            pass
+            if event["event"] == "mark":
+                playback_marks.append(event)
+                if event["mark"]["name"].startswith("approval-"):
+                    playback_ready.set()
 
         async def iter_text(self):
             yield json.dumps(
                 {
                     "event": "start",
                     "start": {
+                        "accountSid": runtime.config.settings.telephony_account_id,
                         "streamSid": "MZtest",
                         "callSid": sid,
                         "mediaFormat": {
@@ -316,6 +328,15 @@ async def test_phone_dtmf_approves_only_the_proposal_read_back(runtime, tmp_path
                 text for text in utterances if "Premi uno" in text
             )
             assert not await runtime.db.fetchall("SELECT * FROM effects")
+            # A keypad digit before the carrier acknowledges the exact readback
+            # must not authorize the proposed host operation.
+            yield json.dumps({"event": "dtmf", "dtmf": {"digit": "1"}})
+            assert (await runtime.db.fetchone("SELECT state FROM approvals"))["state"] == "pending"
+            await asyncio.wait_for(playback_ready.wait(), 2)
+            readback = next(
+                mark for mark in playback_marks if mark["mark"]["name"].startswith("approval-")
+            )
+            yield json.dumps(readback)
             yield json.dumps({"event": "dtmf", "dtmf": {"digit": "1"}})
             # Includes native shell startup, which can exceed two seconds on Windows.
             async with asyncio.timeout(30):

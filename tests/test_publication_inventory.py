@@ -19,6 +19,7 @@ def inventory(tmp_path, files):
 
 @pytest.mark.parametrize("filename", [
     "lights.json", "project-root.txt", ".env.production", ".netrc", ".npmrc",
+    "mail-accounts.json", "development.json", "home-assistant.json",
     "backup/Jarvis.app/Contents/Resources/private-resource.txt",
 ])
 def test_publication_rejects_forced_private_configuration_or_native_bundles(tmp_path, filename):

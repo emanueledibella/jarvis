@@ -17,6 +17,7 @@ build/
 output/
 *.egg-info/
 .playwright-mcp/
+.playwright-cli/
 web/.tsbuildinfo
 web/tsconfig.tsbuildinfo
 
@@ -31,3 +32,18 @@ web/tsconfig.tsbuildinfo
 *.pfx
 api-token
 oauth/
+companions/android/.gradle/
+companions/android/.idea/
+companions/android/local.properties
+companions/android/app/src/main/assets/public/
+companions/ios/App/App/public/
+companions/ios/App/App.xcodeproj/xcuserdata/
+companions/ios/App/App.xcodeproj/project.xcworkspace/xcuserdata/
+companions/android/app/google-services.json
+companions/ios/App/App/GoogleService-Info.plist
+deploy/secrets/*
+!deploy/secrets/README.md
+*.p8
+*.jks
+*.keystore
+*.mobileprovision

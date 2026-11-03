@@ -11,7 +11,7 @@ dependencies = [
   "fastapi==0.162.0",
   "uvicorn==0.54.0",
   "pydantic-settings==2.16.1",
-  "httpx>=0.28,<1",
+  "httpx[http2]>=0.28,<1",
   "aiosqlite==0.22.1",
   "deepagents==0.7.32",
   "langchain-openai==1.7.2",
@@ -32,6 +32,13 @@ dependencies = [
   "icalendar>=6,<8",
   "recurring-ical-events==3.8.2",
   "tzdata==2026.5",
+  "pypdf==6.21.4",
+  "defusedxml==0.7.1",
+  "pillow==13.0.0",
+  "pypdfium2==5.14.0",
+  "cryptography==50.0.2",
+  "websockets==15.0.1",
+  "keyring==25.7.0",
 ]
 
 [project.optional-dependencies]
@@ -41,6 +48,8 @@ build = ["pyinstaller==6.22.3", "Pillow>=13,<14"]
 
 [project.scripts]
 jarvis = "jarvis.cli:main"
+jarvis-executor = "jarvis.executor:main"
+jarvis-backup = "jarvis.backup:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/jarvis"]

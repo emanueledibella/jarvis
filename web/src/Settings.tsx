@@ -1,5 +1,6 @@
 import Lighting from "./Lighting";
 import MicrophoneSettings from "./Microphone";
+import TelephonyConnection from "./TelephonyConnection";
 import {
   t as tr,
   useI18n,
@@ -955,27 +956,83 @@ export default function Settings({
                 <p>{tr("Twilio Media Streams with two-way conversation.")}</p>
               </div>
             </div>
-            {toggle(
-              "telephony_enabled",
-              tr("Enable telephony"),
-              tr("Requires a carrier, an HTTPS/WSS tunnel, and credit."),
+            {field(
+              "telephony_tunnel_mode",
+              tr("Connection management"),
+              "text",
+              tr(
+                "Choose Jarvis to activate and deactivate telephony without terminal commands.",
+              ),
+              [
+                { value: "managed", label: tr("Managed by Jarvis") },
+                { value: "external", label: tr("External proxy") },
+              ],
+            )}
+            {values.telephony_tunnel_mode === "managed" ? (
+              <TelephonyConnection
+                locked={
+                  locked.includes("telephony_enabled") &&
+                  !values.telephony_enabled
+                }
+                prepare={async () => {
+                  if (Object.keys(changes).length) {
+                    await patch("/settings", changes);
+                    await load();
+                  }
+                }}
+                onChanged={(enabled) => {
+                  setValues((current) => ({
+                    ...current,
+                    telephony_enabled: enabled,
+                  }));
+                  setChanges((current) => {
+                    const next = { ...current };
+                    delete next.telephony_enabled;
+                    return next;
+                  });
+                  onSaved();
+                }}
+                notify={notify}
+              />
+            ) : (
+              <>
+                {toggle(
+                  "telephony_enabled",
+                  tr("Enable telephony"),
+                  tr("Requires a carrier, an HTTPS/WSS tunnel, and credit."),
+                )}
+                {field(
+                  "telephony_public_base_url",
+                  tr("Public telephony proxy URL"),
+                  "url",
+                  tr("Expose only /telephony, not the entire local API."),
+                )}
+              </>
             )}
             {field("telephony_account_id", tr("Twilio account SID"))}
             {field("telephony_auth_token", tr("Twilio auth token"), "password")}
-            {field(
-              "telephony_public_base_url",
-              tr("Public telephony proxy URL"),
-              "url",
-              tr("Expose only /telephony, not the entire local API."),
-            )}
             {field("telephony_from_number", tr("Caller number, E.164"))}
             {field("owner_phone_number", tr("Your verified number, E.164"))}
+            {toggle(
+              "phone_inbound_enabled",
+              tr("Allow incoming calls to Jarvis"),
+              tr(
+                "Enable only if you want to call Jarvis yourself. Incoming calls always require a PIN.",
+              ),
+            )}
+            {toggle(
+              "phone_pin_enabled",
+              tr("Require a PIN when Jarvis calls me"),
+              tr(
+                "When off, whoever answers your configured number can speak with Jarvis immediately.",
+              ),
+            )}
             {field(
               "phone_pin",
               tr("Personal PIN, 6–8 digits"),
               "password",
               tr(
-                "Required before discussing private data. Never sent to the model.",
+                "Incoming calls always require this PIN. Outgoing calls follow the checkbox above. Never sent to the model.",
               ),
             )}
           </section>

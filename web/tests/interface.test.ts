@@ -123,6 +123,49 @@ test("microphone choices preserve a disconnected selection and escape device lab
   assert.ok(italian.includes("Predefinito di sistema"));
 });
 
+test("telephony can be cancelled while starting and stopped even with locked controls", async () => {
+  const { TelephonyTunnelPanel } = await vite.ssrLoadModule(
+    "/src/TelephonyConnection.tsx",
+  );
+  locale.setInterfaceLanguage("it");
+  const renderPanel = (state: string) =>
+    renderToStaticMarkup(
+      React.createElement(TelephonyTunnelPanel, {
+        status: {
+          state,
+          public_url: "https://fixture.trycloudflare.com",
+          error: state === "error" ? "<private fixture>" : "",
+        },
+        locked: true,
+        action: "",
+        onStart() {},
+        onStop() {},
+      }),
+    );
+  for (const state of ["starting", "running"]) {
+    const html = renderPanel(state);
+    const buttons = html.match(/<button\b[\s\S]*?<\/button>/g)!;
+    assert.ok(
+      buttons[0].includes("disabled") &&
+        buttons[0].includes("Attiva telefonia"),
+    );
+    assert.ok(
+      !buttons[1].includes("disabled") &&
+        buttons[1].includes("Disattiva telefonia"),
+    );
+    assert.equal(
+      html.includes("fixture.trycloudflare.com"),
+      state === "running",
+    );
+  }
+  const error = renderPanel("error");
+  assert.ok(
+    error.includes("&lt;private fixture&gt;") &&
+      !error.includes("<private fixture>"),
+  );
+  assert.ok(!error.includes("fixture.trycloudflare.com"));
+});
+
 test("actual dashboard, settings tabs, tasks, routines and memory render in both languages", async () => {
   const { default: App } = await vite.ssrLoadModule("/src/App.tsx");
   const { default: Settings } = await vite.ssrLoadModule("/src/Settings.tsx");
@@ -175,6 +218,8 @@ test("actual dashboard, settings tabs, tasks, routines and memory render in both
         html.includes("Lingua dell’interfaccia") &&
           html.includes('value="it" selected=""'),
       );
+    if (tab === "phone")
+      assert.ok(html.includes("Richiedi il PIN quando Jarvis mi chiama"));
   }
   assert.ok(render(Tasks, props).includes("DAL PIANO AL RISULTATO"));
   assert.ok(render(Routines, props).includes("Routine e promemoria"));

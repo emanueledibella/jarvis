@@ -80,6 +80,24 @@ def secure_endpoint(url: str) -> str:
     return local_endpoint(url) if loopback_url(url) else url
 
 
+def home_assistant_endpoint(url: str, allow_insecure_lan=False):
+    """Only an explicit RFC1918 literal-IP exception may carry plain LAN traffic."""
+    parts = urlsplit(url)
+    if parts.scheme == "http" and not loopback_url(url) and allow_insecure_lan:
+        try:
+            address = ipaddress.IPv4Address(parts.hostname or "")
+        except ValueError:
+            raise ValueError("Unencrypted Home Assistant requires a literal private IPv4 address.") from None
+        networks = ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
+        if (not any(address in ipaddress.IPv4Network(n) for n in networks)
+                or parts.username is not None or parts.password is not None or parts.fragment):
+            raise ValueError("Unencrypted Home Assistant is restricted to an explicitly chosen RFC1918 LAN address.")
+        if parts.port is not None and not 1 <= parts.port <= 65535:
+            raise ValueError("Invalid Home Assistant port.")
+        return url
+    return secure_endpoint(url)
+
+
 class PublicResolver(DefaultResolver):
     async def resolve(self, host, port=0, family=socket.AF_INET):
         rows = await super().resolve(host, port, family)

@@ -97,11 +97,15 @@ class Scheduler:
         self.timer = AsyncIOScheduler(timezone="UTC")
 
     async def start(self):
+        self.timer.add_job(self.runtime.automations.tick, "interval", seconds=30, coalesce=True, max_instances=1)
         self.timer.add_job(
             self.tick, "interval", seconds=1, coalesce=True, max_instances=1, misfire_grace_time=5
         )
         self.timer.add_job(
             self.runtime.memory.tick, "interval", seconds=10, coalesce=True, max_instances=1
+        )
+        self.timer.add_job(
+            self.runtime.telephony.refresh_calls, "interval", seconds=30, coalesce=True, max_instances=1
         )
         self.timer.add_job(
             self.runtime.maintenance, "interval", hours=1, coalesce=True, max_instances=1
@@ -257,5 +261,5 @@ class Scheduler:
             await self.db.emit("speech.requested", {"text": speech_text(summary)})
         if row["notify"] == "phone" and row["call_authorized"]:
             await self.runtime.telephony.call_owner(
-                fingerprint, row["title"], row.get("task_id"), authorized=True
+                fingerprint, summary.strip() or row["title"], row.get("task_id"), authorized=True
             )

@@ -24,19 +24,24 @@ import {
 } from "./components";
 
 type Props = {
+  selectedScope?: string;
+  onScopeChange?: (scope: string) => Promise<boolean>;
   notify: (message: string, error?: boolean) => void;
   openSettings: (section: string) => void;
 };
-export function Memory({ notify, openSettings }: Props) {
+export function Memory({ notify, openSettings, selectedScope, onScopeChange }: Props) {
   useI18n();
   const [status, setStatus] = useState<Json>({ outbox: [] }),
     [query, setQuery] = useState(""),
-    [scope, setScope] = useState("personal"),
+    [localScope, setLocalScope] = useState("personal"),
     [result, setResult] = useState<Json | null>(null),
     [busy, setBusy] = useState(false),
     [adding, setAdding] = useState(false),
     [note, setNote] = useState(""),
     [source, setSource] = useState<Json | null>(null);
+  const scope = selectedScope ?? localScope;
+  const setScope = (value: string) => { if (onScopeChange) void onScopeChange(value); else setLocalScope(value); };
+  useEffect(() => { setResult(null); setSource(null); }, [scope]);
   const load = () =>
     api("/memory/status")
       .then(setStatus)

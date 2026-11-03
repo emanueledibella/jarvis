@@ -146,6 +146,30 @@ class Workspace:
                 if fd != -1:
                     os.close(fd)
 
+    def read_binary(self, path: str, limit=3_000_000) -> bytes:
+        root, relative = self.resolve(path)
+        if not relative.parts:
+            raise ValueError("Specify a document file.")
+        if os.name == "nt":
+            from .windows import read_bytes
+            return read_bytes(root / relative, limit)
+        import stat
+        with self.parent_fd(root, relative) as parent:
+            fd = os.open(relative.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=parent)
+            try:
+                info = os.fstat(fd)
+                if not stat.S_ISREG(info.st_mode) or info.st_size > limit or info.st_nlink != 1:
+                    raise ValueError("Choose a regular document file up to 3 MB without hard links.")
+                with os.fdopen(fd, "rb") as file:
+                    fd = -1
+                    data = file.read(limit + 1)
+                    if len(data) > limit:
+                        raise ValueError("Document exceeds its size limit.")
+                    return data
+            finally:
+                if fd != -1:
+                    os.close(fd)
+
     def write(self, path: str, content: str, expected_sha256: str | None = None) -> dict:
         import hashlib
         import stat

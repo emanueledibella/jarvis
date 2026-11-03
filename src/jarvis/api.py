@@ -16,12 +16,22 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ValidationError
 
+from .automations import install_automation_routes
 from .config import ConfigStore, Profile
+from .daily import install_daily_routes
 from .db import now
+from .development import install_development_routes
+from .documents import install_document_routes
+from .feature_context import owner_session_guard
+from .home_assistant import install_home_routes
 from .lighting import LightChange, LightRegistration
+from .mail import install_mail_routes
+from .organizer import install_organizer_routes
 from .platforms import capabilities
 from .runtime import Runtime
 from .scheduler import ScheduleInput, next_due
+from .screen import install_screen_routes
+from .telephony_ingress import TelephonyIngress
 
 
 class ChatInput(BaseModel):
@@ -34,6 +44,8 @@ class ChatInput(BaseModel):
     external_authorized: bool = False
     privacy_revision: int | None = Field(default=None, ge=0)
     request_id: UUID | None = None
+    attachment_ids: list[UUID] = Field(default_factory=list, max_length=10)
+    attachment_session: UUID | None = None
 
 
 class Decision(BaseModel):
@@ -86,18 +98,29 @@ class LightGrant(BaseModel):
 
 
 def create_app(
-    config: ConfigStore | None = None, *, start_scheduler=True, process_lock=True
+    config: ConfigStore | None = None, *, start_scheduler=True, process_lock=True, remote_options=None
 ) -> FastAPI:
     config = config or ConfigStore()
+    if remote_options is not None:
+        config.enable_server_mode()
     runtime = Runtime(config)
+    if remote_options is not None:
+        from .remote import RemoteService
+        runtime.remote = RemoteService(runtime, remote_options)
 
     @asynccontextmanager
     async def lifespan(app):
         await runtime.start(scheduler=start_scheduler, process_lock=process_lock)
         try:
+            if runtime.remote:
+                await runtime.remote.start()
             yield
         finally:
+            if runtime.remote:
+                await runtime.remote.close(close_storage=False)
             await runtime.close()
+            if runtime.remote:
+                await runtime.remote.store.close()
 
     app = FastAPI(
         title="Jarvis",
@@ -108,13 +131,25 @@ def create_app(
         openapi_url=None,
     )
     app.state.runtime = runtime
+    if runtime.remote:
+        runtime.remote.install(app)
+    install_daily_routes(app, runtime)
+    install_organizer_routes(app, runtime)
+    install_mail_routes(app, runtime)
+    install_automation_routes(app, runtime)
+    install_document_routes(app, runtime)
+    install_screen_routes(app, runtime)
+    install_development_routes(app, runtime)
+    install_home_routes(app, runtime)
 
     @app.middleware("http")
     async def boundary(request: Request, call_next):
+        if runtime.remote:
+            return await runtime.remote.boundary(request, call_next)
         host = request.headers.get("host", "").split(":")[0]
         public_phone = (
             request.url.path.startswith("/telephony/")
-            and host == urlsplit(config.settings.telephony_public_base_url).hostname
+            and host == urlsplit(runtime.telephony.public_base_url).hostname
         )
         if not public_phone and host not in {
             "127.0.0.1",
@@ -137,12 +172,12 @@ def create_app(
                 return JSONResponse(
                     {"detail": "Local authentication is required."}, status_code=401
                 )
-        if request.method in {"POST", "PUT", "PATCH"}:
+        if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
             if not request.url.path.startswith(("/api/", "/telephony/")):
                 return JSONResponse({"detail": "Method is not allowed."}, status_code=405)
             size = 0
             chunks = []
-            limit = 16384 if request.url.path.startswith("/telephony/") else 512000
+            limit = 16384 if request.url.path.startswith("/telephony/") else 4_100_000 if request.url.path == "/api/documents" else 512000
             try:
                 async with asyncio.timeout(10):
                     async for chunk in request.stream():
@@ -155,7 +190,15 @@ def create_app(
             except TimeoutError:
                 return JSONResponse({"detail": "Request body timed out."}, status_code=408)
             request._body = b"".join(chunks)
-        response = await call_next(request)
+        guarded = request.method in {"POST", "PUT", "PATCH", "DELETE"} and request.url.path.startswith(
+            ("/api/today/", "/api/organizer/", "/api/mail/", "/api/automations", "/api/documents", "/api/screen", "/api/development", "/api/home-assistant")
+        )
+        guard = owner_session_guard.set((runtime.voice_session["scope"], runtime.voice_session["revision"])) if guarded else None
+        try:
+            response = await call_next(request)
+        finally:
+            if guard is not None:
+                owner_session_guard.reset(guard)
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["X-Frame-Options"] = "DENY"
@@ -164,6 +207,9 @@ def create_app(
             "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
         )
         return response
+
+    # This ASGI guard runs outside the body-buffering middleware above.
+    app.add_middleware(TelephonyIngress)
 
     @app.exception_handler(RequestValidationError)
     @app.exception_handler(ValidationError)
@@ -205,10 +251,15 @@ def create_app(
 
     @app.get("/api/settings")
     async def settings():
+        if runtime.remote:
+            revision = config.revision()
+            return JSONResponse({"values": config.settings.public(), "locked": config.locked_fields(), "revision": revision}, headers={"ETag": '"' + revision + '"'})
         return {"values": config.settings.public(), "locked": config.locked_fields()}
 
     @app.patch("/api/settings")
-    async def save_settings(changes: dict):
+    async def save_settings(changes: dict, request: Request):
+        if runtime.remote and request.headers.get("if-match") != '"' + config.revision() + '"':
+            raise HTTPException(409, "Core settings changed. Reload the settings before saving.")
         # Blank password fields are never an instruction to erase an existing secret.
         changes = {
             key: value
@@ -219,6 +270,7 @@ def create_app(
                 and value == ""
             )
         }
+        previous_settings = config.settings
         config.update(changes)
         if any(
             key in changes
@@ -241,8 +293,19 @@ def create_app(
                 context = runtime.tasks.contexts.get(key)
                 if context and context.profile != "local_strict":
                     await runtime.tasks.pause(key)
-        if changes.get("profile") == "local_strict" or changes.get("telephony_enabled") is False:
-            await runtime.telephony.stop_all()
+        if (
+            changes.get("profile") == "local_strict"
+            or changes.get("telephony_enabled") is False
+            or (
+                runtime.telephony.tunnel.state in {"starting", "running"}
+                and set(changes).intersection({
+                    "telephony_tunnel_mode", "telephony_public_base_url", "telephony_account_id",
+                    "telephony_auth_token", "telephony_from_number", "owner_phone_number",
+                    "phone_inbound_enabled", "phone_pin", "phone_pin_enabled",
+                })
+            )
+        ):
+            await runtime.telephony.stop_all(carrier_settings=previous_settings)
         if set(changes) - {"ui_language"}:
             runtime.productivity.weather_cache.clear()
             runtime.productivity.calendar_cache.clear()
@@ -350,11 +413,14 @@ def create_app(
             private=privacy,
             channel=data.channel,
             external_authorized=data.external_authorized,
+            attachment_ids=[str(key) for key in data.attachment_ids],
+            attachment_session=str(data.attachment_session) if data.attachment_session else None,
         )
 
     @app.get("/api/tasks")
     async def tasks():
         rows = await runtime.db.fetchall("SELECT * FROM tasks ORDER BY created_at DESC LIMIT 100")
+        rows = [row for row in rows if await runtime.task_visible(row)]
         for row in rows:
             row["usage"] = json.loads(row["usage"])
             if row["private"]:
@@ -447,12 +513,21 @@ def create_app(
 
     @app.get("/api/conversations")
     async def conversations():
-        return await runtime.db.fetchall(
+        rows = await runtime.db.fetchall(
             "SELECT * FROM conversations ORDER BY updated_at DESC LIMIT 50"
         )
+        from .remote_context import active_client
+        client = active_client.get()
+        return [row for row in rows if not client or row["scope"] == client.session["scope"]]
 
     @app.get("/api/conversations/{key}/messages")
     async def messages(key: str):
+        from .remote_context import active_client
+        client = active_client.get()
+        if client:
+            row = await runtime.db.fetchone("SELECT scope FROM conversations WHERE id=?", (key,))
+            if not row or row["scope"] != client.session["scope"]:
+                raise PermissionError("Conversation is unavailable in this scope.")
         return await runtime.db.fetchall(
             "SELECT * FROM messages WHERE conversation_id=? ORDER BY created_at", (key,)
         )
@@ -463,6 +538,7 @@ def create_app(
             "SELECT * FROM approvals WHERE state='pending' AND expires_at>? ORDER BY created_at",
             (now(),),
         )
+        rows = [row for row in rows if await runtime.task_visible(await runtime.db.fetchone("SELECT * FROM tasks WHERE id=?", (row["task_id"],)))]
         for row in rows:
             row["arguments"] = runtime.gateway.private_approvals.get(
                 row["id"], json.loads(row["arguments"])
@@ -505,7 +581,10 @@ def create_app(
 
     @app.get("/api/schedules")
     async def schedules():
-        return await runtime.db.fetchall("SELECT * FROM schedules ORDER BY created_at DESC")
+        rows = await runtime.db.fetchall("SELECT * FROM schedules ORDER BY created_at DESC")
+        from .remote_context import active_client
+        client = active_client.get()
+        return [row for row in rows if not client or row["scope"] == client.session["scope"]]
 
     @app.post("/api/schedules", status_code=201)
     async def create_schedule(data: ScheduleInput):
@@ -559,21 +638,33 @@ def create_app(
 
     @app.get("/api/notifications")
     async def notifications():
-        return await runtime.db.fetchall(
+        rows = await runtime.db.fetchall(
             "SELECT * FROM notifications ORDER BY created_at DESC LIMIT 50"
         )
+        if runtime.remote:
+            rows = [row for row in rows if not row["task_id"] or await runtime.task_visible(await runtime.db.fetchone("SELECT * FROM tasks WHERE id=?", (row["task_id"],)))]
+        return rows
 
     @app.post("/api/notifications/read")
     async def mark_notifications():
-        await runtime.db.execute("UPDATE notifications SET read=1")
+        if runtime.remote:
+            for row in await notifications():
+                await runtime.db.execute("UPDATE notifications SET read=1 WHERE id=?", (row["id"],))
+        else:
+            await runtime.db.execute("UPDATE notifications SET read=1")
         return {"state": "read"}
 
     @app.get("/api/memory/status")
     async def memory_status():
         rows = await runtime.db.fetchall(
-            "SELECT id,task_id,state,source_id,revision,attempts,detail,created_at FROM memory_outbox ORDER BY created_at DESC LIMIT 50"
+            "SELECT id,task_id,state,source_id,revision,attempts,detail,created_at,payload FROM memory_outbox ORDER BY created_at DESC LIMIT 50"
         )
+        from .remote_context import active_client
+        client = active_client.get()
+        if client:
+            rows = [row for row in rows if json.loads(row["payload"]).get("scope") == client.session["scope"]]
         for row in rows:
+            row.pop("payload", None)
             row["detail"] = json.loads(row["detail"]) if row["detail"] else None
         return {
             "configured": bool(config.settings.second_brain_url),
@@ -583,16 +674,40 @@ def create_app(
 
     @app.post("/api/memory/recall")
     async def memory_recall(data: MemoryInput):
-        return await runtime.memory.recall(data.text, data.scope, config.settings.profile)
+        result = await runtime.memory.recall(data.text, data.scope, config.settings.profile)
+        from .remote_context import active_client
+        client = active_client.get()
+        if client:
+            known = runtime.remote.memory_sources.setdefault((client.session_id, data.scope), set())
+            if len(runtime.remote.memory_sources) > 100:
+                runtime.remote.memory_sources.pop(next(iter(runtime.remote.memory_sources)))
+            def collect(value):
+                if isinstance(value, dict):
+                    key = value.get("source_id")
+                    if isinstance(key, str) and 0 < len(key) <= 200 and len(known) < 500:
+                        known.add(key)
+                    for item in value.values():
+                        collect(item)
+                elif isinstance(value, list):
+                    for item in value:
+                        collect(item)
+            collect(result)
+        return result
 
     @app.post("/api/memory/remember", status_code=202)
     async def remember(data: MemoryInput):
+        if runtime.remote and runtime.voice_session["private"]:
+            raise PermissionError("Memory writes are unavailable in a private session.")
         if config.settings.profile == "local_strict":
             raise PermissionError("Writes are suspended in the strict local profile.")
         return await runtime.memory.enqueue(data.text, data.scope)
 
     @app.get("/api/memory/source/{key}")
     async def memory_source(key: str, revision: int | None = None):
+        from .remote_context import active_client
+        client = active_client.get()
+        if client and key not in runtime.remote.memory_sources.get((client.session_id, client.session["scope"]), set()):
+            raise PermissionError("Recall this source in the current session and scope before opening it.")
         return await runtime.mcp.call(
             "second_brain",
             "read_source",
@@ -602,6 +717,12 @@ def create_app(
 
     @app.post("/api/memory/{key}/retry")
     async def retry_memory(key: str):
+        from .remote_context import active_client
+        client = active_client.get()
+        if client:
+            row = await runtime.db.fetchone("SELECT payload FROM memory_outbox WHERE id=?", (key,))
+            if not row or json.loads(row["payload"]).get("scope") != client.session["scope"] or client.session["private"]:
+                raise PermissionError("Queued memory is unavailable in this session.")
         await runtime.memory.retry(key)
         return {"state": "pending"}
 
@@ -623,12 +744,44 @@ def create_app(
         runtime.mcp.statuses.clear()
         return {"state": "saved"}
 
+    @app.get("/api/telephony/status")
+    async def telephony_status():
+        ready, missing = runtime.telephony.ready()
+        return {**runtime.telephony.tunnel.status(), "ready": ready, "missing": missing}
+
+    @app.post("/api/telephony/start")
+    async def start_telephony():
+        return await runtime.telephony.tunnel.start()
+
+    @app.post("/api/telephony/stop")
+    async def stop_telephony():
+        await runtime.telephony.stop_all()
+        if "telephony_enabled" not in config.locked_fields():
+            config.update({"telephony_enabled": False})
+        await runtime.db.emit("telephony.updated", {"state": "stopped"})
+        return runtime.telephony.tunnel.status()
+
     @app.get("/api/calls")
     async def calls():
-        return await runtime.db.fetchall("SELECT * FROM calls ORDER BY created_at DESC LIMIT 50")
+        await runtime.telephony.refresh_calls()
+        rows = await runtime.db.fetchall("SELECT * FROM calls ORDER BY created_at DESC LIMIT 50")
+        if runtime.remote:
+            from .remote_context import active_client
+            visible = []
+            for row in rows:
+                if row["task_id"]:
+                    task = await runtime.db.fetchone("SELECT * FROM tasks WHERE id=?", (row["task_id"],))
+                    if await runtime.task_visible(task):
+                        visible.append(row)
+                elif active_client.get().session["scope"] == "personal":
+                    visible.append(row)
+            rows = visible
+        return rows
 
     @app.post("/api/calls/owner")
     async def call_owner(data: dict):
+        if runtime.remote and (runtime.voice_session["private"] or runtime.voice_session["scope"] != "personal"):
+            raise PermissionError("Manual calls require a non-private personal session.")
         if data.get("authorized") is not True:
             raise PermissionError("Authorize the call to your number before starting it.")
         return await runtime.telephony.call_owner(
@@ -705,6 +858,10 @@ def create_app(
 
     @app.get("/api/voice/session")
     async def current_voice_session():
+        from .remote_context import active_client
+        client = active_client.get()
+        if client:
+            return {**runtime.voice_session, "client_session_id": client.session_id}
         return runtime.voice_session
 
     @app.get("/api/lights")

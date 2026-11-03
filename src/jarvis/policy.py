@@ -38,6 +38,9 @@ class TaskContext:
     public_search_results: dict = field(default_factory=dict)
     web_recoveries: dict = field(default_factory=dict)
     web_recovery_locks: dict = field(default_factory=dict)
+    automation_run_id: str | None = None
+    attachment_ids: list[str] = field(default_factory=list)
+    attachment_session: str | None = None
 
     def __post_init__(self):
         self.sensitive_context = self.sensitive_context or self.private
@@ -145,10 +148,22 @@ class Gateway:
                 "Emergency stop is active. Re-enable the service from the dashboard."
             )
         ctx = active_task.get()
+        if ctx.automation_run_id and risk not in {"read", "network_read"}:
+            raise PermissionError("Event analysis is read-only. Start a separate owner request for changes.")
         if risk == "lighting_direct" and name != "light_set":
             raise PermissionError("A direct lighting grant cannot authorize another tool.")
         if name in {"memory_remember", "memory_change"} and (ctx.private or ctx.memory_blocked):
             raise PermissionError("This session does not allow memory writes.")
+        # Returning an already completed effect is a read of the same exact result,
+        # not fresh authority for another action. Avoid reopening approvals after
+        # the original result has correctly tainted the context.
+        if risk not in {"read", "network_read"}:
+            cached_key = digest([ctx.id, name, digest(arguments)])
+            if cached_key in ctx.private_results:
+                return ctx.private_results[cached_key]
+            cached = await self.db.fetchone("SELECT state,result FROM effects WHERE operation_key=?", (cached_key,))
+            if cached and cached["state"] == "succeeded" and cached["result"]:
+                return json.loads(cached["result"])
         was_sensitive = ctx.sensitive_context
         was_untrusted = ctx.untrusted_context
         was_routine = ctx.routine_context_only
@@ -167,7 +182,10 @@ class Gateway:
             ("memory_remember", "memory"),
             ("memory_change", "external"),
         }
-        if memory_read or memory_write or name.startswith("workspace_") or name in {
+        feature_read = name in {"organizer_list", "activities_plan", "mail_accounts", "mail_search", "mail_message", "mail_drafts", "automation_event", "documents_list", "document_read", "documents_compare", "document_read_workspace", "screen_capture", "screen_read"}
+        feature_read = feature_read or (risk in {"read", "network_read"} and name.startswith(("jira_", "github_", "development_", "home_assistant_")))
+        feature_read = feature_read or (risk == "read" and name.startswith("device_"))
+        if memory_read or memory_write or feature_read or name.startswith("workspace_") or name in {
             "calendar_events",
             "memory_recall",
             "tasks_list",
@@ -177,9 +195,10 @@ class Gateway:
             "lights_list",
             "light_state",
             "light_set",
+            "today_overview",
         }:
             ctx.sensitive_context = True
-        if memory_read or memory_write or name in {
+        if memory_read or memory_write or feature_read or name in {
             "workspace_read",
             "workspace_list",
             "workspace_search",
@@ -192,6 +211,7 @@ class Gateway:
             "tasks_list",
             "schedules_list",
             "workspace_command",
+            "today_overview",
         }:
             ctx.mark_untrusted()
         if name == "weather":
@@ -284,6 +304,9 @@ class Gateway:
         await self.db.emit(
             "tool.completed", {"tool": name, "state": "succeeded"}, ctx.id, private=ctx.private
         )
+        if name.startswith(("jira_", "github_", "home_assistant_")):
+            ctx.sensitive_context = True
+            ctx.mark_untrusted()
         return result
 
     async def decide(self, approval_id: str, approved: bool) -> str:

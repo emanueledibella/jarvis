@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import secrets
@@ -9,7 +10,7 @@ from pathlib import Path
 from typing import Annotated, Literal
 from zoneinfo import ZoneInfo
 
-from pydantic import Field, SecretStr, field_validator, model_validator
+from pydantic import Field, PrivateAttr, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 from .platforms import (
@@ -27,6 +28,7 @@ Profile = Literal["local_strict", "local_connected", "cloud", "hybrid"]
 
 
 class Settings(BaseSettings):
+    _remote_core: bool = PrivateAttr(default=False)
     model_config = SettingsConfigDict(
         env_prefix="JARVIS_", extra="ignore", env_file_encoding="utf-8"
     )
@@ -110,11 +112,14 @@ class Settings(BaseSettings):
     model_input_usd_per_million: float = Field(default=0, ge=0)
     model_output_usd_per_million: float = Field(default=0, ge=0)
     telephony_enabled: bool = False
+    telephony_tunnel_mode: Literal["external", "managed"] = "external"
     telephony_public_base_url: str = ""
     telephony_account_id: str = ""
     telephony_auth_token: SecretStr = SecretStr("")
     telephony_from_number: str = ""
     owner_phone_number: str = ""
+    phone_inbound_enabled: bool = False
+    phone_pin_enabled: bool = True
     phone_pin: SecretStr = SecretStr("")
     phone_api_key: SecretStr = SecretStr("")
     phone_max_call_seconds: int = Field(default=180, ge=30, le=3600)
@@ -211,6 +216,8 @@ class Settings(BaseSettings):
         raw = value.get_secret_value() if isinstance(value, SecretStr) else str(value)
         if raw.startswith("keychain:"):
             if sys.platform != "darwin":
+                if self._remote_core:
+                    return ""
                 raise ValueError(
                     "macOS Keychain references are unavailable on this OS. Configure a key locally in Settings or the environment."
                 )
@@ -241,11 +248,21 @@ class Settings(BaseSettings):
             if isinstance(getattr(self, name), SecretStr):
                 value[name] = ""
                 value[name + "_configured"] = bool(self.secret(name))
+                if (self._remote_core and sys.platform != "darwin"
+                        and getattr(self, name).get_secret_value().startswith("keychain:")):
+                    value[name + "_unavailable"] = True
         return value
 
 
 class ConfigStore:
+    def revision(self) -> str:
+        effective = json.dumps(self.settings.model_dump(mode="json"), sort_keys=True).encode()
+        saved = self.path.read_bytes() if self.path.exists() else b""
+        return hashlib.sha256(effective + b"\0" + saved).hexdigest()
+
     def __init__(self, env_file: str | Path | None = None, data_dir: Path | None = None):
+        self._secret_cipher = None
+        self.server_mode = False
         self.env_file = Path(env_file or os.getenv("JARVIS_ENV_FILE", default_env_file()))
         base = Settings(_env_file=self.env_file)
         self.data_dir = (data_dir or base.data_dir).expanduser().resolve()
@@ -269,13 +286,40 @@ class ConfigStore:
 
     def load(self) -> Settings:
         saved = json.loads(self.path.read_text()) if self.path.exists() else {}
+        if any(isinstance(v, str) and v.startswith("encrypted:v1:") for v in saved.values()):
+            from cryptography.fernet import Fernet
+            if self._secret_cipher is None:
+                key = self.data_dir / "server-secret.key"
+                protect_path(key)
+                self._secret_cipher = Fernet(key.read_bytes())
+            saved = {k: self._secret_cipher.decrypt(v[13:].encode()).decode()
+                     if isinstance(v, str) and v.startswith("encrypted:v1:") else v
+                     for k, v in saved.items()}
         # Process env > .env > private UI settings > defaults. Pydantic init kwargs normally
         # win over env, therefore merge saved settings only where no explicit environment value is present.
         env_settings = Settings(_env_file=self.env_file)
         explicit = env_settings.model_fields_set
         merged = {**saved, **{key: getattr(env_settings, key) for key in explicit}}
         merged["data_dir"] = self.data_dir
-        return Settings(_env_file=None, **merged)
+        if self.server_mode:
+            merged.update(profile="cloud", workspace_roots=[], command_execution="disabled", voice_enabled=False, wake_enabled=False)
+        result = Settings(_env_file=None, **merged)
+        result._remote_core = self.server_mode
+        return result
+
+    def enable_server_mode(self):
+        from cryptography.fernet import Fernet
+        key = self.data_dir / "server-secret.key"
+        try:
+            fd = os.open(key, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(fd, "wb") as file:
+                file.write(Fernet.generate_key())
+        except FileExistsError:
+            pass
+        protect_path(key)
+        self._secret_cipher = Fernet(key.read_bytes())
+        self.server_mode = True
+        self.settings = self.load()
 
     def update(self, changes: dict) -> Settings:
         forbidden = {"data_dir", "api_host", "api_port", "ui_dir", "record_audio"}
@@ -285,6 +329,13 @@ class ConfigStore:
         saved = json.loads(self.path.read_text()) if self.path.exists() else {}
         candidate = {**saved, **changes}
         Settings(_env_file=None, **{**self.settings.model_dump(), **changes})
+        if self._secret_cipher:
+            for name, value in candidate.items():
+                if isinstance(getattr(self.settings, name, None), SecretStr):
+                    if isinstance(value, SecretStr):
+                        value = value.get_secret_value()
+                    if value and not value.startswith("encrypted:v1:"):
+                        candidate[name] = "encrypted:v1:" + self._secret_cipher.encrypt(value.encode()).decode()
         temp = self.path.with_suffix(".tmp")
         fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "w") as file:
@@ -295,6 +346,10 @@ class ConfigStore:
         protect_path(self.path)
         self.settings = self.load()
         return self.settings
+
+    def enable_secret_encryption(self, cipher):
+        self._secret_cipher = cipher
+        self.update({})
 
     def locked_fields(self) -> list[str]:
         return sorted(Settings(_env_file=self.env_file).model_fields_set - {"data_dir"})

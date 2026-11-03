@@ -399,6 +399,7 @@ class Productivity:
                         "end": finish.isoformat() if finish is not None else None,
                         "all_day": all_day,
                         "location": str(event.get("location", "")),
+                        "transparency": str(event.get("transp", "")).casefold(),
                     }
                 )
             return {
@@ -453,6 +454,15 @@ class Productivity:
                     "all_day": item.get("isAllDay", "date" in begin),
                     "location": item.get("location", ""),
                     "url": item.get("htmlLink", item.get("webLink", "")),
+                    "availability": item.get("showAs", ""),
+                    "transparency": item.get("transparency", ""),
+                    "importance": item.get("importance", ""),
+                    "response_status": (
+                        item.get("responseStatus", {}).get("response", "")
+                        if settings.calendar_provider == "microsoft" else
+                        next((attendee.get("responseStatus", "") for attendee in item.get("attendees", [])
+                              if attendee.get("self")), "")
+                    ),
                 }
             )
         return {

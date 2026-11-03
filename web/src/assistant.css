@@ -1,0 +1,15 @@
+.assistant-page { max-width: 1200px; }
+.assistant-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; margin-block: 20px; }
+.assistant-card { border: 1px solid var(--border, #345); border-radius: 14px; padding: 20px; min-width: 0; overflow-wrap: anywhere; margin-block: 12px; }
+.assistant-card article { padding-block: 10px; border-bottom: 1px solid var(--border, #345); }
+.assistant-card h2 { font-size: 1.1rem; margin-block: 8px 16px; }
+.assistant-actions { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-block: 12px; }
+.assistant-form label { display: flex; flex-direction: column; gap: 8px; margin-block: 8px; }
+.assistant-form .assistant-actions label:has(input[type=checkbox]) { flex-direction: row; align-items: center; }
+.assistant-form input, .assistant-form select, .assistant-form textarea { max-width: 100%; }
+.assistant-form textarea { width: 100%; min-height: 90px; }
+.assistant-error { color: var(--danger, #f99); }
+.assistant-scope-bar { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; padding: 12px 24px; border-bottom: 1px solid var(--border, #345); }
+.assistant-scope-bar label { display: flex; gap: 10px; align-items: center; }
+.sidebar nav { min-height: 70px; max-height: 48vh; overflow-y: auto; flex-shrink: 1; }
+@media (max-width: 700px) { .assistant-grid { grid-template-columns: 1fr; } .assistant-card { padding: 14px; } }

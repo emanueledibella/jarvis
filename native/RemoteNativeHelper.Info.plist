@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>CFBundleIdentifier</key><string>it.jarvis.companion.native-helper</string>
+  <key>CFBundleName</key><string>Jarvis Companion</string>
+  <key>NSCalendarsFullAccessUsageDescription</key><string>Jarvis usa il calendario locale solo dopo il tuo consenso e nei limiti dei permessi concessi.</string>
+  <key>NSScreenCaptureUsageDescription</key><string>Jarvis legge una singola finestra scelta da te tramite il selettore di macOS.</string>
+</dict></plist>

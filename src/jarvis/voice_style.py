@@ -1,3 +1,4 @@
+from .calendar_assistant import CALENDAR_VOICE_POLICY
 from .language import language_instructions
 
 ITALIAN_COMPANION = (
@@ -30,6 +31,7 @@ def voice_instructions(settings) -> str:
     return (
         language_instructions(settings.response_language, settings.language)
         + SOURCE_POLICY
+        + CALENDAR_VOICE_POLICY
         + "\nVocal qualities: "
         + settings.desktop_voice_style
     )

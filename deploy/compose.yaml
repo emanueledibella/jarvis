@@ -1,0 +1,73 @@
+name: jarvis
+services:
+  core:
+    image: jarvis-core:local
+    build: { context: .., dockerfile: deploy/Dockerfile, target: core }
+    restart: unless-stopped
+    init: true
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    mem_limit: 1536m
+    cpus: 1.5
+    environment:
+      JARVIS_REMOTE_PUBLIC_URL: https://${JARVIS_PUBLIC_HOST:?Configure JARVIS_PUBLIC_HOST in deploy/.env}
+      JARVIS_REMOTE_DOCUMENT_WORKER_SOCKET: /run/jarvis-worker/parser.sock
+      JARVIS_REMOTE_APNS_TEAM_ID: ${JARVIS_APNS_TEAM_ID:-}
+      JARVIS_REMOTE_APNS_KEY_ID: ${JARVIS_APNS_KEY_ID:-}
+      JARVIS_REMOTE_APNS_PRIVATE_KEY: ${JARVIS_APNS_PRIVATE_KEY:-}
+      JARVIS_REMOTE_APNS_TOPIC: ${JARVIS_APNS_TOPIC:-it.jarvis.companion}
+      JARVIS_REMOTE_APNS_SANDBOX: ${JARVIS_APNS_SANDBOX:-false}
+      JARVIS_REMOTE_FCM_SERVICE_ACCOUNT: ${JARVIS_FCM_SERVICE_ACCOUNT:-}
+      JARVIS_MAX_PARALLEL_TASKS: 1
+    volumes:
+      - core-data:/data
+      - worker-socket:/run/jarvis-worker
+      - ./secrets:/run/secrets:ro
+    tmpfs: ["/tmp:rw,nosuid,nodev,size=128m"]
+    depends_on:
+      document-worker: { condition: service_healthy }
+    expose: ["8765"]
+    logging: { driver: json-file, options: { max-size: 10m, max-file: "3" } }
+  document-worker:
+    image: jarvis-document-worker:local
+    build: { context: .., dockerfile: deploy/Dockerfile, target: document-worker }
+    restart: unless-stopped
+    init: true
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 48
+    mem_limit: 512m
+    cpus: 1
+    environment:
+      JARVIS_DOCUMENT_WORKER_SOCKET: /run/jarvis-worker/parser.sock
+    volumes: [worker-socket:/run/jarvis-worker]
+    tmpfs: ["/tmp:rw,nosuid,nodev,size=256m"]
+    logging: { driver: json-file, options: { max-size: 5m, max-file: "2" } }
+  proxy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 128m
+    environment:
+      JARVIS_PUBLIC_HOST: ${JARVIS_PUBLIC_HOST}
+    ports: ["80:80", "443:443", "443:443/udp"]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    tmpfs: ["/tmp:rw,nosuid,nodev,size=16m"]
+    depends_on:
+      core: { condition: service_healthy }
+    logging: { driver: json-file, options: { max-size: 5m, max-file: "2" } }
+volumes:
+  core-data:
+  worker-socket:
+  caddy-data:
+  caddy-config:

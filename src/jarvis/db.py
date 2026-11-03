@@ -77,6 +77,35 @@ CREATE TABLE IF NOT EXISTS model_usage(
  reservation_usd REAL NOT NULL, actual_usd REAL, input_tokens INTEGER, output_tokens INTEGER,
  created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS controls(name TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS daily_preferences(
+ scope TEXT PRIMARY KEY, revision INTEGER NOT NULL, data TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS projects(
+ id TEXT PRIMARY KEY, scope TEXT NOT NULL, name TEXT NOT NULL, description TEXT NOT NULL,
+ revision INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS activities(
+ id TEXT PRIMARY KEY, scope TEXT NOT NULL, project_id TEXT, parent_id TEXT,
+ title TEXT NOT NULL, notes TEXT NOT NULL DEFAULT '', state TEXT NOT NULL DEFAULT 'open',
+ priority INTEGER NOT NULL DEFAULT 2, estimated_minutes INTEGER, due_at TEXT, source_url TEXT NOT NULL DEFAULT '',
+ revision INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+CREATE INDEX IF NOT EXISTS activities_scope ON activities(scope,state,due_at);
+CREATE TABLE IF NOT EXISTS mail_drafts(
+ id TEXT PRIMARY KEY, scope TEXT NOT NULL, account_id TEXT NOT NULL, content TEXT NOT NULL,
+ sha256 TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 1, state TEXT NOT NULL DEFAULT 'draft', operation_key TEXT NOT NULL DEFAULT '',
+ created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS event_rules(
+ id TEXT PRIMARY KEY, scope TEXT NOT NULL, title TEXT NOT NULL, config TEXT NOT NULL,
+ revision INTEGER NOT NULL DEFAULT 1, enabled INTEGER NOT NULL DEFAULT 1,
+ baseline TEXT, next_check TEXT NOT NULL, last_fired TEXT, error TEXT NOT NULL DEFAULT '',
+ created_at TEXT NOT NULL, updated_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS automation_events(
+ id TEXT PRIMARY KEY, rule_id TEXT NOT NULL, scope TEXT NOT NULL, fingerprint TEXT NOT NULL UNIQUE,
+ data TEXT NOT NULL, state TEXT NOT NULL, task_id TEXT, created_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS documents(
+ id TEXT PRIMARY KEY, scope TEXT NOT NULL, name TEXT NOT NULL, sha256 TEXT NOT NULL,
+ data TEXT NOT NULL, created_at TEXT NOT NULL, expires_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS home_actions(
+ id TEXT PRIMARY KEY, scope TEXT NOT NULL, tool TEXT NOT NULL, arguments TEXT NOT NULL,
+ action_hash TEXT NOT NULL, operation_key TEXT NOT NULL DEFAULT '', state TEXT NOT NULL, created_at TEXT NOT NULL);
 """
 
 
@@ -87,6 +116,7 @@ class Database:
         self.lock = asyncio.Lock()
         self.changed = asyncio.Condition()
         self.volatile: OrderedDict[str, dict] = OrderedDict()
+        self.notification_sink = None
 
     async def open(self):
         self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -96,6 +126,9 @@ class Database:
         await self.conn.execute("PRAGMA foreign_keys=ON")
         await self.conn.execute("PRAGMA busy_timeout=5000")
         await self.conn.executescript(SCHEMA)
+        columns = await (await self.conn.execute("PRAGMA table_info(mail_drafts)")).fetchall()
+        if "operation_key" not in {column[1] for column in columns}:
+            await self.conn.execute("ALTER TABLE mail_drafts ADD COLUMN operation_key TEXT NOT NULL DEFAULT ''")
         await self.conn.commit()
         os.chmod(self.path, 0o600)
 
@@ -117,6 +150,22 @@ class Database:
             cursor = await self.conn.execute(sql, params)
             row = await cursor.fetchone()
             return dict(row) if row else None
+
+    async def batch(self, statements):
+        """Commit related local changes together, including on cancellation."""
+        assert self.conn
+        async with self.lock:
+            try:
+                await self.conn.execute("BEGIN IMMEDIATE")
+                counts = []
+                for sql, params in statements:
+                    cursor = await self.conn.execute(sql, params)
+                    counts.append(cursor.rowcount)
+                await self.conn.commit()
+                return counts
+            except BaseException:
+                await self.conn.rollback()
+                raise
 
     async def fetchall(self, sql: str, params=()) -> list[dict]:
         assert self.conn
@@ -165,9 +214,12 @@ class Database:
         return await self.events(after)
 
     async def notification(self, title: str, body: str, fingerprint: str, task_id=None):
+        notification_id = uid()
         inserted = await self.execute(
             "INSERT OR IGNORE INTO notifications(id,fingerprint,title,body,task_id,created_at) VALUES(?,?,?,?,?,?)",
-            (uid(), fingerprint, title, body, task_id, now()),
+            (notification_id, fingerprint, title, body, task_id, now()),
         )
         if inserted:
             await self.emit("notification.created", {"title": title, "body": body}, task_id)
+            if self.notification_sink:
+                await self.notification_sink(notification_id, task_id)

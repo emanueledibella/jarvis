@@ -23,6 +23,9 @@ PRIVATE_FILES = {
     ".netrc",
     ".npmrc",
     "lights.json",
+    "mail-accounts.json",
+    "development.json",
+    "home-assistant.json",
     "project-root.txt",
     "requirements.lock",
 }

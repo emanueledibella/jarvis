@@ -154,18 +154,22 @@ An Apple Silicon MacBook physically disconnects its built-in microphone with the
 The phone adapter implements:
 
 - Outbound calls only to the configured owner, event deduplication, one automatic attempt.
-- Request signatures, Call SID verification, bounded PIN attempts, one-use media tokens.
+- Request signatures, Call SID verification, optional PIN verification controlled by the Telephony checkbox, bounded PIN attempts when enabled, one-use media tokens.
 - Mono 8 kHz μ-law, turn detection, audio-queue interruption.
 - OpenAI or optional faster-whisper STT; OpenAI TTS or locally converted system voice.
 - Call reason/conversation context after authentication.
 - Exact gateway proposal readback with DTMF 1/2; long proposals require dashboard review.
 - Max duration, quiet hours, daily reservation, uncertain-outcome reconciliation.
 
+Before creating an outbound call, a signed challenge on `/telephony/status` proves that the configured public tunnel reaches this Jarvis instance. An expired tunnel URL fails before a carrier call or budget reservation is created. No additional public proxy routes are required.
+
+Known Call SIDs are checked against the carrier every 30 seconds, when the call list is refreshed (throttled to 15 seconds), and before starting another call. Verified terminal states recover missed status callbacks, preserve the carrier end time, and settle the reservation using rounded actual minutes at the configured rate, or the carrier price when higher. Missing usage retains the full reservation. A lookup failure or an uncertain creation without a SID cannot clear the active-call block; manual reconciliation remains available. Carrier verification uses the SDK's `_from` field and checks the SID, numbers, direction and creation time.
+
 This path recognizes a turn, waits for the agent, and synthesizes an answer over bidirectional audio. It is not native provider speech-to-speech; no unmeasured latency claim. No real line, voicemail, or carrier billing was tested without the phone account.
 
 Optional inbound calling requires carrier voice/status webhooks. Reserve rounded minutes plus inbound PIN tolerance; daily window is UTC. Preload local STT models before calls; do not download during a call. Audio keys are dedicated, not implicitly copied from LLM keys. STT no longer forces Italian, while fixed service/authentication messages are English.
 
-`scripts/Caddyfile.telephony.example` exposes only phone routes. Never publish the local API, GUI, or token. Sleep/shutdown interrupt availability; no hidden server was added.
+`scripts/Caddyfile.telephony.example` exposes only phone routes. Managed mode generates the same restricted routes on a free loopback port and supervises Caddy/Cloudflare from the Activate/Deactivate controls, including cleanup after shutdown or parent death. External mode retains the manually supplied proxy. See [managed telephony](26-managed-telephony.md). Never publish the local API, GUI, or token. Sleep/shutdown interrupt availability.
 
 ## Completed verification
 

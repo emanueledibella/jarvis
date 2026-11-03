@@ -29,3 +29,5 @@ swiftc -swift-version 5 native/BargeInPolicy.swift tests/native/BargeInPolicyTes
 "$JARVIS_NATIVE_TEST_DIR/barge-in-tests"
 swiftc -swift-version 5 native/HueLightProtocol.swift tests/native/HueLightProtocolTests.swift -o "$JARVIS_NATIVE_TEST_DIR/hue-tests"
 "$JARVIS_NATIVE_TEST_DIR/hue-tests"
+swiftc -swift-version 5 -framework Vision -framework ImageIO -framework AppKit native/Client.swift native/DocumentOCR.swift tests/native/DocumentOCRTests.swift -o "$JARVIS_NATIVE_TEST_DIR/document-ocr-tests"
+"$JARVIS_NATIVE_TEST_DIR/document-ocr-tests"

@@ -10,6 +10,21 @@ The interface supports **English and Italian**: choose **Settings → Interface 
 
 The command center uses a midnight-blue palette, cyan accents, framed panels, and an audio-reactive circular core. Weather, calendar, task activity, Second Brain, and configured models stay connected to real service data. See [interface design and verification](docs/15-command-center-interface.md).
 
+The expanded assistant adds **Today and briefings, personal activities/projects,
+Gmail/Microsoft mail and reviewed drafts, event automations, cited documents/OCR,
+chosen-window context on Mac, Jira/GitHub assistance and Home Assistant MCP**.
+Connections and device permissions are configured explicitly. Follow the
+[setup guide](docs/29-assistant-setup.md) and [requirements/security record](docs/27-assistant-expansion.md).
+An **always-on remote core**, a **macOS/Windows desktop companion** and an
+**iOS/Android mobile companion** are implemented as a separate deployment mode.
+The desktop executor opens outbound WSS; the phone talks to the core, including
+when the computer is off. Model keys stay on the server. Start with the
+[architecture and verification record](docs/32-remote-implementation.md),
+[server setup](deploy/README.md) and [companion builds](companions/README.md).
+Local macOS, Android debug and iOS simulator builds have been verified; Windows
+builds are configured in CI. Device testing, signing, push credentials and a real
+server deployment remain explicit release steps.
+
 ## Native macOS app
 
 The compiled bundle is `dist/Jarvis.app`:
@@ -106,7 +121,7 @@ Choose **Settings → Interface → Interface language** (or **Impostazioni → 
 2. **Voice and presence (native Mac app):** enable voice, choose Apple or OpenAI Live, and grant Jarvis Microphone/Speech Recognition. Live keeps wake detection local and sends conversation audio once a request starts. A brief local listening cue can play after a wake-only pause; continuing the question suppresses it and late cues are skipped. Set **Response language → Auto** to speak Italian or English. Recognition language remains separate, initially `it-IT`. Say “Jarvis” or **“Jarvis, che ore sono?”**. Shortcut: **⌘⇧J**. See the [OpenAI voice guide](docs/13-voce-openai.md) and [wake timing](docs/19-wake-response-timing.md). Launch at login is optional in Settings/menu. Windows/Linux currently use text conversation with the same response-language policy.
 3. **Memory:** configure the canonical Second Brain MCP endpoint and dedicated Bearer/OAuth connection. “Connect Second Brain” opens consent where needed; Jarvis does not reuse Codex credentials. Second Brain is the default persistent memory: personal questions retrieve relevant evidence automatically without asking you to name the service. Authorized reads, saves, corrections, revisions, and retractions need no dashboard approval, including in ongoing conversations. Corrections still need their separate option/OAuth scope. Private sessions, opt-out, source validation, and the configured capture policy remain enforced. See [memory retrieval](docs/22-default-memory-retrieval.md).
 4. **Productivity:** choose weather city/calendar. Weather includes current conditions and daily forecasts: ask about tomorrow, a weekend, or a date range within the next 16 days including today. Apple EventKit, Google, Microsoft, and read-only ICS are available. Apple needs Productivity consent; cloud calendars need their account credentials.
-5. **Telephony:** configure Twilio, caller/owner numbers, PIN, and an HTTPS/WSS proxy limited to `/telephony`. With OpenAI Live selected under Voice, phone conversations reuse the desktop model, saved voice, vocal style, response-language policy and API key. The initial carrier PIN prompt follows Italian/English language preferences; conversation audio starts only after verification. A test call starts only from the authorized action. No paid calls were made during development.
+5. **Telephony:** configure Twilio and caller/owner numbers. Choose **Connection management → Managed by Jarvis**, then **Activate telephony** to start Caddy and Cloudflare, acquire and verify the public URL, and update incoming webhooks when enabled. **Deactivate telephony** or quitting Jarvis closes both processes. Caddy and `cloudflared` must be installed; existing setups retain **External proxy** mode. See [managed telephony](docs/26-managed-telephony.md). The “Require a PIN when Jarvis calls me” checkbox makes the PIN optional for owner-authorized outbound calls. Incoming calls are disabled until explicitly enabled and always require the 6–8 digit PIN; caller ID alone is insufficient. With OpenAI Live selected under Voice, phone conversations reuse the desktop model, saved voice, vocal style, response-language policy and API key. The carrier PIN prompt follows Italian/English language preferences. Activation does not place a call; a test call starts only from the authorized action.
 
 Text chat, authorized workspace tools, and reminders work without completing every connection.
 
@@ -146,7 +161,7 @@ JARVIS_LANGUAGE=it-IT
 JARVIS_RESPONSE_LANGUAGE=auto
 ```
 
-Precedence: process environment → `.env` → private GUI settings → defaults. Env-imposed fields are locked in the GUI; restart the service after file changes. The [complete env schema](docs/12-configurazione-env.md) lists all 93 settings, types, defaults, and constraints.
+Precedence: process environment → `.env` → private GUI settings → defaults. Env-imposed fields are locked in the GUI; restart the service after file changes. The [env schema](docs/12-configurazione-env.md) lists settings, types, defaults, and constraints.
 
 Data is separate from source: `~/Library/Application Support/Jarvis` on macOS, `%LOCALAPPDATA%\Jarvis` on Windows, and `$XDG_DATA_HOME/Jarvis` or `~/.local/share/Jarvis` on Linux. It holds private settings, the local token, database, checkpoints, approvals, and memory queue. Private-session content stays in service RAM and cannot be recovered after restart. Ordinary history follows configured retention.
 
@@ -156,7 +171,7 @@ Data is separate from source: `~/Library/Application Support/Jarvis` on macOS, `
 - File read/write with path, symlink, SHA-256 revision checks; reviewable diffs and command timeouts.
 - Action/argument-bound approvals; dashboard reconciliation for uncertain outcomes. Model confirmation text cannot authorize an action.
 - Model-free reminders, agent jobs, JSON monitors that notify actual changes. Policy-driven sleep recovery; expired calls are skipped.
-- Bidirectional μ-law phone audio, PIN before private data, interruption, proposal-bound DTMF 1/2 approval.
+- Bidirectional μ-law phone audio, optional PIN verification, interruption, proposal-bound DTMF 1/2 approval.
 - Top-bar emergency stop blocks new work/tools, interrupts active tasks, stops voice/calls. It does not undo completed effects.
 
 `local_strict` uses only a loopback model and permitted local capabilities. It disables MCP, web, remote memory, cloud voice, telephony; commands require the network-disabled sandbox. Other profiles permit connected services according to policy.
@@ -193,7 +208,7 @@ Read the [security policy](SECURITY.md) and [audit/remediation record](docs/17-s
 
 The [dossier](docs/README.md) contains GitHub research, 132 requirements, architecture, and decisions. The [implementation design](docs/10-progetto-esecutivo.md) records implemented choices. The [operations/coverage guide](docs/11-implementazione-e-verifica.md) distinguishes automated tests, real experiments, and integrations awaiting authorization. Existing document filenames are retained to preserve links.
 
-The current regression suite collects **380 Python tests**, with platform-specific skips, plus **179 Swift regression scenarios** on macOS. Validation also checks TypeScript/Vite, Python lint, Mac bundle compilation/signing, and actual Windows/Linux executables. See [platform verification evidence](docs/16-cross-platform-builds.md#verification-results) for the earlier portable baseline, [wake timing](docs/19-wake-response-timing.md), [spoken interruption](docs/20-spoken-interruption.md), [lighting](docs/21-lighting-integrations.md), [default memory retrieval](docs/22-default-memory-retrieval.md), [weather forecasts](docs/11-implementazione-e-verifica.md#weather-forecasts), [web recovery](docs/11-implementazione-e-verifica.md#tool-recovery-and-web-research), [automatic wake recovery](docs/23-automatic-wake-recovery.md), and [microphone selection](docs/24-microphone-selection.md) for the added cases.
+The current regression suite collects **552 Python tests**, with platform-specific skips, plus **181 Swift regression scenarios** on macOS. The October 30 assistant-expansion gate passed 550 Python cases (two skips), all 10 frontend checks, TypeScript/Vite, Python lint and Mac bundle compilation/signing. See the [feature verification record](docs/27-assistant-expansion.md#final-integration-review). Windows/Linux executables were verified for the [earlier portable baseline](docs/16-cross-platform-builds.md#verification-results); those binaries have not been rebuilt and verified for this expansion.
 
 Account-specific integration tests should be recorded privately. Public regression tests use synthetic fixtures and never need a personal provider key, calendar, phone number, or memory corpus.
 

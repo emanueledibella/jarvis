@@ -6,23 +6,41 @@ import time
 from datetime import UTC, datetime, timedelta
 
 from .agent import TaskManager
+from .automations import Automations
 from .budget import ModelBudget
 from .config import ConfigStore
+from .daily import Daily
 from .db import Database, now
+from .development import Development
+from .documents import Documents
+from .home_assistant import HomeAssistant
 from .integrations import MCPHub, NativeBridge
 from .lighting import Lighting
 from .live_voice import LiveVoice
+from .mail import Mail
 from .memory import Memory
+from .organizer import Organizer
 from .platforms import ServiceLock, capabilities
 from .policy import Gateway
 from .productivity import Productivity
 from .scheduler import Scheduler
+from .screen import Screen
 from .telephony import Telephony
 from .wake_watchdog import WakeWatchdog
 
 
 class Runtime:
+    @property
+    def voice_session(self):
+        from .remote_context import session_state
+        return session_state(self._voice_session)
+
+    @voice_session.setter
+    def voice_session(self, value):
+        self._voice_session = value
+
     def __init__(self, config: ConfigStore):
+        self.remote = None
         self.config = config
         self.db = Database(config.data_dir / "jarvis.sqlite3")
         self.native = NativeBridge(self.db)
@@ -36,6 +54,14 @@ class Runtime:
         self.telephony = Telephony(self)
         self.live_voice = LiveVoice(self)
         self.scheduler = Scheduler(self)
+        self.daily = Daily(self)
+        self.organizer = Organizer(self)
+        self.mail = Mail(self)
+        self.automations = Automations(self)
+        self.documents = Documents(self)
+        self.screen = Screen(self)
+        self.development = Development(self)
+        self.home_assistant = HomeAssistant(self)
         self.started_at = time.monotonic()
         self.audio = {"input": 0.0, "output": 0.0, "revision": 0}
         # Initialized from operational preferences once storage is open. Dialogue
@@ -52,6 +78,8 @@ class Runtime:
                 ServiceLock, self.config.data_dir / "service.lock"
             )
         await self.db.open()
+        await self.db.execute("UPDATE mail_drafts SET state='unknown' WHERE state='sending'")
+        await self.db.execute("UPDATE home_actions SET state='unknown' WHERE state='running'")
         voice = await self.db.fetchone("SELECT value FROM controls WHERE name='voice_session'")
         self.voice_session = (
             json.loads(voice["value"])
@@ -84,6 +112,8 @@ class Runtime:
         await self.db.emit("service.status", {"state": "ready"})
 
     async def close(self):
+        self.screen.close()
+        self.documents.close()
         await self.wake_watchdog.close()
         self.scheduler.stop()
         self.live_voice.stop_all()
@@ -102,6 +132,7 @@ class Runtime:
         ready, missing = self.telephony.ready()
         return {
             "version": "0.1.0",
+            "mode": "remote" if self.remote else "local",
             "platform": capabilities(),
             "emergency_stop": self.gateway.blocked,
             "state": "ready",
@@ -126,13 +157,24 @@ class Runtime:
                 "enabled": settings.telephony_enabled,
                 "ready": ready,
                 "missing": missing,
+                "tunnel": self.telephony.tunnel.status(),
             },
             "mcp": self.mcp.statuses,
             "timezone": settings.timezone,
-            "availability": "The service requires an awake computer and a running Jarvis process.",
+            "availability": ("The remote core remains available independently of desktop executors; local device operations require their connected executor."
+                             if self.remote else "The service requires an awake computer and a running Jarvis process."),
         }
 
     async def set_voice_session(self, private: bool, scope: str):
+        from .remote_context import active_client
+        client = active_client.get()
+        if client:
+            async with self.voice_session_lock:
+                current = client.session
+                if current["private"] != private or current["scope"] != scope:
+                    current.update(private=private, scope=scope, revision=current["revision"] + 1)
+                    await self.remote.save_session(client)
+                return {**current, "state": "updated", "client_session_id": client.session_id}
         async with self.voice_session_lock:
             if self.voice_session["private"] == private and self.voice_session["scope"] == scope:
                 return {**self.voice_session, "state": "unchanged"}
@@ -141,6 +183,7 @@ class Runtime:
                 "scope": scope,
                 "revision": self.voice_session["revision"] + 1,
             }
+            self.screen.close()
             await self.db.execute(
                 "INSERT INTO controls(name,value) VALUES('voice_session',?) ON CONFLICT(name) DO UPDATE SET value=excluded.value",
                 (json.dumps(self.voice_session),),
@@ -159,7 +202,20 @@ class Runtime:
             )
             return {**self.voice_session, "state": "updated"}
 
+    async def task_visible(self, row):
+        from .remote_context import active_client
+        return await self.remote.store.task_visible(row, active_client.get()) if self.remote else True
+
+    async def require_task(self, key):
+        row = await self.db.fetchone("SELECT * FROM tasks WHERE id=?", (key,))
+        if not row or not await self.task_visible(row):
+            raise PermissionError("Task is unavailable in this session.")
+        return row
+
     async def maintenance(self):
+        await self.db.execute("DELETE FROM documents WHERE expires_at<=?", (now(),))
+        self.documents.prune()
+        self.screen.prune()
         settings = self.config.settings
         before = (
             datetime.now(UTC) - timedelta(days=settings.operation_log_retention_days)

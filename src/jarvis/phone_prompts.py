@@ -1,9 +1,14 @@
 """Application-owned phone prompts follow the conversation's initial language."""
 
+from .speech import speech_text
+
 MESSAGES = {
     "it": {
         "pin": "Sono Jarvis. Digita il tuo codice personale per continuare.",
         "verified": "Sono Jarvis. Identità verificata. Come posso aiutarti?",
+        "greeting": "Sono Jarvis. Come posso aiutarti?",
+        "outbound": "Sono Jarvis. Motivo della chiamata: {reason}",
+        "verified_outbound": "Sono Jarvis. Identità verificata. Motivo della chiamata: {reason}",
         "reason": "Motivo della chiamata: {reason}",
         "dashboard": "La proposta richiede una verifica nell'interfaccia di Jarvis sul Mac.",
         "long_proposal": "La proposta è troppo lunga per la conferma telefonica. Controllala sul Mac.",
@@ -19,6 +24,9 @@ MESSAGES = {
     "en": {
         "pin": "I am Jarvis. Enter your personal code to continue.",
         "verified": "I am Jarvis. Identity verified. How can I help?",
+        "greeting": "I am Jarvis. How can I help?",
+        "outbound": "I am Jarvis. Reason for the call: {reason}",
+        "verified_outbound": "I am Jarvis. Identity verified. Reason for the call: {reason}",
         "reason": "Reason for the call: {reason}",
         "dashboard": "The proposal requires review in the Mac dashboard.",
         "long_proposal": "The proposal is too long for phone confirmation. Review it in the dashboard.",
@@ -42,3 +50,14 @@ def phone_language(settings) -> str:
 def phone_message(settings, name: str, **values) -> str:
     language = phone_language(settings).split("-")[0].lower()
     return MESSAGES.get(language, MESSAGES["en"])[name].format(**values)
+
+
+def phone_opening(settings, row: dict, *, verified: bool) -> str:
+    """Announce outbound content before listening for a new request."""
+    reason = row.get("detail") or ""
+    reason = speech_text(reason, limit=len(reason))
+    if row["direction"] == "outbound" and reason:
+        return phone_message(
+            settings, "verified_outbound" if verified else "outbound", reason=reason
+        )
+    return phone_message(settings, "verified" if verified else "greeting")

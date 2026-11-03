@@ -1,0 +1,12 @@
+{
+  "appId": "it.jarvis.companion",
+  "appName": "Jarvis",
+  "webDir": "../web/dist",
+  "server": { "androidScheme": "https", "iosScheme": "capacitor", "allowNavigation": [] },
+  "android": { "allowMixedContent": false, "webContentsDebuggingEnabled": false },
+  "ios": { "contentInset": "automatic", "allowsLinkPreview": false },
+  "plugins": {
+    "CapacitorHttp": { "enabled": false },
+    "PushNotifications": { "presentationOptions": ["badge", "sound", "alert"] }
+  }
+}

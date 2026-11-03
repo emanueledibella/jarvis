@@ -1,6 +1,6 @@
 # Jarvis — analysis and implementation
 
-Analysis started **October 24, 2026**, with subsequent voice, language, interface, portable build, and security updates. Version **0.1.0** includes the native Mac app and a portable Windows/Linux service/dashboard preview. Start with the [project README](../README.md) and [operations guide](11-implementazione-e-verifica.md). Chapters 01–09 preserve the initial dossier; 10–24 describe implemented choices and verification.
+Analysis started **October 24, 2026**, with subsequent voice, language, interface, portable build, and security updates. Version **0.1.0** includes the native Mac app and a portable Windows/Linux service/dashboard preview. Start with the [project README](../README.md) and [operations guide](11-implementazione-e-verifica.md). Chapters 01–09 preserve the initial dossier; 10–25 describe implemented choices and verification.
 
 ## Confirmed decisions
 
@@ -48,6 +48,14 @@ This selection follows documented comparisons/product constraints. Pipecat and L
 | [22 — Default memory retrieval](22-default-memory-retrieval.md) | Automatic Second Brain reads, personal-question prefetch, shared text/voice policy, scope and privacy boundaries |
 | [23 — Automatic wake recovery](23-automatic-wake-recovery.md) | Local watchdog, guarded native audio restarts, backoff, mute/lock/activity protections and publication checks |
 | [24 — Microphone selection](24-microphone-selection.md) | Per-app input choice, persistent local UIDs, device changes, reconnect behavior and private metadata |
+| [25 — Calendar specialist](25-calendar-assistant.md) | Shared calendar prompt, verified overlaps and imminent events, explicit urgency, time zones and coverage limits |
+| [26 — Managed telephony](26-managed-telephony.md) | Activate/Deactivate controls, supervised Caddy/Cloudflare, generated URLs, incoming webhook updates and process cleanup |
+| [27 — Assistant expansion](27-assistant-expansion.md) | Requirements, security analysis, sequential implementation and verification of the eight assistant feature groups |
+| [28 — Smartphone companion](28-companion-architecture.md) | Proposed mobile experience, pairing, remote gateway, notifications, awake Mac versus always-on authority |
+| [29 — Assistant setup](29-assistant-setup.md) | Today, activities, mail OAuth, automations, documents, chosen windows, Jira/GitHub and Home Assistant configuration and acceptance |
+| [30 — Cloud deployment feasibility](30-cloud-deployment-feasibility.md) | Small VM sizing, measured Linux memory, API and infrastructure costs, remote access work and Mac/Second Brain boundaries |
+| [31 — Remote core and device agents](31-remote-core-and-device-agents.md) | Original architecture analysis for the always-on core, companion apps and outbound executor |
+| [32 — Remote implementation and verification](32-remote-implementation.md) | Consolidated decisions, requirements, implementation, security boundaries, builds, tests and remaining release checks |
 | [16 — Cross-platform builds](16-cross-platform-builds.md) | Windows/Linux portable packages, OS boundaries, universal dependencies, native CI, build and verification procedures |
 
 The catalog has **132 functional requirements**: 96 P0, 34 P1, two P2. Priorities describe product completeness; the roadmap distinguishes first demo from later delivery. Existing numbered filenames are stable to preserve links.
