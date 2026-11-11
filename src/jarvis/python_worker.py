@@ -25,7 +25,7 @@ def execute(payload):
     if not isinstance(inputs, list) or len(inputs) > 10:
         raise ValueError("Attach at most ten files.")
     timeout = min(max(int(payload.get("timeout", 20)), 1), 60)
-    with tempfile.TemporaryDirectory(prefix="job-", dir="/tmp") as scratch:
+    with tempfile.TemporaryDirectory(prefix="job-") as scratch:
         folder = Path(scratch)
         total = 0
         names = set()
