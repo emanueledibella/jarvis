@@ -21,6 +21,7 @@ async def watchdog(runtime):
             "wake_recovery_supported": True, "barge_in": False,
             "recognition_task": "starting", "recognition_callbacks": 10,
             "wake_matches": 2, "input_buffers": 100, "recognition_recoveries": 0,
+            "recognition_audio_seconds": 0.0,
             **changes,
         }
         runtime.native.update_status(status)
@@ -51,7 +52,7 @@ async def stalled(watchdog):
     report(recognition_recoveries=1, input_buffers=200)
     await monitor.tick()
     clock[0] += monitor.stall_grace
-    report(recognition_recoveries=1, input_buffers=300)
+    report(recognition_recoveries=1, input_buffers=300, recognition_audio_seconds=0.5)
 
 
 async def acknowledge(runtime, job, key):
@@ -87,6 +88,70 @@ async def test_quiet_starting_recognizer_with_fresh_audio_never_triggers_recover
         report(input_buffers=100 + index * 100)
         await monitor.tick()
     assert not runtime.native.operations and monitor.attempts == 0
+
+
+async def test_soft_retry_followed_by_silence_does_not_restart_the_audio_engine(runtime, watchdog):
+    monitor, clock, report = watchdog
+    await monitor.tick()
+    clock[0] += 5
+    report(recognition_recoveries=1, input_buffers=200, recognition_audio_seconds=0.5)
+    await monitor.tick()
+    for index in range(20):
+        clock[0] += 10
+        report(recognition_recoveries=1, input_buffers=300 + index * 100, recognition_audio_seconds=0.5)
+        await monitor.tick()
+    assert monitor.attempts == 0 and not runtime.native.operations
+
+
+async def test_short_noise_and_stale_audible_evidence_cannot_escalate_a_retry(runtime, watchdog):
+    monitor, clock, report = watchdog
+    await monitor.tick()
+    clock[0] += 1
+    report(recognition_recoveries=1, recognition_audio_seconds=0.5)
+    await monitor.tick()
+    clock[0] += 1
+    report(recognition_recoveries=1, recognition_audio_seconds=0.6)
+    await monitor.tick()
+    clock[0] += monitor.stall_grace
+    report(recognition_recoveries=1, recognition_audio_seconds=0.6)
+    await monitor.tick()
+    assert monitor.attempts == 0
+    clock[0] += 1
+    report(recognition_recoveries=1, recognition_audio_seconds=1.0)
+    # Fresh sustained audible input with no recognizer progress still recovers.
+    job, key = await queued_recovery(runtime, monitor)
+    await acknowledge(runtime, job, key)
+    assert monitor.restarts == 1
+
+
+async def test_queued_stall_recovery_expires_when_retry_audio_becomes_stale(runtime, watchdog):
+    monitor, clock, report = watchdog
+    await stalled(watchdog)
+    job, key = await queued_recovery(runtime, monitor)
+    clock[0] += 6
+    report(recognition_recoveries=1, input_buffers=400, recognition_audio_seconds=0.5)
+    with pytest.raises(PermissionError, match="cancelled"):
+        runtime.native.claim(key)
+    await job
+    assert monitor.restarts == 0 and monitor.outcome == "cancelled"
+
+
+async def test_fresh_brief_noise_cannot_reuse_a_previous_speech_burst(runtime, watchdog):
+    monitor, clock, report = watchdog
+    await monitor.tick()
+    clock[0] += 1
+    report(recognition_recoveries=1)
+    await monitor.tick()
+    clock[0] += 1
+    report(recognition_recoveries=1, recognition_audio_seconds=0.4)
+    await monitor.tick()
+    clock[0] += monitor.stall_grace
+    report(recognition_recoveries=1, recognition_audio_seconds=0.4)
+    await monitor.tick()
+    clock[0] += 1
+    report(recognition_recoveries=1, recognition_audio_seconds=0.5)
+    await monitor.tick()
+    assert monitor.attempts == 0 and not runtime.native.operations
 
 
 @pytest.mark.parametrize("problem,grace", [("idle", 45), ("capture", 60), ("unavailable", 12)])

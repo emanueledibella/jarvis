@@ -75,6 +75,7 @@ CREATE TABLE IF NOT EXISTS artifacts(
 CREATE TABLE IF NOT EXISTS model_usage(
  id TEXT PRIMARY KEY, task_id TEXT NOT NULL, month TEXT NOT NULL, state TEXT NOT NULL,
  reservation_usd REAL NOT NULL, actual_usd REAL, input_tokens INTEGER, output_tokens INTEGER,
+ cached_input_tokens INTEGER NOT NULL DEFAULT 0, cache_write_tokens INTEGER NOT NULL DEFAULT 0,
  created_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS controls(name TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS daily_preferences(
@@ -103,6 +104,9 @@ CREATE TABLE IF NOT EXISTS automation_events(
 CREATE TABLE IF NOT EXISTS documents(
  id TEXT PRIMARY KEY, scope TEXT NOT NULL, name TEXT NOT NULL, sha256 TEXT NOT NULL,
  data TEXT NOT NULL, created_at TEXT NOT NULL, expires_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS lab_files(
+ id TEXT PRIMARY KEY, scope TEXT NOT NULL, name TEXT NOT NULL, mime TEXT NOT NULL,
+ content BLOB NOT NULL, sha256 TEXT NOT NULL, created_at TEXT NOT NULL, expires_at TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS home_actions(
  id TEXT PRIMARY KEY, scope TEXT NOT NULL, tool TEXT NOT NULL, arguments TEXT NOT NULL,
  action_hash TEXT NOT NULL, operation_key TEXT NOT NULL DEFAULT '', state TEXT NOT NULL, created_at TEXT NOT NULL);
@@ -129,6 +133,11 @@ class Database:
         columns = await (await self.conn.execute("PRAGMA table_info(mail_drafts)")).fetchall()
         if "operation_key" not in {column[1] for column in columns}:
             await self.conn.execute("ALTER TABLE mail_drafts ADD COLUMN operation_key TEXT NOT NULL DEFAULT ''")
+        columns = await (await self.conn.execute("PRAGMA table_info(model_usage)")).fetchall()
+        present = {column[1] for column in columns}
+        for column in ("cached_input_tokens", "cache_write_tokens"):
+            if column not in present:
+                await self.conn.execute(f"ALTER TABLE model_usage ADD COLUMN {column} INTEGER NOT NULL DEFAULT 0")
         await self.conn.commit()
         os.chmod(self.path, 0o600)
 

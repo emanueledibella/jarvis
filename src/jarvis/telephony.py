@@ -29,6 +29,7 @@ from .phone_prompts import phone_language, phone_message, phone_opening
 from .speech import speech_text
 from .telephony_ingress import webhook_signature
 from .telephony_tunnel import TelephonyTunnel
+from .voice_progress import task_progress
 from .voice_style import voice_api_key
 
 TERMINAL_CALL_STATES = {
@@ -94,6 +95,8 @@ class Telephony:
     @property
     def public_base_url(self) -> str:
         if self.config.settings.telephony_tunnel_mode == "managed":
+            if self.runtime.remote:
+                return self.runtime.remote.options.public_url
             return self.tunnel.url
         return self.config.settings.telephony_public_base_url
 
@@ -108,7 +111,7 @@ class Telephony:
             if not getattr(settings, name):
                 missing.append(name)
         required_secrets = ["telephony_auth_token"]
-        if settings.phone_pin_enabled:
+        if settings.phone_pin_enabled or settings.phone_inbound_enabled:
             required_secrets.append("phone_pin")
         for name in required_secrets:
             if not settings.secret(name):
@@ -137,7 +140,7 @@ class Telephony:
             missing.append("public_https_url")
         if transport and settings.telephony_tunnel_mode == "managed" and self.tunnel.state != "running":
             missing.append("telephony_tunnel")
-        if settings.phone_pin_enabled:
+        if settings.phone_pin_enabled or settings.phone_inbound_enabled:
             pin = settings.secret("phone_pin")
             if pin and not re.fullmatch(r"[0-9]{6,8}", pin):
                 missing.append("phone_pin_6_to_8_digits")
@@ -753,6 +756,7 @@ class Telephony:
         async def wait_task(task):
             nonlocal pending_approval
             deadline = time.monotonic() + 120
+            announced = False
             while time.monotonic() < deadline:
                 row = await self.db.fetchone(
                     "SELECT state,result,error FROM tasks WHERE id=?", (task["id"],)
@@ -789,6 +793,12 @@ class Telephony:
                 if row["state"] in {"failed", "cancelled"}:
                     await speak(self.message("failed"))
                     return
+                if row["state"] == "running" and not announced:
+                    update = await task_progress(self.db, task["id"])
+                    if update:
+                        announced = True
+                        with contextlib.suppress(Exception):
+                            await speak(update["text"])
                 await asyncio.sleep(0.2)
             await speak(self.message("background"))
 

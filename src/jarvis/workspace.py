@@ -178,9 +178,12 @@ class Workspace:
             raise ValueError("Content exceeds 256 KB.")
         root, relative = self.resolve(path)
         target = root / relative
-        old = self.read(path) if target.exists() else ""
+        exists = target.exists()
+        if expected_sha256 is not None and not exists:
+            raise ValueError("The file no longer exists. Read the workspace again before writing.")
+        old = self.read(path) if exists else ""
         old_hash = hashlib.sha256(old.encode()).hexdigest()
-        if target.exists() and expected_sha256 != old_hash:
+        if exists and expected_sha256 != old_hash:
             raise ValueError(
                 "The file exists: read its current revision and supply expected_sha256."
             )

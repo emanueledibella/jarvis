@@ -168,7 +168,8 @@ async def test_missing_pin_never_opens_inbound_access_in_hands_free_mode(config)
         response = await client.post(
             "/telephony/voice", data=params, headers=signed(config, "/telephony/voice", params)
         )
-        assert "<Reject" in response.text and "<Stream" not in response.text
+        assert response.status_code == 403
+        assert "<Stream" not in response.text
         assert not await app.state.runtime.db.fetchall("SELECT * FROM calls")
 
 
@@ -219,22 +220,23 @@ async def test_invalid_transport_signatures_cannot_reach_voice_provider_setup(co
     def forbidden():
         raise AssertionError("Invalid signatures cannot trigger voice-provider/keychain setup")
 
-    monkeypatch.setattr(phone, "ready", forbidden)
     async with (
         app.router.lifespan_context(app),
         httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app), base_url="http://testserver"
         ) as client,
     ):
-        headers = {"Host": "phone.example.com", "X-Twilio-Signature": "A" * 27 + "="}
-        response = await client.post(
-            "/telephony/voice", data={"CallSid": "CA" + "f" * 32}, headers=headers
-        )
-        assert response.status_code == 403
-        socket = Socket(config, [])
-        socket.headers = Headers(headers)
-        await phone.media(socket)
-        assert socket.closed and not socket.accepted
+        with monkeypatch.context() as request_patch:
+            request_patch.setattr(phone, "ready", forbidden)
+            headers = {"Host": "phone.example.com", "X-Twilio-Signature": "A" * 27 + "="}
+            response = await client.post(
+                "/telephony/voice", data={"CallSid": "CA" + "f" * 32}, headers=headers
+            )
+            assert response.status_code == 403
+            socket = Socket(config, [])
+            socket.headers = Headers(headers)
+            await phone.media(socket)
+            assert socket.closed and not socket.accepted
 
 
 async def test_slow_public_webhooks_cannot_fill_the_private_api_admission(config):

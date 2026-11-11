@@ -70,19 +70,19 @@ async def test_responses_stream_accepts_content_blocks_without_streaming_reasoni
     )
 
 
-async def test_actual_deep_agent_executes_a_tool(runtime, monkeypatch):
+async def test_actual_agent_executes_a_tool(runtime, monkeypatch):
     from jarvis import agent
     from jarvis.language import language_instructions
     from jarvis.voice_style import SOURCE_POLICY
 
     captured = []
-    create_agent = agent.create_deep_agent
+    create_agent = agent.create_agent
 
     def capture_agent(**kwargs):
         captured.append(kwargs["system_prompt"])
         return create_agent(**kwargs)
 
-    monkeypatch.setattr(agent, "create_deep_agent", capture_agent)
+    monkeypatch.setattr(agent, "create_agent", capture_agent)
     monkeypatch.setattr(runtime.tasks, "model", model_factory())
     task = await runtime.tasks.create("Che ore sono?")
     await runtime.tasks.running[task["id"]]
@@ -208,7 +208,10 @@ async def test_concurrent_identical_effect_is_claimed_once(runtime):
         active_task.reset(marker)
 
 
-async def test_checkpoint_approval_survives_service_restart(config, tmp_path, monkeypatch):
+@pytest.mark.parametrize("legacy", [False, True])
+async def test_checkpoint_approval_survives_service_restart(config, tmp_path, monkeypatch, legacy):
+    import asyncio
+
     from jarvis.runtime import Runtime
 
     config.update({"workspace_roots": [str(tmp_path)]})
@@ -219,7 +222,15 @@ async def test_checkpoint_approval_survives_service_restart(config, tmp_path, mo
         "model",
         model_factory("workspace_command", {"command": "echo resumed", "cwd": "."}),
     )
+    if legacy:
+        before.tasks.semaphore = asyncio.Semaphore(0)
     task = await before.tasks.create("Esegui echo resumed")
+    if legacy:
+        row = await before.db.fetchone("SELECT usage FROM tasks WHERE id=?", (task["id"],))
+        usage = json.loads(row["usage"])
+        usage.pop("harness_version")
+        await before.db.execute("UPDATE tasks SET usage=? WHERE id=?", (json.dumps(usage), task["id"]))
+        before.tasks.semaphore.release()
     await before.tasks.running[task["id"]]
     approval = await before.db.fetchone("SELECT * FROM approvals")
     assert (await before.db.fetchone("SELECT state FROM tasks"))["state"] == "waiting_user"

@@ -1,5 +1,7 @@
 import asyncio
 import base64
+import json
+import struct
 from types import SimpleNamespace
 
 import pytest
@@ -29,6 +31,7 @@ def start(runtime, **changes):
 class Peer:
     def __init__(self, runtime=None, *, on_ready=None):
         self.events = []
+        self.received_events = asyncio.Queue()
         self.incoming = asyncio.Queue()
         self.on_ready = on_ready
         self.headers = {}
@@ -40,10 +43,18 @@ class Peer:
 
     async def send_json(self, event):
         self.events.append(event)
+        await self.received_events.put(event)
         if event["type"] == "ready" and self.on_ready:
             await self.on_ready(self)
         if event["type"] == "task" and event["state"] in {"succeeded", "waiting_user"}:
             await self.incoming.put({"type": "close"})
+
+    async def next_event(self, kind):
+        async with asyncio.timeout(2):
+            while True:
+                event = await self.received_events.get()
+                if event["type"] == kind:
+                    return event
 
     async def close(self, code=None):
         self.closed_code = code
@@ -56,7 +67,9 @@ class Connection:
     def __init__(self, *, delegate=True):
         self.events = asyncio.Queue()
         self.commentary = []
+        self.thinking = []
         self.audio = []
+        self.received_audio = asyncio.Queue()
         self.configuration = None
         self.delegated = delegate
         self.session = SimpleNamespace(
@@ -64,6 +77,7 @@ class Connection:
             close=self.close,
             input_audio=SimpleNamespace(append=self.append_audio),
             commentary=SimpleNamespace(append=self.append_commentary),
+            thinking=SimpleNamespace(append=self.append_thinking),
         )
 
     async def start(self, *, session):
@@ -91,9 +105,13 @@ class Connection:
 
     async def append_audio(self, *, audio):
         self.audio.append(audio)
+        await self.received_audio.put(audio)
 
     async def append_commentary(self, **update):
         self.commentary.append(update)
+
+    async def append_thinking(self, **update):
+        self.thinking.append(update)
 
     def __aiter__(self):
         return self
@@ -123,6 +141,149 @@ def factory(connection):
     return construct
 
 
+async def test_live_reads_a_completed_answer_with_the_saved_voice_and_no_new_task(runtime):
+    configure(runtime, desktop_voice_name="voice_contract_test")
+    pcm = base64.b64encode(struct.pack("<h", 1800) * 2400).decode()
+
+    class ReadbackConnection(Connection):
+        def __init__(self):
+            super().__init__(delegate=False)
+            self.readback = []
+            self.session.thinking = SimpleNamespace(append=self.append_thinking)
+            self.session.instructions = SimpleNamespace(append=self.append_instructions)
+
+        async def append_thinking(self, **update):
+            self.readback.append(("thinking", update))
+
+        async def append_instructions(self, **update):
+            self.readback.append(("instructions", update))
+            await self.events.put({"type": "session.output_audio.delta", "delta": pcm})
+
+    connection, peer = ReadbackConnection(), Peer()
+    job = asyncio.create_task(
+        runtime.live_voice.serve(peer, start(runtime), client_factory=factory(connection))
+    )
+    try:
+        await peer.next_event("ready")
+        silence = base64.b64encode(bytes(4800)).decode()
+        await peer.incoming.put({"type": "audio", "audio": silence})
+        answer = "Sì, domani mattina puoi andare a correre. Non è prevista pioggia."
+        await peer.incoming.put({"type": "say", "text": "**" + answer + "**"})
+        assert (await peer.next_event("audio"))["audio"] == pcm
+        assert connection.configuration["audio"]["output"]["voice"] == {"id": "voice_contract_test"}
+        (data_kind, data), (directive_kind, directive) = connection.readback
+        assert (data_kind, directive_kind) == ("thinking", "instructions")
+        assert json.loads(data["content"]) == {"jarvis_final_answer": answer}
+        assert "word for word" in directive["content"]
+        assert "Do not turn a statement into a question" in directive["content"]
+        assert answer not in directive["content"]
+        assert not connection.commentary
+        assert connection.audio == [silence]
+        assert not any(event["type"] == "task" for event in peer.events)
+    finally:
+        await peer.incoming.put({"type": "close"})
+        await asyncio.wait_for(job, 2)
+
+
+async def test_live_audio_activity_survives_transcript_gaps_but_silence_times_out(runtime, monkeypatch):
+    configure(runtime)
+    clock = [0.0]
+    monkeypatch.setattr("jarvis.live_voice.time", SimpleNamespace(monotonic=lambda: clock[0]))
+    connection, peer = Connection(delegate=False), Peer()
+    speech = base64.b64encode(struct.pack("<h", 2000) * 2400).decode()
+    job = asyncio.create_task(runtime.live_voice.serve(peer, start(runtime), client_factory=factory(connection)))
+    try:
+        await peer.next_event("ready")
+        for second in [0, 4, 8]:
+            clock[0] = second
+            await peer.incoming.put({"type": "audio", "audio": speech})
+            await asyncio.wait_for(connection.received_audio.get(), 2)
+        await asyncio.sleep(0.3)
+        assert not job.done(), "Ongoing microphone audio must survive an idle-length gap in transcripts"
+        clock[0] = 14
+        await peer.incoming.put({"type": "audio", "audio": base64.b64encode(bytes(4800)).decode()})
+        await asyncio.wait_for(job, 2)
+        assert peer.events[-1] == {"type": "closed", "reason": "idle_timeout"}
+    finally:
+        job.cancel()
+        await asyncio.gather(job, return_exceptions=True)
+
+
+async def test_live_idle_waits_for_audio_playback_without_output_transcripts(runtime, monkeypatch):
+    configure(runtime)
+    clock = [0.0]
+    monkeypatch.setattr("jarvis.live_voice.time", SimpleNamespace(monotonic=lambda: clock[0]))
+    connection, peer = Connection(delegate=False), Peer()
+    job = asyncio.create_task(runtime.live_voice.serve(peer, start(runtime), client_factory=factory(connection)))
+    try:
+        await peer.next_event("ready")
+        await connection.events.put({"type": "session.output_audio.delta", "delta": base64.b64encode(struct.pack("<h", 2000) * 24000 * 4).decode()})
+        await peer.next_event("audio")
+        clock[0] = 8
+        await asyncio.sleep(0.3)
+        assert not job.done(), "Four seconds of queued playback postpone the five-second idle window"
+        clock[0] = 10
+        await asyncio.wait_for(job, 2)
+        assert peer.events[-1]["reason"] == "idle_timeout"
+    finally:
+        job.cancel()
+        await asyncio.gather(job, return_exceptions=True)
+
+
+async def test_early_delegations_wait_for_the_complete_spoken_request(runtime, monkeypatch):
+    configure(runtime)
+    monkeypatch.setattr(runtime.tasks, "model", model_factory())
+    clock = [0.0]
+    monkeypatch.setattr("jarvis.live_voice.time", SimpleNamespace(monotonic=lambda: clock[0]))
+    connection, peer = Connection(delegate=False), Peer()
+    job = asyncio.create_task(runtime.live_voice.serve(peer, start(runtime), client_factory=factory(connection)))
+    try:
+        await peer.next_event("ready")
+        await connection.events.put({"type": "session.input_transcript.delta", "delta": "Che ore", "start_ms": 0, "end_ms": 500})
+        await connection.events.put({"type": "session.delegation.created", "offset_ms": 500, "delegation": {"id": "early", "target": "client"}})
+        await peer.next_event("input_text")
+        await asyncio.sleep(0.1)
+        assert not await runtime.db.fetchall("SELECT * FROM tasks")
+        clock[0] = 0.5
+        await peer.incoming.put({"type": "audio", "audio": base64.b64encode(struct.pack("<h", 2000) * 2400).decode()})
+        await asyncio.wait_for(connection.received_audio.get(), 2)
+        await connection.events.put({"type": "session.input_transcript.delta", "delta": " sono a Roma?", "start_ms": 500, "end_ms": 2000})
+        await connection.events.put({"type": "session.delegation.created", "offset_ms": 2000, "delegation": {"id": "continuation", "target": "client"}})
+        await peer.next_event("input_text")
+        await asyncio.sleep(0.1)
+        assert not await runtime.db.fetchall("SELECT * FROM tasks")
+        clock[0] = 2
+        await asyncio.wait_for(job, 3)
+        rows = await runtime.db.fetchall("SELECT * FROM tasks")
+        assert len(rows) == 1
+        assert rows[0]["prompt"] == "Che ore sono a Roma?"
+        assert {c["delegation_id"] for c in connection.commentary} == {"early", "continuation"}
+    finally:
+        job.cancel()
+        await asyncio.gather(job, return_exceptions=True)
+
+
+async def test_duration_cap_cancels_an_incomplete_delegation_and_reports_its_reason(runtime, monkeypatch):
+    configure(runtime)
+    clock = [0.0]
+    monkeypatch.setattr("jarvis.live_voice.time", SimpleNamespace(monotonic=lambda: clock[0]))
+    connection, peer = Connection(), Peer()
+    job = asyncio.create_task(runtime.live_voice.serve(peer, start(runtime), client_factory=factory(connection)))
+    try:
+        await peer.next_event("input_text")
+        for half_second in range(1, 30):
+            clock[0] = half_second / 2
+            await peer.incoming.put({"type": "audio", "audio": base64.b64encode(struct.pack("<h", 2000) * 2400).decode()})
+            await asyncio.wait_for(connection.received_audio.get(), 2)
+        clock[0] = 15
+        await asyncio.wait_for(job, 2)
+        assert not await runtime.db.fetchall("SELECT * FROM tasks")
+        assert peer.events[-1] == {"type": "closed", "reason": "duration_limit"}
+    finally:
+        job.cancel()
+        await asyncio.gather(job, return_exceptions=True)
+
+
 @pytest.mark.parametrize("voice", ["cedar", "voice_contract_test"])
 async def test_live_delegation_uses_deep_agent_once_and_accounts_audio(runtime, monkeypatch, voice):
     configure(runtime, desktop_voice_name=voice)
@@ -144,6 +305,8 @@ async def test_live_delegation_uses_deep_agent_once_and_accounts_audio(runtime, 
     assert language_instructions("auto", "it-IT") in connection.configuration["instructions"]
     assert SOURCE_POLICY in connection.configuration["instructions"]
     assert WEB_FALLBACK_POLICY in connection.configuration["instructions"]
+    assert "Do not produce any backchannel interjections" in connection.configuration["instructions"]
+    assert "Do not answer or delegate a partial request" in connection.configuration["instructions"]
     assert runtime.config.settings.desktop_voice_style in connection.configuration["instructions"]
     assert connection.configuration["audio"]["output"]["voice"] == (
         {"id": voice} if voice.startswith("voice_") else voice
@@ -152,6 +315,68 @@ async def test_live_delegation_uses_deep_agent_once_and_accounts_audio(runtime, 
     usage = await runtime.db.fetchone("SELECT * FROM model_usage")
     assert usage["state"] == "complete" and usage["actual_usd"] == pytest.approx(2 * 0.05 / 60)
     assert not runtime.live_voice.sessions
+
+
+@pytest.mark.parametrize(("tool", "request_text", "arguments", "spoken"), [
+    ("weather", "Che tempo fa a Torino?", {"location": "Torino"}, "check the weather"),
+    ("web_search", "Cerca online gli orari del museo di Torino", {"query": "orari museo Torino"}, "look that up online"),
+])
+async def test_live_announces_a_lookup_before_its_result_in_an_existing_conversation(
+    runtime, monkeypatch, tool, request_text, arguments, spoken,
+):
+    configure(runtime, end_of_turn_ms=300)
+    monkeypatch.setattr(runtime.tasks, "model", model_factory())
+    prior = await runtime.tasks.create("Private conversation history fixture.")
+    await runtime.tasks.running[prior["id"]]
+
+    release = asyncio.Event()
+
+    async def lookup(*args, **kwargs):
+        await release.wait()
+        return {"state": "ready", "evidence": "Lookup completed"}
+
+    monkeypatch.setattr(runtime.productivity, "search" if tool == "web_search" else tool, lookup)
+    monkeypatch.setattr(runtime.tasks, "model", model_factory(tool, arguments))
+
+    class LookupConnection(Connection):
+        async def append_commentary(self, **update):
+            await super().append_commentary(**update)
+            if update["content"].startswith("Progress:"):
+                await self.events.put({
+                    "type": "session.output_audio.delta",
+                    "delta": base64.b64encode(struct.pack("<h", 1800) * 480).decode(),
+                })
+
+    connection, peer = LookupConnection(delegate=False), Peer()
+    job = asyncio.create_task(runtime.live_voice.serve(
+        peer, start(runtime, conversation_id=prior["conversation_id"]),
+        client_factory=factory(connection),
+    ))
+    try:
+        await peer.next_event("ready")
+        await connection.events.put({
+            "type": "session.input_transcript.delta", "delta": request_text,
+            "start_ms": 0, "end_ms": 1000,
+        })
+        await connection.events.put({
+            "type": "session.delegation.created", "offset_ms": 1000,
+            "delegation": {"id": "public-lookup", "target": "client"},
+        })
+        accepted = await peer.next_event("task")
+        await peer.next_event("audio")
+        assert await runtime.db.fetchone(
+            "SELECT state,result FROM tasks WHERE id=?", (accepted["id"],),
+        ) == {"state": "running", "result": ""}
+        assert len(connection.commentary) == 1 and spoken in connection.commentary[0]["content"]
+        assert not await runtime.db.fetchall("SELECT * FROM approvals")
+        release.set()
+        await asyncio.wait_for(job, 3)
+        assert [item["delegation_id"] for item in connection.commentary] == ["public-lookup"] * 2
+        assert "Lookup completed" in connection.commentary[-1]["content"]
+    finally:
+        release.set()
+        job.cancel()
+        await asyncio.gather(job, return_exceptions=True)
 
 
 async def test_live_private_conversation_does_not_persist_transcripts(runtime, monkeypatch):

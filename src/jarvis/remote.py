@@ -142,6 +142,7 @@ class RemoteService:
 
     async def revoke_device(self, key):
         await self.store.revoke(key)
+        await self.runtime.lab.close_device(key)
         if key in self.connections:
             await self.connections[key].close(code=1008)
         rows = await self.store.fetchall(
@@ -374,7 +375,7 @@ class RemoteService:
                 self.limit("device:" + early_device["id"], 600)
                 if path == "/api/chat":
                     self.limit("chat:" + early_device["id"], 20)
-                if path == "/api/documents" and request.method == "POST":
+                if path in {"/api/documents", "/api/apple-health/import", "/api/apple-health/native"} and request.method == "POST":
                     self.limit("documents:" + early_device["id"], 10)
                 if early_device["kind"] != ("executor" if executor_result else "companion"):
                     raise PermissionError("Executor credentials cannot administer the core.")
@@ -385,15 +386,17 @@ class RemoteService:
             if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
                 chunks, size = [], 0
                 limit = (
-                    8192
+                    65_000_000
+                    if path == "/api/apple-health/import"
+                    else 8192
                     if public
                     else 1_000_000
                     if executor_result
                     else 4_100_000
-                    if path in {"/api/documents", "/remote/v1/voice/transcribe"}
+                    if path in {"/api/documents", "/api/lab/files", "/remote/v1/voice/transcribe"}
                     else 512_000
                 )
-                async with asyncio.timeout(15):
+                async with asyncio.timeout(120 if path == "/api/apple-health/import" else 15):
                     async for part in request.stream():
                         size += len(part)
                         if size > limit:
@@ -421,7 +424,8 @@ class RemoteService:
                 if (
                     path.startswith("/remote/v1/pairing-codes")
                     or (path.startswith("/api/settings") and request.method != "GET")
-                    or path == "/api/models/test"
+                    or path in {"/api/models/test", "/api/apple-health/consent"}
+                    or path in {"/api/telephony/start", "/api/telephony/stop"}
                 ):
                     required = "admin"
                 if request.method != "GET" and re.match(
@@ -511,46 +515,8 @@ class RemoteService:
                 raise PermissionError("Routine is unavailable in this scope.")
         if path == "/api/settings" and request.method != "GET":
             changes = json.loads(await request.body())
-            permitted = {
-                "cloud_provider",
-                "cloud_model",
-                "cloud_base_url",
-                "cloud_api_key",
-                "cloud_reasoning_effort",
-                "model_input_usd_per_million",
-                "model_output_usd_per_million",
-                "monthly_budget_usd",
-                "max_parallel_tasks",
-                "max_output_tokens",
-                "timezone",
-                "ui_language",
-                "language",
-                "response_language",
-                "weather_location",
-                "weather_latitude",
-                "weather_longitude",
-                "quiet_hours",
-                "transcript_retention_days",
-                "operation_log_retention_days",
-                "search_provider",
-                "search_api_key",
-                "calendar_provider",
-                "calendar_ics_url",
-                "calendar_access_token",
-                "calendar_refresh_token",
-                "calendar_client_id",
-                "calendar_client_secret",
-                "calendar_tenant_id",
-                "second_brain_url",
-                "second_brain_token",
-                "second_brain_auth",
-                "memory_capture",
-                "desktop_voice_api_key",
-                "phone_stt_model",
-                "phone_tts_model",
-                "phone_tts_voice",
-            }
-            if not isinstance(changes, dict) or set(changes) - permitted:
+            from .remote_settings import COMPANION_SETTINGS
+            if not isinstance(changes, dict) or set(changes) - COMPANION_SETTINGS:
                 raise PermissionError("These settings require server administration on the host.")
             settings = self.runtime.config.settings
             changed_destination = any(
@@ -575,9 +541,10 @@ class RemoteService:
                 raise PermissionError(
                     "Changing the memory endpoint requires a new dedicated token."
                 )
-        if request.method in {"POST", "PUT", "PATCH"} and request.headers.get(
-            "content-type", ""
-        ).startswith("application/json"):
+        # FastAPI accepts JSON without a Content-Type and with application/*+json
+        # or mixed-case media types. Authority checks must inspect those bodies
+        # too, before a route can create work in another scope or profile.
+        if request.method in {"POST", "PUT", "PATCH", "DELETE"} and path != "/api/apple-health/import":
             body = json.loads(await request.body() or b"{}")
             if isinstance(body, dict):
                 if (
@@ -625,6 +592,11 @@ class RemoteService:
         from .remote_audio import install_audio
 
         install_audio(app, self)
+
+        @app.websocket("/remote/v1/voice/live")
+        async def companion_voice(websocket: WebSocket):
+            from .remote_voice import voice_socket
+            await voice_socket(self, websocket)
 
         @app.get("/remote/v1/info")
         async def info():

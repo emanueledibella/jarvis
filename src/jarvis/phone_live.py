@@ -18,6 +18,7 @@ from .db import now, uid
 from .live_voice import excerpt
 from .phone_prompts import phone_language, phone_message, phone_opening
 from .telephony import decode_mulaw
+from .voice_progress import LIVE_PROGRESS_POLICY, live_progress, task_progress
 from .voice_style import voice_api_key, voice_instructions, voice_reference
 
 PREPARE_TIMEOUT_SECONDS = 15
@@ -36,13 +37,14 @@ Let the caller finish. Stop speaking when interrupted and do not fill pauses wit
 For a simple request, reply directly and briefly without a stock preamble.
 Delegate requests requiring facts, reasoning, memory, time, weather, calendar, web, files,
 commands, lights, or other actions by generating <|SpawnThinking|>.
+Delegate public web research and weather directly; report the verified result without asking for permission.
 Never invent tool results or claim an action succeeded before the backend confirms it.
 Only the application can authorize effects. A spoken yes never authorizes a proposal.
 When the application supplies a phone approval readback, read its tool and all parameters
 verbatim before the instructions to press one or two. Never omit, summarize, or modify them.
 Only the application can process those keypad digits. Do not infer approval from speech.
 For ordinary verified results, explain them in the caller's language.
-"""
+""" + LIVE_PROGRESS_POLICY
 
 
 def readback_text(value: str) -> str:
@@ -64,6 +66,8 @@ class PhoneLive:
         self.fragments: list[dict] = []
         self.processed: set[str] = set()
         self.last_offset = -1
+        self.last_input_activity = float("-inf")
+        self.active_delegation = None
         self.pending = None
         self.output_ms = 0.0
         self.last_speech = 0.0
@@ -151,6 +155,7 @@ class PhoneLive:
         )
 
     async def wait_task(self, connection, task, delegation_id=None):
+        announced = False
         while not self.stop.is_set():
             self.validate()
             row = await self.runtime.db.fetchone(
@@ -205,12 +210,29 @@ class PhoneLive:
                     connection, phone_message(self.settings, "failed"), delegation_id
                 )
                 return
+            if (
+                row["state"] == "running" and not announced
+                and delegation_id and delegation_id == self.active_delegation
+            ):
+                update = await task_progress(self.runtime.db, task["id"])
+                if (
+                    update and delegation_id == self.active_delegation
+                    and time.monotonic() - self.last_input_activity >= self.settings.end_of_turn_ms / 1000
+                ):
+                    self.validate()
+                    if self.stop.is_set():
+                        return
+                    announced = True
+                    await self.commentary(connection, live_progress(update["kind"]), delegation_id)
             await asyncio.sleep(0.2)
 
     async def delegate(self, connection, event):
         if self.pending:
             await self.commentary(connection, phone_message(self.settings, "pending"))
             return
+        delegation_id = event["delegation"]["id"]
+        self.validate()
+        await connection.session.thinking.append(delegation_id=delegation_id, content="")
         offset = event["offset_ms"]
         if not isinstance(offset, (int, float)) or not math.isfinite(offset):
             raise ValueError("Invalid phone delegation offset.")
@@ -224,10 +246,11 @@ class PhoneLive:
             await self.commentary(
                 connection,
                 "The request was not transcribed. Ask the caller to repeat it in their language.",
-                event["delegation"]["id"],
+                delegation_id,
             )
             return
         self.last_offset = max(item["end_ms"] for item in selected)
+        self.active_delegation = delegation_id
         if text.casefold().strip(" .!?") in {
             "riaggancia",
             "chiudi la chiamata",
@@ -242,7 +265,7 @@ class PhoneLive:
             text[:20000],
             request_id=str(
                 uuid.uuid5(
-                    uuid.NAMESPACE_URL, f"jarvis-phone:{self.row['id']}:{event['delegation']['id']}"
+                    uuid.NAMESPACE_URL, f"jarvis-phone:{self.row['id']}:{delegation_id}"
                 )
             ),
             conversation_id=self.conversation_id,
@@ -252,7 +275,7 @@ class PhoneLive:
             channel="phone",
         )
         self.conversation_id = task["conversation_id"]
-        await self.wait_task(connection, task, event["delegation"]["id"])
+        await self.wait_task(connection, task, delegation_id)
 
     async def mark_readback(self):
         proposal = self.pending
@@ -320,6 +343,7 @@ class PhoneLive:
                 await self.attached.wait()
                 if self.stop.is_set():
                     continue
+                self.last_input_activity = time.monotonic()
                 self.fragments.append({key: event[key] for key in ("delta", "start_ms", "end_ms")})
                 if sum(len(item["delta"]) for item in self.fragments) > 50000:
                     raise ValueError("Phone conversation exceeds the transcript limit.")
@@ -371,6 +395,8 @@ class PhoneLive:
                 pcm = decode_mulaw(data)
                 level = float(np.sqrt(np.mean(pcm.astype(np.float64) ** 2)))
                 self.voiced_frames = self.voiced_frames + 1 if level > 550 else 0
+                if self.voiced_frames:
+                    self.last_input_activity = time.monotonic()
                 if self.voiced_frames == 3 and time.monotonic() - self.last_speech < 1:
                     if self.pending and not self.pending["heard"]:
                         self.pending.update(transcript="", audio_end=None, mark=None)

@@ -41,6 +41,7 @@ async def parse_connection(reader, writer):
                             "TMPDIR": scratch,
                             "PYTHONNOUSERSITE": "1",
                             "PYTHONDONTWRITEBYTECODE": "1",
+                            "OMP_THREAD_LIMIT": "1",
                         },
                     )
                     result, _ = await process.communicate(raw)

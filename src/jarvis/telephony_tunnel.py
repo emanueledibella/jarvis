@@ -14,6 +14,7 @@ from pathlib import Path
 
 from .platforms import process_environment, protect_path
 from .telephony_process import child_command
+from .telephony_settings import configuration_error, requirement_labels
 
 QUICK_URL = re.compile(r"https://[a-z0-9]+(?:-[a-z0-9]+)*\.trycloudflare\.com(?=[\s|\"/]|$)")
 PUBLIC_READY_TIMEOUT = 90
@@ -82,9 +83,19 @@ class TelephonyTunnel:
         self.phone = phone
         self.runtime = phone.runtime
         self.state = "stopped"
+        # A remote core keeps its stable HTTPS ingress across restarts. Local
+        # Quick Tunnels must still be explicitly recreated on every launch.
+        settings = self.runtime.config.settings
+        if (
+            self.runtime.config.server_mode
+            and settings.telephony_tunnel_mode == "managed"
+            and settings.telephony_enabled
+            and not phone.ready(transport=False)[1]
+        ):
+            self.state = "running"
         self.url = ""
         self.error = ""
-        self.inbound_configured = False
+        self.inbound_configured = self.state == "running" and settings.phone_inbound_enabled
         self.proxy_port: int | None = None
         self.lock = asyncio.Lock()
         self.job: asyncio.Task | None = None
@@ -99,10 +110,16 @@ class TelephonyTunnel:
         settings = self.runtime.config.settings
         return {
             "mode": settings.telephony_tunnel_mode,
+            "hosting": "remote" if self.runtime.remote else "local",
             "state": self.state,
             "public_url": self.phone.public_base_url,
             "error": self.error,
-            "dependencies": {name: bool(executable(name)) for name in ("caddy", "cloudflared")},
+            "dependencies": None if self.runtime.remote else {
+                name: bool(executable(name)) for name in ("caddy", "cloudflared")
+            },
+            "requirements": requirement_labels(
+                self.phone.ready(transport=False)[1], settings.ui_language
+            ),
             "inbound_configured": self.inbound_configured,
         }
 
@@ -115,6 +132,8 @@ class TelephonyTunnel:
                 raise PermissionError(
                     "Telephony is unavailable while stopped or in the local-only profile."
                 )
+            if self.runtime.remote and self.state == "running" and self.phone.ready()[0]:
+                return self.status()
             changes = {"telephony_tunnel_mode": "managed", "telephony_enabled": True}
             if any(
                 key in config.locked_fields() and getattr(config.settings, key) != value
@@ -122,16 +141,20 @@ class TelephonyTunnel:
             ):
                 raise PermissionError("Telephony controls are locked by the environment.")
             _, missing = self.phone.ready(transport=False)
-            if config.settings.phone_inbound_enabled and not re.fullmatch(
-                r"[0-9]{6,8}", config.settings.secret("phone_pin")
-            ):
-                missing.append("phone_pin_6_to_8_digits")
+            if self.runtime.remote and not self.runtime.remote.options.public_url.startswith("https://"):
+                missing.append("public_https_url")
             if missing:
-                raise ValueError("Invalid fields: " + ", ".join(missing))
+                raise configuration_error(missing, config.settings.ui_language)
             if await self.phone.db.fetchone(
                 "SELECT id FROM calls WHERE state IN ('creating','queued','initiated','ringing','answered','in-progress','connected','unknown') LIMIT 1"
             ):
                 raise ValueError("End or reconcile the current call before starting the tunnel.")
+            if self.runtime.remote:
+                config.update(changes)
+                self.state, self.error = "starting", ""
+                self.inbound_configured = False
+                self.job = asyncio.create_task(self._run_remote())
+                return self.status()
             binaries = {name: executable(name) for name in ("caddy", "cloudflared")}
             if not all(binaries.values()):
                 raise ValueError(
@@ -145,6 +168,26 @@ class TelephonyTunnel:
             self.cloud_connected = False
             self.job = asyncio.create_task(self._run(binaries))
             return self.status()
+
+    async def _run_remote(self):
+        try:
+            await self.phone.check_reachability()
+            self.inbound_configured = await self.phone.configure_inbound_webhooks()
+            self.state, self.error = "running", ""
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:
+            self.state = "error"
+            self.error = str(error) if isinstance(error, ValueError) else (
+                "Could not activate telephony on the remote core. Check its public HTTPS connection."
+            )
+            self.inbound_configured = False
+            config = self.runtime.config
+            if "telephony_enabled" not in config.locked_fields():
+                config.update({"telephony_enabled": False})
+        await self.runtime.db.emit(
+            "telephony.updated", {"state": self.state, "error": self.error}
+        )
 
     async def stop(self):
         async with self.lock:

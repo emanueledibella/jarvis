@@ -26,6 +26,7 @@ PRIVATE_FILES = {
     "mail-accounts.json",
     "development.json",
     "home-assistant.json",
+    "apple-health.json",
     "project-root.txt",
     "requirements.lock",
 }

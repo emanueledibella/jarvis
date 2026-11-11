@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import json
 import re
+from collections.abc import Awaitable, Callable
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -11,8 +12,17 @@ from datetime import UTC, datetime, timedelta
 from langgraph.types import interrupt
 
 from .db import Database, now, uid
+from .harness_context import HarnessRun
 from .memory_retrieval import is_second_brain_read
-from .retrieval import PUBLIC_QUERY_FOCUS
+from .retrieval import (
+    PUBLIC_LOOKUP_TOOLS,
+    PUBLIC_PAGE_TOOLS,
+    PUBLIC_QUERY_FOCUS,
+    PUBLIC_WEB_TOOLS,
+    authorized_public_page,
+    query_uses_owner_terms,
+    register_public_search_pages,
+)
 
 
 @dataclass
@@ -41,6 +51,11 @@ class TaskContext:
     automation_run_id: str | None = None
     attachment_ids: list[str] = field(default_factory=list)
     attachment_session: str | None = None
+    health_context: bool = False
+    private_sources_read: bool = False
+    voice_progress: Callable[[str], Awaitable[None]] | None = None
+    harness_run: HarnessRun | None = None
+    delegated: bool = False
 
     def __post_init__(self):
         self.sensitive_context = self.sensitive_context or self.private
@@ -59,6 +74,10 @@ class TaskContext:
             not self.untrusted_context or self.routine_context_only
         )
         self.untrusted_context = True
+
+    def mark_sensitive_read(self):
+        self.sensitive_context = True
+        self.private_sources_read = True
 
     def grant_public_query(self, query: str):
         for candidate in (query, *(query + " " + focus for focus in PUBLIC_QUERY_FOCUS)):
@@ -148,6 +167,10 @@ class Gateway:
                 "Emergency stop is active. Re-enable the service from the dashboard."
             )
         ctx = active_task.get()
+        if ctx.delegated and risk not in {"read", "network_read"}:
+            raise PermissionError("Jarvis must carry out this change in the main task.")
+        if risk == "network_read" and name in PUBLIC_LOOKUP_TOOLS and ctx.profile == "local_strict":
+            raise PermissionError("Public lookups require a connected profile.")
         if ctx.automation_run_id and risk not in {"read", "network_read"}:
             raise PermissionError("Event analysis is read-only. Start a separate owner request for changes.")
         if risk == "lighting_direct" and name != "light_set":
@@ -168,14 +191,29 @@ class Gateway:
         was_untrusted = ctx.untrusted_context
         was_routine = ctx.routine_context_only
         memory_read = risk == "network_read" and is_second_brain_read(name)
+        query, url = arguments.get("query"), arguments.get("url")
+        limit = arguments.get("limit", 5)
+        # Private history alone does not require a dashboard decision for an
+        # owner-supplied public topic or an exact URL. No words from prior
+        # messages/private reads can be added to the automatic grant.
+        owner_terms_only = not ctx.private_sources_read and not ctx.automation_run_id
         public_read = risk == "network_read" and (
-            (name == "web_search" and isinstance(arguments.get("query"), str)
-             and arguments["query"] in ctx.public_queries
-             and type(arguments.get("limit", 5)) is int and 1 <= arguments.get("limit", 5) <= 5)
-            or (name == "read_web_page" and isinstance(arguments.get("url"), str)
-                and arguments["url"] in ctx.public_pages)
+            (name == "web_search" and isinstance(query, str) and type(limit) is int and (
+                (query in ctx.public_queries and 1 <= limit <= 5)
+                or (owner_terms_only and 1 <= limit <= 10 and query_uses_owner_terms(ctx.prompt, query))
+            ))
+            or (name in PUBLIC_PAGE_TOOLS and isinstance(url, str)
+                and authorized_public_page(ctx.prompt, url, ctx.public_pages))
             or (name == "weather" and digest([name, arguments]) in ctx.public_tool_reads)
         )
+        if ctx.delegated and name in PUBLIC_WEB_TOOLS and not public_read:
+            raise PermissionError("Use only public terms from this assignment or exact URLs authorized for it.")
+        if (risk == "network_read" and name in PUBLIC_WEB_TOOLS
+                and was_sensitive and owner_terms_only and not public_read):
+            raise PermissionError(
+                "Use only search terms in the current user request or a public URL supplied "
+                "by the user or returned by search. These public lookups do not need approval."
+            )
         # Dedicated memory writes keep their source/privacy/connection checks and
         # effect ledger, but the owner does not need to approve each operation.
         memory_write = (name, risk) in {
@@ -185,6 +223,7 @@ class Gateway:
         feature_read = name in {"organizer_list", "activities_plan", "mail_accounts", "mail_search", "mail_message", "mail_drafts", "automation_event", "documents_list", "document_read", "documents_compare", "document_read_workspace", "screen_capture", "screen_read"}
         feature_read = feature_read or (risk in {"read", "network_read"} and name.startswith(("jira_", "github_", "development_", "home_assistant_")))
         feature_read = feature_read or (risk == "read" and name.startswith("device_"))
+        feature_read = feature_read or name in {"sandbox_files", "python_execute", "apple_health_summary", "browser_snapshot"}
         if memory_read or memory_write or feature_read or name.startswith("workspace_") or name in {
             "calendar_events",
             "memory_recall",
@@ -197,7 +236,7 @@ class Gateway:
             "light_set",
             "today_overview",
         }:
-            ctx.sensitive_context = True
+            ctx.mark_sensitive_read()
         if memory_read or memory_write or feature_read or name in {
             "workspace_read",
             "workspace_list",
@@ -213,6 +252,8 @@ class Gateway:
             "workspace_command",
             "today_overview",
         }:
+            ctx.mark_untrusted()
+        if name.startswith("browser_"):
             ctx.mark_untrusted()
         if name == "weather":
             ctx.mark_untrusted(routine=True)
@@ -242,6 +283,8 @@ class Gateway:
             and not (risk == "network_read" and was_sensitive)
         )
         if needs_approval and not (preauthorized or memory_write):
+            if ctx.delegated:
+                raise PermissionError("This operation needs approval in the main task.")
             if not await self.approval(ctx, name, arguments):
                 return {
                     "state": "rejected",
@@ -278,10 +321,34 @@ class Gateway:
         await self.db.emit("tool.started", {"tool": name}, ctx.id, private=ctx.private)
         started = False
         try:
-            if self.blocked:
-                raise PermissionError("Emergency stop is active.")
-            started = True
-            result = await function()
+            if ctx.voice_progress:
+                await ctx.voice_progress(name)
+
+            def check_stop():
+                if self.blocked:
+                    raise PermissionError("Emergency stop is active.")
+
+            async def execute():
+                nonlocal started
+                check_stop()
+                started = True
+                memo = ctx.harness_run if mutating else None
+                if memo:
+                    memo.invalidate_reads()
+                try:
+                    return await function()
+                finally:
+                    if memo:
+                        memo.invalidate_reads()
+
+            check_stop()
+            if (
+                ctx.harness_run and risk == "network_read" and name in {"web_search", "read_web_page"}
+                and (public_read or not was_sensitive)
+            ):
+                result = await ctx.harness_run.read(operation_key, execute, check_stop)
+            else:
+                result = await execute()
         except BaseException:
             if mutating:
                 # A failed/aborted network mutation may have committed remotely. The
@@ -304,8 +371,12 @@ class Gateway:
         await self.db.emit(
             "tool.completed", {"tool": name, "state": "succeeded"}, ctx.id, private=ctx.private
         )
+        # Consent for an exact private search query does not cover sending its
+        # contents to another site through a URL returned by the search provider.
+        if name == "web_search" and risk == "network_read" and (public_read or not was_sensitive):
+            register_public_search_pages(result, ctx.public_pages, limit)
         if name.startswith(("jira_", "github_", "home_assistant_")):
-            ctx.sensitive_context = True
+            ctx.mark_sensitive_read()
             ctx.mark_untrusted()
         return result
 

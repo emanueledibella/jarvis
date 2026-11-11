@@ -6,6 +6,7 @@ import time
 from datetime import UTC, datetime, timedelta
 
 from .agent import TaskManager
+from .apple_health import AppleHealth
 from .automations import Automations
 from .budget import ModelBudget
 from .config import ConfigStore
@@ -15,6 +16,7 @@ from .development import Development
 from .documents import Documents
 from .home_assistant import HomeAssistant
 from .integrations import MCPHub, NativeBridge
+from .lab import Lab
 from .lighting import Lighting
 from .live_voice import LiveVoice
 from .mail import Mail
@@ -59,6 +61,8 @@ class Runtime:
         self.mail = Mail(self)
         self.automations = Automations(self)
         self.documents = Documents(self)
+        self.lab = Lab(self)
+        self.apple_health = AppleHealth(self)
         self.screen = Screen(self)
         self.development = Development(self)
         self.home_assistant = HomeAssistant(self)
@@ -112,6 +116,7 @@ class Runtime:
         await self.db.emit("service.status", {"state": "ready"})
 
     async def close(self):
+        await self.lab.close()
         self.screen.close()
         self.documents.close()
         await self.wake_watchdog.close()
@@ -146,6 +151,7 @@ class Runtime:
                 "cloud": settings.cloud_model,
                 "cloud_configured": bool(settings.cloud_model and settings.secret("cloud_api_key")),
             },
+            "lab": self.lab.status(),
             "memory": {
                 "configured": bool(settings.second_brain_url),
                 "capture": settings.memory_capture,
@@ -172,6 +178,8 @@ class Runtime:
             async with self.voice_session_lock:
                 current = client.session
                 if current["private"] != private or current["scope"] != scope:
+                    from .lab import source_identity
+                    await self.lab.close_identity(source_identity(current["scope"], current["private"], client.session_id))
                     current.update(private=private, scope=scope, revision=current["revision"] + 1)
                     await self.remote.save_session(client)
                 return {**current, "state": "updated", "client_session_id": client.session_id}
@@ -183,6 +191,7 @@ class Runtime:
                 "scope": scope,
                 "revision": self.voice_session["revision"] + 1,
             }
+            await self.lab.close()
             self.screen.close()
             await self.db.execute(
                 "INSERT INTO controls(name,value) VALUES('voice_session',?) ON CONFLICT(name) DO UPDATE SET value=excluded.value",
@@ -213,6 +222,7 @@ class Runtime:
         return row
 
     async def maintenance(self):
+        await self.lab.prune()
         await self.db.execute("DELETE FROM documents WHERE expires_at<=?", (now(),))
         self.documents.prune()
         self.screen.prune()
@@ -245,12 +255,15 @@ class Runtime:
             "DELETE FROM conversations WHERE updated_at<? AND NOT EXISTS(SELECT 1 FROM messages WHERE conversation_id=conversations.id)",
             (transcripts,),
         )
+        await self.db.execute("DELETE FROM controls WHERE name LIKE 'health-conversation:%' AND substr(name,21) NOT IN (SELECT id FROM conversations)")
         await self.db.execute(
             "UPDATE approvals SET state='expired' WHERE state='pending' AND expires_at<?", (now(),)
         )
 
     async def emergency(self, stopped: bool):
         self.gateway.blocked = stopped
+        if stopped:
+            await self.lab.close()
         self.memory.suspended = stopped
         await self.db.execute(
             "INSERT INTO controls(name,value) VALUES('emergency_stop',?) ON CONFLICT(name) DO UPDATE SET value=excluded.value",

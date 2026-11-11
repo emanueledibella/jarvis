@@ -63,6 +63,8 @@ class Settings(BaseSettings):
     workspace_roots: Annotated[list[str], NoDecode] = Field(
         default_factory=lambda: [] if frozen() else [str(ROOT)]
     )
+    python_sandbox_enabled: bool = True
+    browser_enabled: bool = True
     command_execution: Literal["disabled", "approval", "sandbox"] = "approval"
     command_timeout_seconds: int = Field(default=120, ge=1, le=600)
     mcp_config_path: Path | None = None
@@ -302,7 +304,9 @@ class ConfigStore:
         merged = {**saved, **{key: getattr(env_settings, key) for key in explicit}}
         merged["data_dir"] = self.data_dir
         if self.server_mode:
-            merged.update(profile="cloud", workspace_roots=[], command_execution="disabled", voice_enabled=False, wake_enabled=False)
+            # Voice preferences configure connected companions. The remote core
+            # never captures audio or starts a local speech recognizer itself.
+            merged.update(profile="cloud", workspace_roots=[], command_execution="disabled")
         result = Settings(_env_file=None, **merged)
         result._remote_core = self.server_mode
         return result

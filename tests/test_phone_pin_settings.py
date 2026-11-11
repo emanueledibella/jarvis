@@ -8,14 +8,17 @@ from jarvis.db import now
 
 
 @pytest.mark.parametrize("pin", ["", "invalid"])
-async def test_pin_is_only_required_and_validated_when_enabled(runtime, pin):
+async def test_pin_is_required_and_validated_for_inbound_or_protected_outbound(runtime, pin):
     phone_config(runtime.config)
-    runtime.config.update({"phone_pin_enabled": False, "phone_pin": pin})
+    runtime.config.update({
+        "phone_inbound_enabled": False, "phone_pin_enabled": False, "phone_pin": pin
+    })
     assert runtime.telephony.ready() == (True, [])
-    runtime.config.update({"phone_pin_enabled": True})
-    ready, missing = runtime.telephony.ready()
-    assert not ready
-    assert ("phone_pin" if not pin else "phone_pin_6_to_8_digits") in missing
+    for inbound, outbound_pin in [(True, False), (False, True)]:
+        runtime.config.update({"phone_inbound_enabled": inbound, "phone_pin_enabled": outbound_pin})
+        ready, missing = runtime.telephony.ready()
+        assert not ready
+        assert ("phone_pin" if not pin else "phone_pin_6_to_8_digits") in missing
 
 
 async def test_pin_checkbox_persists_without_erasing_or_disclosing_the_saved_pin(config):
@@ -44,7 +47,7 @@ async def test_pin_checkbox_persists_without_erasing_or_disclosing_the_saved_pin
 
 async def test_disabling_pin_starts_outbound_conversation_without_keypad_input(config):
     phone_config(config)
-    config.update({"phone_pin_enabled": False, "phone_pin": ""})
+    config.update({"phone_inbound_enabled": False, "phone_pin_enabled": False, "phone_pin": ""})
     app = create_app(config, start_scheduler=False, process_lock=False)
     async with (
         app.router.lifespan_context(app),

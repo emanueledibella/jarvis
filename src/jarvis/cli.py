@@ -46,6 +46,8 @@ def main():
     server = sub.add_parser("server", help="Start the authenticated remote core behind HTTPS")
     server.add_argument("--bind", default="127.0.0.1")
     server.add_argument("--port", type=int, default=8765)
+    server.add_argument("--limit-concurrency", type=int, default=128,
+                        choices=range(8, 129), metavar="8..128")
     pair = sub.add_parser("remote-pair", help="Issue a ten-minute, one-use device pairing code")
     pair.add_argument("--kind", choices=["companion", "executor"], default="companion")
     pair.add_argument("--owner", action="store_true")
@@ -93,7 +95,8 @@ def main():
         from .remote import ServerOptions
         uvicorn.run(create_app(config, remote_options=ServerOptions()), host=args.bind, port=args.port,
                     proxy_headers=False, access_log=False, log_level="warning", ws_max_size=64_000,
-                    ws_max_queue=4, timeout_keep_alive=5, limit_concurrency=128)
+                    ws_max_queue=4, timeout_keep_alive=5,
+                    limit_concurrency=args.limit_concurrency)
         return
     if args.command == "desktop-info":
         # Private IPC with the native launcher, never used by a public HTTP endpoint.

@@ -16,6 +16,7 @@ from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ValidationError
 
+from .apple_health import install_health_routes
 from .automations import install_automation_routes
 from .config import ConfigStore, Profile
 from .daily import install_daily_routes
@@ -24,6 +25,7 @@ from .development import install_development_routes
 from .documents import install_document_routes
 from .feature_context import owner_session_guard
 from .home_assistant import install_home_routes
+from .lab import install_lab_routes
 from .lighting import LightChange, LightRegistration
 from .mail import install_mail_routes
 from .organizer import install_organizer_routes
@@ -71,6 +73,7 @@ class NativeStatus(BaseModel):
     wake_matches: int = Field(default=0, ge=0)
     recognition_task: Literal["idle", "starting", "running", "finishing", "canceling", "completed", "unknown"] = "idle"
     recognition_recoveries: int = Field(default=0, ge=0)
+    recognition_audio_seconds: float = Field(default=0, ge=0, allow_inf_nan=False)
     wake_recovery_supported: bool = False
     audio_input_selection_supported: bool = False
     input_device_state: Literal["system_default", "selected", "missing", "unknown"] = "unknown"
@@ -141,6 +144,8 @@ def create_app(
     install_screen_routes(app, runtime)
     install_development_routes(app, runtime)
     install_home_routes(app, runtime)
+    install_lab_routes(app, runtime)
+    install_health_routes(app, runtime)
 
     @app.middleware("http")
     async def boundary(request: Request, call_next):
@@ -177,9 +182,9 @@ def create_app(
                 return JSONResponse({"detail": "Method is not allowed."}, status_code=405)
             size = 0
             chunks = []
-            limit = 16384 if request.url.path.startswith("/telephony/") else 4_100_000 if request.url.path == "/api/documents" else 512000
+            limit = 65_000_000 if request.url.path == "/api/apple-health/import" else 4_100_000 if request.url.path == "/api/lab/files" else 16384 if request.url.path.startswith("/telephony/") else 4_100_000 if request.url.path == "/api/documents" else 512000
             try:
-                async with asyncio.timeout(10):
+                async with asyncio.timeout(120 if request.url.path == "/api/apple-health/import" else 10):
                     async for chunk in request.stream():
                         size += len(chunk)
                         if size > limit:
@@ -191,7 +196,7 @@ def create_app(
                 return JSONResponse({"detail": "Request body timed out."}, status_code=408)
             request._body = b"".join(chunks)
         guarded = request.method in {"POST", "PUT", "PATCH", "DELETE"} and request.url.path.startswith(
-            ("/api/today/", "/api/organizer/", "/api/mail/", "/api/automations", "/api/documents", "/api/screen", "/api/development", "/api/home-assistant")
+            ("/api/today/", "/api/organizer/", "/api/mail/", "/api/automations", "/api/documents", "/api/screen", "/api/development", "/api/home-assistant", "/api/lab", "/api/apple-health")
         )
         guard = owner_session_guard.set((runtime.voice_session["scope"], runtime.voice_session["revision"])) if guarded else None
         try:
@@ -252,8 +257,12 @@ def create_app(
     @app.get("/api/settings")
     async def settings():
         if runtime.remote:
+            from .remote_context import active_client
+            from .remote_settings import COMPANION_SETTINGS
             revision = config.revision()
-            return JSONResponse({"values": config.settings.public(), "locked": config.locked_fields(), "revision": revision}, headers={"ETag": '"' + revision + '"'})
+            editable = COMPANION_SETTINGS if "admin" in active_client.get().scopes else frozenset()
+            locked = sorted(set(config.locked_fields()) | (set(type(config.settings).model_fields) - editable))
+            return JSONResponse({"values": config.settings.public(), "locked": locked, "revision": revision}, headers={"ETag": '"' + revision + '"'})
         return {"values": config.settings.public(), "locked": config.locked_fields()}
 
     @app.patch("/api/settings")
@@ -272,6 +281,8 @@ def create_app(
         }
         previous_settings = config.settings
         config.update(changes)
+        if changes.get("browser_enabled") is False or changes.get("python_sandbox_enabled") is False or changes.get("profile") == "local_strict":
+            await runtime.lab.close()
         if any(
             key in changes
             for key in (

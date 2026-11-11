@@ -44,7 +44,10 @@ class VoiceContextStore:
 
     @staticmethod
     def boundary(metadata) -> tuple:
-        return (metadata.profile, metadata.scope, metadata.private, metadata.privacy_revision)
+        return (
+            metadata.profile, metadata.scope, metadata.private, metadata.privacy_revision,
+            getattr(metadata, "client_device_id", None), getattr(metadata, "client_session_id", None),
+        )
 
     def discard(self, key: str):
         context = self.entries.pop(key, None)

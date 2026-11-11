@@ -30,6 +30,8 @@ class WakeWatchdog:
         self.previous: tuple | None = None
         self.last_wake_count: int | None = None
         self.stall_since: float | None = None
+        self.retry_audio_seconds = 0.0
+        self.retry_audio_at: float | None = None
         self.idle_since: float | None = None
         self.audio_progress_at: float | None = None
         self.next_attempt_at = 0.0
@@ -94,25 +96,46 @@ class WakeWatchdog:
     def reset_observation(self):
         self.previous = None
         self.stall_since = self.idle_since = self.audio_progress_at = None
+        self.retry_audio_seconds = 0.0
+        self.retry_audio_at = None
+
+    def audible_retry_failed(self, now):
+        return (
+            self.retry_audio_seconds >= 0.25 and self.retry_audio_at is not None
+            and 0 <= now - self.retry_audio_at <= 5
+        )
 
     def reason(self, now):
         status = self.runtime.native.status
         values = tuple(status.get(key, 0) for key in (
-            "recognition_callbacks", "wake_matches", "input_buffers", "recognition_recoveries"
+            "recognition_callbacks", "wake_matches", "input_buffers", "recognition_recoveries",
+            "recognition_audio_seconds",
         ))
         previous = self.previous
         self.previous = values
         if previous is None or any(current < before for current, before in zip(values, previous, strict=True)):
             self.stall_since = self.idle_since = None
+            self.retry_audio_seconds = 0.0
+            self.retry_audio_at = None
             self.audio_progress_at = now
         else:
             if values[0] > previous[0] or values[1] > previous[1]:
                 self.stall_since = None
+                self.retry_audio_seconds = 0.0
+                self.retry_audio_at = None
                 if status.get("voice_state") == "armed":
                     self.failures = 0
                     self.next_attempt_at = min(self.next_attempt_at, now + self.minimum_interval)
-            elif values[3] > previous[3] and self.stall_since is None:
-                self.stall_since = now
+            elif values[3] > previous[3]:
+                if self.stall_since is None:
+                    self.stall_since = now
+                self.retry_audio_seconds = 0.0
+                self.retry_audio_at = None
+            elif self.stall_since is not None and values[4] > previous[4]:
+                if self.retry_audio_at is None or now - self.retry_audio_at > 5:
+                    self.retry_audio_seconds = 0.0
+                self.retry_audio_seconds += values[4] - previous[4]
+                self.retry_audio_at = now
             if values[2] > previous[2]:
                 self.audio_progress_at = now
         if self.transient_unavailable(status):
@@ -124,7 +147,9 @@ class WakeWatchdog:
                 self.idle_since = now
         else:
             self.idle_since = None
-        if self.stall_since is not None and now - self.stall_since >= self.stall_grace:
+        if self.stall_since is not None and now - self.stall_since >= self.stall_grace and (
+            self.transient_unavailable(status) or self.audible_retry_failed(now)
+        ):
             return "recognition_stalled"
         if self.idle_since is not None and now - self.idle_since >= self.idle_grace:
             return "recognition_ended"
@@ -156,6 +181,8 @@ class WakeWatchdog:
                     self.eligible(self.clock())
                     and tuple(native.status.get(key, 0) for key in ("recognition_callbacks", "wake_matches")) == expected
                     and native.status.get("input_buffers", 0) >= input_floor
+                    and (reason != "recognition_stalled" or self.transient_unavailable(native.status)
+                         or self.audible_retry_failed(self.clock()))
                 )
 
             self.attempts += 1

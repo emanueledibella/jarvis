@@ -176,13 +176,13 @@ async def test_calendar_specialist_policy_and_real_tool_analysis_are_shared_acro
     monkeypatch.setattr(runtime.native, "invoke", native)
     monkeypatch.setattr(runtime.tasks, "model", model_factory("calendar_events", {"days": 1}))
     captured = []
-    create_agent = agent.create_deep_agent
+    create_agent = agent.create_agent
 
     def capture_agent(**kwargs):
         captured.append(kwargs["system_prompt"])
         return create_agent(**kwargs)
 
-    monkeypatch.setattr(agent, "create_deep_agent", capture_agent)
+    monkeypatch.setattr(agent, "create_agent", capture_agent)
     task = await runtime.tasks.create("Qual è il prossimo evento in calendario?", channel=channel)
     await runtime.tasks.running[task["id"]]
     row = await runtime.db.fetchone("SELECT * FROM tasks WHERE id=?", (task["id"],))

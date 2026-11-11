@@ -8,6 +8,21 @@ from datetime import UTC, datetime
 from .db import now
 
 
+def cache_tokens(usage: dict) -> tuple[int, int]:
+    """Normalize provider metadata without guessing a hit or a discount."""
+    details = usage.get("input_token_details") or {}
+    input_tokens = max(0, usage.get("input_tokens") or 0)
+    read = sum(
+        value for key, value in details.items()
+        if key.endswith("cache_read") and type(value) is int and value > 0
+    )
+    written = sum(
+        value for key, value in details.items()
+        if key.endswith(("cache_write", "cache_creation")) and type(value) is int and value > 0
+    )
+    return min(read, input_tokens), min(written, max(0, input_tokens - read))
+
+
 class ModelBudget:
     """Reserve each cloud invocation before the SDK can send its request.
 
@@ -62,8 +77,9 @@ class ModelBudget:
             return
         actual = (usage["input_tokens"] * rates[0] + usage["output_tokens"] * rates[1]) / 1_000_000
         await self.db.execute(
-            "UPDATE model_usage SET state='complete',actual_usd=?,input_tokens=?,output_tokens=? WHERE id=?",
-            (actual, usage["input_tokens"], usage["output_tokens"], run_id),
+            "UPDATE model_usage SET state='complete',actual_usd=?,input_tokens=?,output_tokens=?,cached_input_tokens=?,cache_write_tokens=? WHERE id=?",
+            (actual, usage["input_tokens"], usage["output_tokens"], usage.get("cached_input_tokens", 0),
+             usage.get("cache_write_tokens", 0), run_id),
         )
 
     async def reserve_voice(self, run_id: str, seconds: float, rate: float):
@@ -93,7 +109,12 @@ class ModelBudget:
     async def status(self):
         month = datetime.now(UTC).strftime("%Y-%m")
         row = await self.db.fetchone(
-            "SELECT COALESCE(SUM(CASE WHEN state='complete' THEN actual_usd ELSE reservation_usd END),0) AS committed_usd,COUNT(*) AS requests FROM model_usage WHERE month=?",
+            """SELECT COALESCE(SUM(CASE WHEN state='complete' THEN actual_usd ELSE reservation_usd END),0) AS committed_usd,
+            COUNT(*) AS requests, COALESCE(SUM(input_tokens),0) AS input_tokens,
+            COALESCE(SUM(output_tokens),0) AS output_tokens,
+            COALESCE(SUM(cached_input_tokens),0) AS cached_input_tokens,
+            COALESCE(SUM(cache_write_tokens),0) AS cache_write_tokens
+            FROM model_usage WHERE month=?""",
             (month,),
         )
         return {
@@ -104,5 +125,5 @@ class ModelBudget:
                 self.config.settings.model_input_usd_per_million
                 and self.config.settings.model_output_usd_per_million
             ),
-            "basis": "Estimate based on configured rates; errors and unknown usage retain the reservation.",
+            "basis": "Estimate based on configured rates, before provider cache pricing; errors and unknown usage retain the reservation.",
         }
