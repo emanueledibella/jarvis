@@ -113,7 +113,9 @@ PLAYBOOKS = {
         "Confirm routines only after the scheduler records them. Event analysis is read-only. Distinguish proposed work from executed effects."
     ),
     "phone": (
-        "Use call_owner to place a phone call. Use whatsapp_send_message to prepare or send a WhatsApp message or generate an Apple Shortcuts direct execution link."
+        "Use call_owner to place a phone call. "
+        "When calling whatsapp_send_message, pass recipient=<contact_name_or_number> and message=<text>. "
+        "Always present the resulting shortcut_link as a clickable Markdown link in your response: [Invia messaggio con WhatsApp](shortcut_link) so the user can tap it to send autonomously via Apple Shortcuts, along with [Apri chat WhatsApp](deep_link)."
     ),
 }
 

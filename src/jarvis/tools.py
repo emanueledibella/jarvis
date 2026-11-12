@@ -975,10 +975,11 @@ def build_tools(runtime):
         if clean_phone.startswith("00"):
             clean_phone = "+" + clean_phone[2:]
         digits = clean_phone.lstrip("+")
+        target = digits or recipient.strip()
         encoded_text = quote(message.strip())
         deep_link = f"whatsapp://send?phone={digits}&text={encoded_text}" if digits else f"whatsapp://send?text={encoded_text}"
         web_link = f"https://wa.me/{digits}?text={encoded_text}" if digits else f"https://wa.me/?text={encoded_text}"
-        shortcut_payload = quote(f"{digits}:::{message.strip()}") if digits else quote(message.strip())
+        shortcut_payload = quote(f"{target}:::{message.strip()}")
         shortcut_link = f"shortcuts://run-shortcut?name=JarvisWhatsApp&input=text&text={shortcut_payload}"
         desktop_dispatched = False
         if device_id and runtime.remote:
@@ -1004,7 +1005,7 @@ def build_tools(runtime):
             "deep_link": deep_link,
             "web_link": web_link,
             "desktop_dispatched": desktop_dispatched,
-            "instructions": "Open shortcut_link on Apple devices (iOS/macOS) for autonomous sending, or deep_link/desktop.",
+            "instructions": f"Provide the user with clickable Markdown links: [Invia con WhatsApp (Scorciatoia)]({shortcut_link}) for 1-tap autonomous sending via Apple Shortcuts, or [Apri in WhatsApp]({deep_link}).",
         }
 
     @register(

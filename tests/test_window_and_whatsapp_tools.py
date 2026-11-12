@@ -72,6 +72,17 @@ async def test_whatsapp_tool_generates_links_and_validates_inputs():
         assert "https://wa.me/393331234567?text=Sto%20arrivando%20tra%2010%20minuti" in res["web_link"]
         assert "shortcuts://run-shortcut?name=JarvisWhatsApp&input=text&text=" in res["shortcut_link"]
         assert not res["desktop_dispatched"]
+
+        # Valid contact name without phone number
+        res_name = await whatsapp_tool.coroutine(
+            recipient="Amore Mio",
+            message="Ciao test",
+            phone="",
+        )
+        if isinstance(res_name, str):
+            res_name = json.loads(res_name)
+        assert res_name["recipient"] == "Amore Mio"
+        assert "Amore%20Mio%3A%3A%3ACiao%20test" in res_name["shortcut_link"]
     finally:
         active_task.reset(token)
 
