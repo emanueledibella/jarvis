@@ -91,6 +91,9 @@ async def test_whatsapp_tool_desktop_dispatch():
     remote = MagicMock()
     remote_jobs = MagicMock()
     remote_jobs.submit = AsyncMock(return_value={"action": "open_url", "success": True})
+    remote_jobs.devices = AsyncMock(return_value=[
+        {"id": "auto-mac-1", "name": "MacBook", "platform": "macos", "connected": True, "native": ["window.action"]}
+    ])
     remote.jobs = remote_jobs
 
     runtime = DummyRuntime(remote=remote)
@@ -101,6 +104,7 @@ async def test_whatsapp_tool_desktop_dispatch():
     token = active_task.set(ctx)
 
     try:
+        # 1. Explicit device_id
         res = await whatsapp_tool.coroutine(
             recipient="Elena",
             message="Ci vediamo alle 8",
@@ -109,14 +113,34 @@ async def test_whatsapp_tool_desktop_dispatch():
         )
         if isinstance(res, str):
             res = json.loads(res)
-        assert res["status"] == "opened_on_desktop"
+        assert res["status"] == "sent"
         assert res["desktop_dispatched"] is True
+        assert res["device_id"] == "mac-executor-1"
+        assert "senza cliccare" in res["instructions"] or "automatico" in res["instructions"]
         remote_jobs.submit.assert_called_once()
         call_args = remote_jobs.submit.call_args[0]
         assert call_args[0] == "mac-executor-1"
         assert call_args[1] == "window.action"
         assert call_args[2]["action"] == "open_url"
-        assert "whatsapp://send?phone=3401234567" in call_args[2]["url"]
+        assert "shortcuts://run-shortcut?name=JarvisWhatsApp" in call_args[2]["url"]
+
+        # 2. Auto-discovery of connected desktop executor when device_id is None
+        remote_jobs.submit.reset_mock()
+        res_auto = await whatsapp_tool.coroutine(
+            recipient="Amore Mio",
+            message="Ciao test",
+            phone="",
+        )
+        if isinstance(res_auto, str):
+            res_auto = json.loads(res_auto)
+        assert res_auto["status"] == "sent"
+        assert res_auto["desktop_dispatched"] is True
+        assert res_auto["device_id"] == "auto-mac-1"
+        remote_jobs.submit.assert_called_once()
+        call_args_auto = remote_jobs.submit.call_args[0]
+        assert call_args_auto[0] == "auto-mac-1"
+        assert "shortcuts://run-shortcut?name=JarvisWhatsApp" in call_args_auto[2]["url"]
+        assert "Amore%20Mio%3A%3A%3ACiao%20test" in call_args_auto[2]["url"]
     finally:
         active_task.reset(token)
 

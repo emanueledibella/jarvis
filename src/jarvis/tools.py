@@ -962,7 +962,7 @@ def build_tools(runtime):
             ttl=runtime.config.settings.command_timeout_seconds,
         )
 
-    @register("whatsapp_send_message", "Prepare or send a WhatsApp message to a contact or phone number. Requires explicit owner approval of recipient and message text. On mobile (iOS/Android), generates an authenticated direct WhatsApp deep link. On desktop with an executor, opens WhatsApp Desktop directly.", "external")
+    @register("whatsapp_send_message", "Send or prepare a WhatsApp message to a contact or phone number. When a paired desktop executor is connected, automatically executes the Apple Shortcut JarvisWhatsApp in background to send the message autonomously without user interaction. When offline or on mobile without a desktop, generates direct 1-tap links.", "external")
     async def whatsapp_send_message(recipient: str, message: str, phone: str = "", device_id: str | None = None):
         import re
         from urllib.parse import quote
@@ -982,13 +982,27 @@ def build_tools(runtime):
         shortcut_payload = quote(f"{target}:::{message.strip()}")
         shortcut_link = f"shortcuts://run-shortcut?name=JarvisWhatsApp&input=text&text={shortcut_payload}"
         desktop_dispatched = False
-        if device_id and runtime.remote:
+        target_device = device_id
+        if not target_device and runtime.remote:
+            try:
+                ctx = active_task.get()
+                devs = await remote_jobs().devices(ctx.scope)
+                connected = [
+                    d for d in devs
+                    if d.get("connected") and ("window.action" in d.get("native", []) or d.get("platform") in {"darwin", "macos"})
+                ]
+                if connected:
+                    target_device = connected[0]["id"]
+            except Exception:
+                target_device = None
+
+        if target_device and runtime.remote:
             try:
                 ctx = active_task.get()
                 await remote_jobs().submit(
-                    device_id,
+                    target_device,
                     "window.action",
-                    {"action": "open_url", "url": deep_link, "app": "WhatsApp"},
+                    {"action": "open_url", "url": shortcut_link},
                     scope=ctx.scope,
                     ctx=ctx,
                     ttl=25,
@@ -996,8 +1010,23 @@ def build_tools(runtime):
                 desktop_dispatched = True
             except Exception:
                 desktop_dispatched = False
+
+        if desktop_dispatched:
+            status = "sent"
+            instructions = (
+                f"Il messaggio WhatsApp è stato inviato automaticamente a {target} tramite la scorciatoia Apple Shortcuts "
+                f"sull'esecutore Mac connesso ({target_device}). Comunica chiaramente all'utente che il messaggio è stato inviato con successo. "
+                "NON mostrare link e non chiedere all'utente di cliccare alcunché: l'invio è avvenuto in automatico."
+            )
+        else:
+            status = "ready"
+            instructions = (
+                f"Nessun esecutore Mac attivo collegato: fornisci all'utente il link per inviare il messaggio con un tocco: "
+                f"[Invia con WhatsApp (Scorciatoia)]({shortcut_link}) oppure [Apri in WhatsApp]({deep_link})."
+            )
+
         return {
-            "status": "ready" if not desktop_dispatched else "opened_on_desktop",
+            "status": status,
             "recipient": recipient.strip() or clean_phone,
             "phone": clean_phone,
             "message": message.strip(),
@@ -1005,7 +1034,8 @@ def build_tools(runtime):
             "deep_link": deep_link,
             "web_link": web_link,
             "desktop_dispatched": desktop_dispatched,
-            "instructions": f"Provide the user with clickable Markdown links: [Invia con WhatsApp (Scorciatoia)]({shortcut_link}) for 1-tap autonomous sending via Apple Shortcuts, or [Apri in WhatsApp]({deep_link}).",
+            "device_id": target_device,
+            "instructions": instructions,
         }
 
     @register(

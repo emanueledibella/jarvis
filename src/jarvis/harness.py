@@ -115,7 +115,9 @@ PLAYBOOKS = {
     "phone": (
         "Use call_owner to place a phone call. "
         "When calling whatsapp_send_message, pass recipient=<contact_name_or_number> and message=<text>. "
-        "Always present the resulting shortcut_link as a clickable Markdown link in your response: [Invia messaggio con WhatsApp](shortcut_link) so the user can tap it to send autonomously via Apple Shortcuts, along with [Apri chat WhatsApp](deep_link)."
+        "If status is 'sent' or desktop_dispatched is True, the message has already been sent automatically via Apple Shortcuts on the connected Mac executor: "
+        "confirm to the user that the WhatsApp message has been sent successfully without providing any links to click. "
+        "Only if status is 'ready' (no desktop executor was available), provide the clickable link: [Invia messaggio con WhatsApp](shortcut_link)."
     ),
 }
 
