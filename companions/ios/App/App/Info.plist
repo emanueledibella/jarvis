@@ -2,8 +2,12 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <key>NSHealthShareUsageDescription</key>
+    <string>Jarvis legge soltanto le categorie di Salute che scegli, prepara riepiloghi giornalieri sul tuo iPhone e li invia al tuo core solo quando premi Condividi con Jarvis.</string>
     <key>NSMicrophoneUsageDescription</key>
-    <string>Jarvis registra le richieste vocali che avvii esplicitamente.</string>
+    <string>Jarvis ascolta il nome di attivazione e le richieste vocali quando abiliti la voce.</string>
+    <key>NSSpeechRecognitionUsageDescription</key>
+    <string>Jarvis riconosce il nome di attivazione sul dispositivo mentre l’app è aperta.</string>
   <key>CAPACITOR_DEBUG</key>
 	<string>$(CAPACITOR_DEBUG)</string>
 	<key>CFBundleDevelopmentRegion</key>

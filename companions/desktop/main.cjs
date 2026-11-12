@@ -1,19 +1,24 @@
 "use strict";
-const { app, BrowserWindow, protocol, net, ipcMain, safeStorage, dialog, shell, Tray, Menu, nativeImage, Notification } = require("electron");
+const { app, BrowserWindow, protocol, net, ipcMain, safeStorage, dialog, shell, Tray, Menu, nativeImage, Notification, globalShortcut, powerMonitor } = require("electron");
 const fs = require("node:fs");
 const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 const { spawn } = require("node:child_process");
 const { trustedFrame, safeExternal, validateCredentials } = require("./security.cjs");
+const { CompanionVoice } = require("./voice.cjs");
 
 protocol.registerSchemesAsPrivileged([{ scheme: "jarvis", privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } }]);
 app.enableSandbox();
+if (process.env.JARVIS_COMPANION_SMOKE === "1") app.setPath("userData", fs.mkdtempSync(path.join(app.getPath("temp"), "jarvis-companion-smoke-")));
 if (process.platform === "win32") app.setAppUserModelId("it.jarvis.companion");
 if (!app.requestSingleInstanceLock()) app.quit();
 let window, tray, executor, quitting = false, currentStatus = { state: "stopped" };
+let voiceEnabled = false, screenLocked = false, voiceOnLockScreen = false;
+const voice = new CompanionVoice(app, value => window?.webContents.send("voice:event", value));
 const selectedDirectories = new Set();
 const storePath = () => path.join(app.getPath("userData"), "companion.vault");
 const agentDirectory = () => path.join(app.getPath("userData"), "executor");
+const executorConfigured = () => fs.existsSync(path.join(agentDirectory(), "executor.json"));
 const statePath = () => path.join(app.getPath("userData"), "desktop.json");
 const uiRoot = () => app.isPackaged ? path.join(process.resourcesPath, "ui") : path.resolve(__dirname, "../../web/dist");
 function privateWrite(filename, content) {
@@ -49,9 +54,10 @@ function launchExecutor(extra = [], input) {
 }
 function startExecutor() {
   if (executor) return;
-  if (!fs.existsSync(path.join(agentDirectory(), "executor.json"))) throw new Error("Configura prima l’esecutore.");
+  if (!executorConfigured()) throw new Error("Configura prima l’esecutore.");
+  const child = launchExecutor();
+  executor = child;
   currentStatus = { state: "starting" };
-  const child = launchExecutor(); executor = child;
   let buffer = "";
   child.stdout.on("data", bytes => {
     buffer = (buffer + bytes.toString()).slice(-8192);
@@ -61,8 +67,14 @@ function startExecutor() {
     }
   });
   child.stderr.on("data", () => { /* Private process diagnostics are not forwarded to the renderer. */ });
-  child.on("error", () => { currentStatus = { state: "failed" }; });
-  child.on("exit", () => { if (executor === child) { executor = null; if (currentStatus.state !== "pairing_required") currentStatus = { state: "stopped" }; } });
+  child.on("error", () => {
+    if (executor === child) currentStatus = { state: "failed" };
+  });
+  child.on("close", code => {
+    if (executor !== child) return;
+    executor = null;
+    if (currentStatus.state !== "pairing_required") currentStatus = { state: code === 0 ? "stopped" : "failed" };
+  });
 }
 async function stopExecutor() {
   const child = executor;
@@ -78,18 +90,19 @@ async function stopExecutor() {
 async function createWindow() {
   window = new BrowserWindow({ width: 1320, height: 900, minWidth: 390, minHeight: 650, show: false,
     title: "Jarvis Companion", backgroundColor: "#07131d",
-    webPreferences: { preload: path.join(__dirname, "preload.cjs"), nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true, allowRunningInsecureContent: false, spellcheck: true } });
+    webPreferences: { preload: path.join(__dirname, "preload.cjs"), nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true, allowRunningInsecureContent: false, spellcheck: true, backgroundThrottling: false } });
   window.webContents.setWindowOpenHandler(({ url }) => { if (safeExternal(url)) void shell.openExternal(url); return { action: "deny" }; });
   window.webContents.on("will-navigate", (event, url) => { if (!trustedFrame(url)) { event.preventDefault(); if (safeExternal(url)) void shell.openExternal(url); } });
   window.webContents.session.setPermissionRequestHandler((contents, permission, callback, details) => {
-    callback(contents === window.webContents && window.isVisible() && trustedFrame(contents.getURL()) && permission === "media" && details.mediaTypes?.length > 0 && details.mediaTypes.every(type => type === "audio"));
+    callback(contents === window.webContents && (!screenLocked || voiceOnLockScreen) && (window.isVisible() || voiceEnabled) && trustedFrame(contents.getURL()) && permission === "media" && details.mediaTypes?.length > 0 && details.mediaTypes.every(type => type === "audio"));
   });
+  window.webContents.on("render-process-gone", () => { voiceEnabled = false; voice.close(); });
   window.on("close", event => { if (!quitting) { event.preventDefault(); window.hide(); } });
   await window.loadURL("jarvis://app/index.html");
   if (!process.argv.includes("--background")) window.show();
   if (process.env.JARVIS_COMPANION_SMOKE === "1") {
     await new Promise(resolve => setTimeout(resolve, 1500));
-    const file = path.resolve(__dirname, "../../output/companion-smoke.png");
+    const file = process.env.JARVIS_COMPANION_SMOKE_OUTPUT ? path.resolve(process.env.JARVIS_COMPANION_SMOKE_OUTPUT) : path.join(app.getPath("temp"), "jarvis-companion-smoke.png");
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, (await window.webContents.capturePage()).toPNG());
     quitting = true; app.quit();
@@ -97,6 +110,7 @@ async function createWindow() {
 }
 
 app.whenReady().then(async () => {
+  screenLocked = powerMonitor.getSystemIdleState(1) === "locked";
   protocol.handle("jarvis", async request => {
     const url = new URL(request.url);
     if (url.host !== "app") return new Response("Denied", { status: 403 });
@@ -111,7 +125,37 @@ app.whenReady().then(async () => {
   });
   handle("vault:load", () => vaultLoad());
   handle("vault:save", value => { validateCredentials(value); if (!safeStorage.isEncryptionAvailable()) throw new Error("Deposito credenziali non disponibile."); privateWrite(storePath(), safeStorage.encryptString(JSON.stringify(value))); });
-  handle("vault:clear", () => { if (fs.existsSync(storePath())) fs.unlinkSync(storePath()); });
+  handle("vault:clear", () => { voiceEnabled = false; voice.close(); if (fs.existsSync(storePath())) fs.unlinkSync(storePath()); });
+  handle("voice:start", options => {
+    if (!vaultLoad() || (screenLocked && !voiceOnLockScreen)) throw new Error("Unlock and connect this device before enabling voice.");
+    voiceEnabled = true;
+    return voice.request("start", options).catch(error => { voiceEnabled = false; throw error; });
+  });
+  handle("voice:stop", () => voice.request("stop"));
+  for (const command of ["finalize-recognition", "begin-live", "read-live", "start-live-playback", "play-live"]) {
+    handle("voice:" + command, options => {
+      if (!voiceEnabled || (screenLocked && !voiceOnLockScreen)) throw new Error("Listening was cancelled.");
+      return voice.request(command, options);
+    });
+  }
+  handle("voice:enabled", options => {
+    if (!options || typeof options.enabled !== "boolean" || typeof options.allowLocked !== "boolean") throw new Error("Invalid voice state.");
+    if (options.enabled && !vaultLoad()) throw new Error("Connect this device before enabling voice.");
+    if (options.enabled && screenLocked && !options.allowLocked) throw new Error("Unlock this device before enabling voice.");
+    voiceEnabled = options.enabled; voiceOnLockScreen = options.allowLocked;
+    if (!voiceEnabled) voice.close();
+  });
+  handle("voice:inputs", () => voice.request("inputs"));
+  handle("voice:speak", options => {
+    if (!vaultLoad() || (screenLocked && !voiceOnLockScreen)) throw new Error("Unlock and connect this device before speaking.");
+    return voice.request("speak", options);
+  });
+  handle("voice:autostart", enabled => {
+    if (typeof enabled !== "boolean") throw new Error("Invalid state.");
+    privateWrite(statePath(), JSON.stringify({ ...state(), launchAtLogin: enabled }));
+    app.setLoginItemSettings({ openAtLogin: enabled || !!state().executorEnabled, args: ["--background"] });
+    return { state: enabled ? "enabled" : "disabled" };
+  });
   handle("executor:directory", async () => {
     const result = await dialog.showOpenDialog(window, { title: "Cartella autorizzata per Jarvis", properties: ["openDirectory"] });
     if (result.canceled) return null;
@@ -130,7 +174,11 @@ app.whenReady().then(async () => {
     app.setLoginItemSettings({ openAtLogin: true, args: ["--background"] });
     startExecutor();
   });
-  handle("executor:status", () => currentStatus);
+  handle("executor:status", () => ({
+    ...currentStatus,
+    configured: executorConfigured(),
+    running: Boolean(executor),
+  }));
   handle("notification:show", value => {
     if (!value || !Number.isSafeInteger(value.sequence) || value.sequence < 1 || typeof value.created_at !== "string" || value.created_at.length > 64) throw new Error("Invalid notification metadata.");
     const credentials = vaultLoad();
@@ -149,14 +197,22 @@ app.whenReady().then(async () => {
     if (typeof value !== "boolean") throw new Error("Invalid state.");
     if (value) startExecutor(); else await stopExecutor();
     privateWrite(statePath(), JSON.stringify({ ...state(), executorEnabled: value }));
-    app.setLoginItemSettings({ openAtLogin: value, args: ["--background"] });
+    app.setLoginItemSettings({ openAtLogin: value || !!state().launchAtLogin, args: ["--background"] });
   });
   await createWindow();
+  globalShortcut.register("CommandOrControl+Shift+J", () => window?.webContents.send("voice:listen"));
+  const suspendVoice = () => { voiceEnabled = false; voice.close(); window?.webContents.send("voice:event", { type: "suspended" }); };
+  powerMonitor.on("lock-screen", () => { screenLocked = true; if (!voiceOnLockScreen) suspendVoice(); });
+  powerMonitor.on("suspend", suspendVoice);
+  powerMonitor.on("unlock-screen", () => { screenLocked = false; window?.webContents.send("voice:event", { type: "resumed" }); });
+  powerMonitor.on("resume", () => { if (!screenLocked) window?.webContents.send("voice:event", { type: "resumed" }); });
   const iconPath = app.isPackaged ? path.join(process.resourcesPath, "jarvis.png") : path.resolve(__dirname, "../../assets/jarvis-icon.png");
   tray = new Tray(nativeImage.createFromPath(iconPath).resize({ width: 18, height: 18 }));
   tray.setToolTip("Jarvis Companion");
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: "Apri Jarvis", click: () => window.show() },
+    { label: "Parla con Jarvis", click: () => window.webContents.send("voice:listen") },
+    { label: "Disattiva microfono", click: () => window.webContents.send("voice:mute") },
     { label: "Ferma esecutore", click: () => void stopExecutor() },
     { type: "separator" }, { label: "Esci", click: () => { quitting = true; app.quit(); } },
   ]));
@@ -168,5 +224,6 @@ app.on("activate", () => window?.show());
 app.on("window-all-closed", () => {});
 app.on("before-quit", event => {
   quitting = true;
+  globalShortcut.unregisterAll(); voice.close();
   if (executor) { event.preventDefault(); void stopExecutor().finally(() => app.quit()); }
 });

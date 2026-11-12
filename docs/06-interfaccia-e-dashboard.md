@@ -1,5 +1,9 @@
 # Interface, orb, and dashboard
 
+Updated November 3, 2026. The design principles below began as the local Mac
+proposal. The implemented command center is recorded in [chapter 15](15-command-center-interface.md);
+the expanded assistant and remote surfaces are described in section 12 below.
+
 ## 1. Product direction
 
 The interface should feel like a present assistant with a recognizable visual center and readable information. Cinematic inspiration guides atmosphere/motion; assets, sounds, and components are original.
@@ -38,7 +42,9 @@ Closing the dashboard hides it. A separate clear menu action quits the service. 
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-Adapt to window size: at narrow widths, orb/answer precede widgets; do not shrink calendar text into illegibility. A native mobile/phone view is not an already-decided part of the first product.
+Adapt to window size: at narrow widths, orb/answer precede widgets; do not shrink
+calendar text into illegibility. Mobile companions are now implemented with
+Capacitor and the responsive shared React UI; see section 12.
 
 Two concept directions:
 
@@ -127,3 +133,29 @@ Start with simple orb geometry and refine. Suspend rendering when hidden while v
 ## 11. Application identity (October 25 update)
 
 The original orbital “J” mark uses the dashboard's cyan/navy palette. Its editable source is `web/src/assets/jarvis.svg`, also used in the sidebar and browser favicon. `scripts/build-icon.sh` renders a 1024-pixel PNG and all standard/Retina icon sizes into `native/Resources/Jarvis.icns`. The Mac bundle declares `CFBundleIconFile` and loads the same icon for the Dock and application switcher while its dashboard is open. Closing the window returns the app to menu-bar mode.
+
+## 12. Delivered assistant and companion surfaces
+
+The shared application now includes Today/priorities/briefings, projects and
+activities, mail accounts/drafts, event automations, documents/citations, chosen
+windows, Jira/GitHub and Home Assistant. Data remains scoped and revisioned;
+private-mode write restrictions and provider connection states are visible.
+
+Remote bootstrap adds pairing/reconnect, ordinary conversation continuation,
+generic notifications, session scope/privacy, pending OAuth consent, device
+inventory/revocation, executor selection/jobs and administrator model/API-key
+settings. A stale settings save requires reloading the server revision.
+The model key is entered for the core and is never returned as a displayed value.
+
+Electron macOS/Windows loads the shared UI from `jarvis://app`, with a sandboxed
+renderer and restricted IPC for vault, selected folder, executor and notices.
+Closing the window keeps the tray/executor process; quitting stops local execution.
+Capacitor iOS/Android uses bottom navigation, safe areas, responsive forms/modals,
+explicit audio capture/transcript review and a native shared-source inbox.
+Neither companion hosts another scheduler or automatically starts a local core.
+
+Local wake/orb capture semantics apply to AppKit, not to a remotely connected
+phone. Companion recording and optional TTS report their own actual states.
+Shared sources require explicit upload/attachment; push and model prose do not
+approve effects. The actual capability/build boundaries and outstanding physical
+device/accessibility checks are in [chapter 33](33-current-state-and-verification.md).

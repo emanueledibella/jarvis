@@ -1,10 +1,12 @@
 from datetime import UTC, datetime, timedelta
 
+import httpx
 import pytest
 from icalendar import Calendar, Event
 from langchain_core.messages import HumanMessage
 
 from jarvis.agent import TokenEvents
+from jarvis.api import create_app
 from jarvis.policy import TaskContext, active_task
 from jarvis.speech import speech_text
 from jarvis.tools import build_tools, calendar_payload
@@ -116,9 +118,6 @@ async def test_retention_removes_task_content_and_checkpoints(runtime, monkeypat
 
 
 async def test_calendar_rotation_survives_restart_with_env_seed(config, monkeypatch):
-
-    import httpx
-
     from jarvis.productivity import Productivity
 
     config.env_file.write_text("JARVIS_CALENDAR_REFRESH_TOKEN=original-env-token\n")
@@ -155,3 +154,75 @@ async def test_calendar_rotation_survives_restart_with_env_seed(config, monkeypa
     from test_platforms import assert_private_file
 
     assert_private_file(config.data_dir / "calendar-oauth.json")
+
+
+@pytest.mark.parametrize(
+    ("credential", "provider_status", "provider_error", "dashboard_state", "today_state"),
+    [
+        ("refresh", 400, "invalid_grant", "reauthorization_required", "reauthorization_required"),
+        ("access", 401, "authError", "reauthorization_required", "reauthorization_required"),
+        ("refresh", 400, "invalid_client", "error", "unavailable"),
+        ("refresh", 503, "temporarily_unavailable", "error", "unavailable"),
+    ],
+)
+async def test_calendar_views_distinguish_unauthorized_access_from_provider_failures(
+    config, monkeypatch, credential, provider_status, provider_error, dashboard_state, today_state
+):
+    config.update({"calendar_provider": "google", f"calendar_{credential}_token": "fixture-calendar-token"})
+    app = create_app(config, start_scheduler=False, process_lock=False)
+    http_client = httpx.AsyncClient
+
+    def google(request):
+        if credential == "refresh":
+            assert (request.method, request.url.host) == ("POST", "oauth2.googleapis.com")
+        else:
+            assert (request.method, request.url.host) == ("GET", "www.googleapis.com")
+        return httpx.Response(provider_status, json={
+            "error": provider_error, "error_description": "private-provider-diagnostics",
+        })
+
+    monkeypatch.setattr(
+        "jarvis.productivity.httpx.AsyncClient",
+        lambda **kwargs: http_client(transport=httpx.MockTransport(google), **kwargs),
+    )
+    async with app.router.lifespan_context(app):
+        async with http_client(
+            transport=httpx.ASGITransport(app=app), base_url="http://testserver",
+            headers={"Authorization": "Bearer " + config.token},
+        ) as client:
+            for path, expected in (("/api/dashboard", dashboard_state), ("/api/today", today_state)):
+                response = await client.get(path)
+                assert response.status_code == 200
+                calendar = response.json()["calendar"]
+                assert calendar["state"] == expected
+                assert "private-provider-diagnostics" not in response.text
+                assert "fixture-calendar-token" not in response.text
+                if expected == "reauthorization_required":
+                    assert calendar["events"] == []
+                    assert "Authorize the calendar again" in calendar["message"]
+
+
+async def test_calendar_refreshes_a_rejected_access_token_and_retries_read(runtime, monkeypatch):
+    runtime.config.update({"calendar_provider": "google", "calendar_refresh_token": "fixture-refresh"})
+    http_client = httpx.AsyncClient
+    reads = []
+    refreshes = 0
+
+    def google(request):
+        nonlocal refreshes
+        if request.method == "POST":
+            refreshes += 1
+            return httpx.Response(200, json={"access_token": f"fixture-access-{refreshes}"})
+        reads.append(request.headers["Authorization"])
+        if reads[-1] == "Bearer fixture-access-1":
+            return httpx.Response(401)
+        return httpx.Response(200, json={"items": []})
+
+    monkeypatch.setattr(
+        "jarvis.productivity.httpx.AsyncClient",
+        lambda **kwargs: http_client(transport=httpx.MockTransport(google), **kwargs),
+    )
+    result = await runtime.productivity.calendar("local_connected")
+    assert result["state"] == "ready"
+    assert reads == ["Bearer fixture-access-1", "Bearer fixture-access-2"]
+    assert await runtime.productivity.calendar_token() == "fixture-access-2"

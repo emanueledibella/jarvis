@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>CFBundleIdentifier</key><string>it.jarvis.companion.voice</string>
+  <key>CFBundleName</key><string>Jarvis Companion Voice</string>
+  <key>NSMicrophoneUsageDescription</key><string>Jarvis ascolta il nome di attivazione e le richieste vocali quando abiliti la voce.</string>
+  <key>NSSpeechRecognitionUsageDescription</key><string>Jarvis riconosce il nome di attivazione sul dispositivo.</string>
+</dict></plist>

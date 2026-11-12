@@ -31,7 +31,7 @@ export async function api<T = any>(
   const request = {
     ...options,
     headers: {
-      "Content-Type": "application/json",
+      ...(options.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
       ...options.headers,
     },
   };

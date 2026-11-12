@@ -5,7 +5,7 @@ import UserNotifications
 import WebKit
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNavigationDelegate, WKDownloadDelegate {
     var window: NSWindow?
     var webView: WKWebView?
     var statusItem: NSStatusItem!
@@ -200,12 +200,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
 
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
         guard let url = navigationAction.request.url else { decisionHandler(.cancel); return }
+        if ArtifactDownloadPolicy.allows(url: url, source: navigationAction.sourceFrame.request.url,
+                                         service: client.base, mainFrame: navigationAction.sourceFrame.isMainFrame,
+                                         download: navigationAction.shouldPerformDownload) {
+            decisionHandler(.download)
+            return
+        }
         if url.host == client.base.host && url.port == client.base.port && url.scheme == "http" {
             decisionHandler(.allow)
         } else {
             if navigationAction.navigationType == .linkActivated && ["http", "https"].contains(url.scheme ?? "") { NSWorkspace.shared.open(url) }
             decisionHandler(.cancel)
         }
+    }
+
+    func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
+        download.delegate = self
+    }
+
+    func download(_ download: WKDownload, decideDestinationUsing response: URLResponse,
+                  suggestedFilename: String, completionHandler: @escaping (URL?) -> Void) {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = (suggestedFilename as NSString).lastPathComponent
+        panel.canCreateDirectories = true
+        panel.begin { result in completionHandler(result == .OK ? panel.url : nil) }
+    }
+
+    func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
+        statusItem.button?.toolTip = ui("Unable to save the file.")
     }
 
     func poll() async {
@@ -221,14 +243,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                     voice.configure(settings)
                     hue.configure(enabled: settings["lighting_enabled"] as? Bool ?? false)
                 }
-                for event in result["events"] as? [[String: Any]] ?? [] {
+                let events = result["events"] as? [[String: Any]] ?? []
+                let finished = Set(events.compactMap { event -> String? in
+                    guard event["type"] as? String == "task.updated",
+                          let data = event["data"] as? [String: Any],
+                          let state = data["state"] as? String,
+                          ["succeeded", "failed", "cancelled", "paused", "waiting_user"].contains(state)
+                    else { return nil }
+                    return event["task_id"] as? String
+                })
+                for event in events {
                     sequence = max(sequence, event["sequence"] as? Int ?? 0)
                     let data = event["data"] as? [String: Any] ?? [:]
                     switch event["type"] as? String {
                     case "native.operation":
                         Task { await performNative(data) }
+                    case "task.progress":
+                        if let id = event["task_id"] as? String, !finished.contains(id),
+                           let text = data["text"] as? String {
+                            voice.speakForTask(id, text: text, progress: true)
+                        }
                     case "speech.requested":
-                        if data["channel"] as? String != "phone", let text = data["text"] as? String { voice.speak(text) }
+                        if let text = data["text"] as? String {
+                            switch data["channel"] as? String {
+                            case "voice":
+                                if let id = event["task_id"] as? String { voice.speakForTask(id, text: text) }
+                            case "phone": break
+                            default: voice.speak(text)
+                            }
+                        }
                     case "speech.stop": voice.stopSpeaking()
                     case "task.updated":
                         if let id = event["task_id"] as? String, let state = data["state"] as? String { voice.taskChanged(id, state: state) }

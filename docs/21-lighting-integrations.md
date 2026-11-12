@@ -1,5 +1,12 @@
 # Configurable lighting integrations
 
+Remote scope, November 3, 2026: Hue Bluetooth below requires the **local AppKit
+host**. It is not an operation in the desktop executor protocol. For an always-on
+remote core use a granted network service such as
+[Home Assistant MCP](29-assistant-setup.md#home-assistant-mcp), reachable without
+the Mac. The Home Assistant adapter has its own tool/entity grants and approval
+rules; it does not automatically import a local light's direct-control grant.
+
 ## Setup in Settings
 
 Use **Settings → Lights and devices** to add, edit, or remove a light. Configure its spoken name, optional model label, connection method, personal/work scope, and capability profile. The model label is descriptive; the profile and adapter determine which commands are available.

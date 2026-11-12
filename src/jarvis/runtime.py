@@ -144,6 +144,7 @@ class Runtime:
             "uptime_seconds": int(time.monotonic() - self.started_at),
             "profile": settings.profile,
             "native": {**self.native.status, "connected": self.native.connected},
+            "screen_capture": self.screen.availability(),
             "audio": self.audio,
             "wake_recovery": self.wake_watchdog.status(),
             "models": {

@@ -10,7 +10,7 @@ COMPANION_SETTINGS = frozenset({
     "cloud_reasoning_effort", "model_input_usd_per_million", "model_output_usd_per_million",
     "monthly_budget_usd", "max_parallel_tasks", "max_output_tokens", "max_agent_steps",
     "task_timeout_seconds", "model_request_timeout_seconds", "tool_timeout_seconds",
-    "timezone", "ui_language", "language", "response_language", "weather_location",
+    "timezone", "ui_language", "language", "response_language", "response_personality", "weather_location",
     "weather_latitude", "weather_longitude", "weather_refresh_minutes", "quiet_hours",
     "transcript_retention_days", "operation_log_retention_days", "search_provider",
     "search_api_key", "calendar_provider", "calendar_ics_url", "calendar_access_token",

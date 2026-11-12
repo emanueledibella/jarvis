@@ -37,6 +37,10 @@ struct ServiceClient {
                     result = try await ScreenContext().capture(allowed: { unlocked() && Date().timeIntervalSince1970 < deadline })
                 } else if ["calendar.list", "calendar.create", "calendar.update", "calendar.delete"].contains(operation) {
                     result = try CalendarBridge().perform(operation, arguments)
+                } else if operation == "window.list" {
+                    result = WindowBridge().list()
+                } else if operation == "window.action" {
+                    result = try WindowBridge().perform(arguments: arguments)
                 } else {
                     throw ServiceClient.ClientError.server("Unsupported native capability.")
                 }

@@ -48,6 +48,7 @@ class ChatInput(BaseModel):
     request_id: UUID | None = None
     attachment_ids: list[UUID] = Field(default_factory=list, max_length=10)
     attachment_session: UUID | None = None
+    screen_capture_id: UUID | None = None
 
 
 class Decision(BaseModel):
@@ -395,6 +396,8 @@ def create_app(
 
     @app.post("/api/chat", status_code=202)
     async def chat(data: ChatInput):
+        if data.screen_capture_id and (data.privacy_revision is None or not data.attachment_session):
+            raise ValueError("Attach the window capture from the current conversation.")
         if (
             data.privacy_revision is not None
             and data.privacy_revision != runtime.voice_session["revision"]
@@ -426,6 +429,7 @@ def create_app(
             external_authorized=data.external_authorized,
             attachment_ids=[str(key) for key in data.attachment_ids],
             attachment_session=str(data.attachment_session) if data.attachment_session else None,
+            screen_capture_id=str(data.screen_capture_id) if data.screen_capture_id else None,
         )
 
     @app.get("/api/tasks")

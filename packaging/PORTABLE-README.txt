@@ -11,6 +11,12 @@ The launcher opens an authenticated dashboard on 127.0.0.1. Keep the console
 open while using Jarvis; Ctrl+C stops its service. Closing the browser tab
 does not stop the service. Nothing is installed for automatic login startup.
 
+This package runs a standalone local core. The Electron remote companion and
+always-on server are separate deployment modes; this launcher does not pair to
+a remote core or automatically take over when that server is unavailable.
+Current companion builds and source verification:
+https://github.com/emanueledibella/jarvis/blob/main/docs/33-current-state-and-verification.md
+
 First use: configure a model in Settings. Ollama/LM Studio must be installed
 separately for local models. Provider keys are entered locally, never included
 in a download. Enable workspace folders explicitly before using file tools.

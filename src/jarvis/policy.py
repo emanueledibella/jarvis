@@ -51,6 +51,7 @@ class TaskContext:
     automation_run_id: str | None = None
     attachment_ids: list[str] = field(default_factory=list)
     attachment_session: str | None = None
+    screen_capture_id: str | None = None
     health_context: bool = False
     private_sources_read: bool = False
     voice_progress: Callable[[str], Awaitable[None]] | None = None

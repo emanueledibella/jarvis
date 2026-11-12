@@ -1,233 +1,169 @@
-# Proposed architecture for the first Mac installation
+# Architecture
 
-This document records **proposals to validate**. The confirmed constraint is one initial Mac with local and cloud models. Servers, Redis, clusters, and distributed services are not prerequisites for the core. Chapters 10–13 describe the implementation decisions that followed this proposal.
+Updated November 3, 2026. Jarvis has a shared Python/React implementation with
+**local standalone** and **remote core + companion + desktop executor** deployment
+modes. The original Mac-only design has evolved; current coverage and verification
+are in [chapter 33](33-current-state-and-verification.md).
 
-## 1. Components and responsibilities
+## 1. One authority per installation
+
+The authority owns conversations, task checkpoints, policy, approvals, effect
+receipts, schedules, budgets, integrations and persistent feature data. SQLite
+and APScheduler remain appropriate to the delivered single-owner, single-core
+deployment. A remote VM does not require Postgres, Redis or a cluster.
+
+Run one core/scheduler for each data directory. Never share a live SQLite/WAL
+directory between Mac and server or run the same routines on both. The local
+app remains a separate installation; it is not an automatic offline replica of
+the remote core.
+
+## 2. Implemented topology
 
 ```mermaid
 flowchart TB
-    U[Owner] -->|voice| A[macOS audio helper and local wake detection]
-    U -->|text and controls| UI[Tauri and React GUI]
-    A <--> V[Pipecat voice runtime]
-    UI <--> API[Authenticated local API and event stream]
-    V <--> C[Conversation coordinator]
-    API <--> C
-    C --> R[Intent and model router]
-    R --> F[Deterministic functions]
-    R --> G[LangGraph and Deep Agents]
-    G --> T[Tool and policy gateway]
-    F --> T
-    T --> L[Local tools and isolated coding worker]
-    T --> M[MCP client]
-    M --> B[Existing Second Brain]
-    M --> E[Enabled external integrations]
-    T --> W[Web search and controlled fetch]
-    C --> DB[(SQLite tasks events checkpoints outbox)]
-    S[Persistent scheduler] --> C
-    S --> DB
-    R --> ML[Local model on native runtime]
-    R --> MC[Configured cloud model]
-    V <--> P[Phone adapter and HTTPS WSS tunnel]
-    P <--> O[PSTN carrier]
-    O <-->|call| U
+    LocalUI[Local AppKit and WebKit or portable browser] --> Local[Loopback local core]
+    Local --> Engine[Shared FastAPI and Deep Agents engine]
+    Mobile[Capacitor iOS and Android] -->|HTTPS and device token| Remote[Remote core]
+    Desktop[Electron macOS and Windows] -->|HTTPS and device token| Remote
+    Browser[Browser on public origin] -->|HTTPS and device token| Remote
+    Remote --> Engine
+    Engine --> Gateway[Policy, approvals and effect ledger]
+    Engine --> DB[(SQLite and checkpoints)]
+    Engine --> Scheduler[Single persistent scheduler]
+    Gateway --> Model[Configured model API or local runtime]
+    Gateway --> Services[Second Brain, mail, calendars, Jira, GitHub and Home Assistant]
+    Remote --> Parser[Isolated parser through Unix socket]
+    Remote --> Push[APNs and FCM outbox]
+    Executor[Desktop executor] -->|Outbound authenticated WSS| Remote
+    Executor --> Files[Locally granted workspace and commands]
+    Executor --> Apple[macOS EventKit and chosen-window helper]
 ```
 
-Blocks represent responsibilities, not a microservice for each box. A few processes with clear interfaces suffice initially.
+The diagram shows shared implementation, not simultaneous local/remote ownership
+of one database. Local mode can select local/cloud profiles. Remote mode uses
+the configured cloud provider and cannot dispatch model inference to the desktop.
 
-| Process | Responsibility | Independent of the window |
-| --- | --- | --- |
-| Desktop/menu bar host | Onboarding, UI, notifications, service control | Yes, as a background host |
-| Signed audio helper or equivalent native component | Capture, audio device, levels, mute, playback | Yes; no visible-page dependency |
-| Python service | Conversations, graph, gateway, scheduler, database, voice pipeline | Yes, supervised |
-| Coding worker | Commands, filesystem, checks for one job | Only during the task |
-| Local model runtime | Profile-dependent LLM/STT/TTS inference | Configurable startup or residency |
-| Phone tunnel | Expose only required webhook/media endpoints | While telephony is enabled |
+## 3. Processes and platform boundaries
 
-Choose **one service lifecycle owner**: a persistent host or system-managed helper. Avoid three copies created by autostart, GUI, and development scripts. Modern macOS `SMAppService` supports login helpers/services; test the actual bundle. Source: [Apple Service Management](https://developer.apple.com/documentation/servicemanagement/smappservice).
+| Component | Implementation and responsibility |
+| --- | --- |
+| Local Mac host | AppKit/WebKit, Python supervision, menu bar/login, Apple Speech, microphone/playback, EventKit, Hue Bluetooth and one-window capture |
+| Local portable launcher | Frozen Python service plus system-browser dashboard on Windows/Linux; text interaction |
+| Shared core | FastAPI, LangGraph/Deep Agents, typed gateway, budget/effects, SQLite, schedules and feature modules |
+| Remote companion desktop | Electron, sandboxed renderer, restricted IPC, OS credential storage, tray/login and executor supervision |
+| Remote companion mobile | Capacitor, shared React UI, iOS Keychain/Android Keystore, explicit recording, push registration and native sharing |
+| Desktop executor | Separate Python process/identity, OS vault, local grants, effect journal, reconnection and cancellation |
+| Remote macOS helper | EventKit and ScreenCaptureKit through a locally approved, hash-pinned native helper; no general GUI control |
+| Document worker | Bounded parser process; remote Compose isolates it from network, credentials and the core data volume |
+| Public proxy | Caddy HTTPS/WSS to the remote core; local managed telephony uses its own restricted Caddy/Cloudflare path |
 
-## 2. Recommended stack and alternatives
+Tauri and Pipecat were research candidates, not dependencies of the local host.
+React Native was a mobile candidate; the delivered mobile shell is Capacitor.
+Electron is now a dependency of the remote desktop companion. Local native
+wake/echo processing and Hue Bluetooth are not part of the executor protocol.
 
-| Area | First choice | Alternative / condition |
-| --- | --- | --- |
-| Backend | Python 3.12 candidate, FastAPI, Pydantic contracts | Freeze versions after audio/native dependency tests |
-| Agents | LangGraph + Deep Agents using our gateway tools | Pydantic AI if experiments show lower complexity for the same requirements |
-| MCP | SDK-independent internal interface; evaluate `langchain.mcp.MCPAdapter` | Official MCP/FastMCP adapter if beta stability is insufficient |
-| Voice | Pipecat | LiveKit Agents if telephony/WebRTC is simpler |
-| GUI | Tauri 2 + React + TypeScript | Electron if audio, distribution, and integrations become substantially easier |
-| Orb graphics | SVG/Canvas 2D and Web Audio/native metering | WebGL only after demonstrating a resource-use benefit |
-| Local state | SQLite, WAL, migrations, one coordinator | PostgreSQL for a server deployment or increased concurrency |
-| Checkpoints | Persistent saver matching the chosen LangGraph version | SQLite for personal use with concurrency/crash tests; Postgres for a future service |
-| Scheduling | APScheduler with persistent jobs and our effect ledger | Temporal for durable distributed orchestration, not initially |
-| Local inference | Native Ollama; supported LM Studio endpoint | MLX/llama.cpp adapter if useful for actual hardware |
-| Secrets | macOS Keychain; env for configuration/development | Portable secret references for a future server |
+## 4. Authentication and session contracts
 
-LangGraph distinguishes conversation checkpoints from application stores, notes that in-memory savers lose state on restart, and presents SQLite as a local development option. Personal-use SQLite is our pragmatic choice to qualify, not a framework guarantee. Source: [persistence](https://docs.langchain.com/oss/python/langgraph/persistence).
+Local mode binds to loopback and authenticates with a private owner token.
+CLI/native/browser clients verify the service identity before disclosing it.
+The local native bridge and Live audio WebSocket never become public.
 
-APScheduler documents persistent stores and misfire recovery. Do not share a job store across schedulers or persist user-provided callables: jobs invoke fixed application entry points. Source: [APScheduler](https://apscheduler.readthedocs.io/en/stable/userguide.html).
+Remote mode has a dedicated boundary in `remote.py`: public protocol discovery,
+one-use pairing, rotating refresh, device grants, allowed Host/Origin and bounded
+requests. The first administrator pairs with a CLI-issued owner code.
+Administrators can issue companion/executor codes and revoke devices.
+Pairing is a personal-device protocol, not an OIDC implementation.
 
-## 3. Three execution paths
+Companions call shared `/api/*` routes with a short-lived bearer and
+`X-Jarvis-Session`. `ClientContext` resolves the device/session before tools run.
+Ordinary conversations are available across the owner's devices in the same scope;
+private content and temporary sources require the originating session.
+Settings writes require the current `ETag` in `If-Match`; stale writes return 409.
 
-### Deterministic command
+Remote clients poll `/remote/v1/events?after=...`. Local `/api/events`,
+`/api/native*`, `/api/voice/live*` and native voice control are denied by the
+remote boundary. Telephony keeps carrier-signature/media-token authorization.
 
-Examples: mute, stop speech, open dashboard, service status, a structured timer. Typed parsing/functions avoid unnecessary agents. Initial natural-language interpretation may use a model; controlled code applies the effect.
+## 5. Task, tool and effect flow
 
-### Short conversation
+1. Accept a request with stable delivery ID, conversation, scope, privacy and
+   permitted profile. Snapshot the model/endpoint and execution parameters.
+2. Retrieve relevant scoped memory and selected source evidence. Treat tool,
+   document, email, calendar, screen and web content as untrusted data.
+3. Deep Agents plans and calls schema-validated gateway tools with time, step,
+   concurrency and budget limits. Framework files are a virtual scratchpad.
+4. If required, interrupt for the exact action/arguments and bind the decision to
+   task, hash and expiry. Model prose or a notification cannot approve an effect.
+5. Claim mutations in the durable effect ledger. An unknown external outcome
+   requires reconciliation instead of automatic repetition.
+6. Record verified results and expose progress/results to authorized clients.
+   Stopping speech does not by itself cancel an accepted task.
 
-A request needing a few tools: weather, agenda, memory, or a question. Retrieve targeted sources, answer briefly, and allow follow-up. Cached results show freshness. The same gateway enforces policy and audit.
+Deterministic reminders, calendar analysis, source baselines and notifications
+avoid model polling. Event-triggered analysis tasks are read-only at the gateway,
+including after checkpoint reconstruction.
 
-### Long-running work
+## 6. Device dispatch
 
-Research, coding, document comparison, or monitoring: create a persistent task and immediately return its ID. A worker may use Deep Agents/specialists with explicit budgets. Attach the final result and notify according to rules.
+The core exposes `device_workspaces`, `device_read`, `device_write` and
+`device_command`. Device/workspace IDs select the destination; absolute desktop
+paths stay in local configuration. The executor opens `/remote/v1/executor`
+over WSS; no listener or phone-to-desktop connection is required.
 
-The owner can ask another question meanwhile. Coding must not leave the microphone unusable until completion.
+Every job binds destination, operation, arguments/hash, scope, task/session and
+expiry. The executor rechecks local read/write/command grants, confinement,
+expected file hash and permitted command prefixes. Core approval cannot enlarge
+a local grant. Host commands run project code with the OS user's authority.
 
-## 4. Agent graph
+Jobs progress through `queued`, `delivered`, `claimed`, `running` and terminal
+`succeeded`, `failed`, `cancelled`, `expired` or `unknown`.
+Receipt retransmission does not re-execute an operation. Disconnect/restart after
+dispatch can leave uncertainty. Offline waiting is opt-in and capped at ten
+minutes; private jobs cannot queue while the device is offline.
 
-```mermaid
-flowchart LR
-    I[Request] --> K[Task context and identity]
-    K --> R[Relevant memory and source retrieval]
-    R --> P[Choose path and plan]
-    P --> A{Authorization available}
-    A -->|yes| X[Execute through gateway]
-    A -->|missing| H[Persistently wait for decision]
-    H --> A
-    X --> Q[Verify result]
-    Q -->|more work within budget| P
-    Q -->|complete| F[Result with evidence]
-    Q -->|uncertain external effect| Z[Reconciliation]
-    Z --> Q
-    F --> M[Memory and notification outbox]
-```
+Selecting an executor also routes supported Apple calendar/window operations.
+A window still needs local selection. Native Bluetooth, arbitrary mouse/keyboard
+control, delegated local AI and server coding sandboxes are outside this protocol.
 
-Check authorization for each tool as well. A favorable graph decision does not grant credentials or unrestricted permanent access.
+## 7. Feature data and persistence
 
-Enable planning explicitly in profiles that need it: since Deep Agents v0.7 it is not always-on middleware. Source: [planning](https://docs.langchain.com/oss/python/deepagents/overview#task-planning).
+| Data | Authority and retention |
+| --- | --- |
+| Conversations/checkpoints | Core database; ordinary retention; private content in RAM |
+| Personal/work facts | Canonical Second Brain, with source/revision and separate adoption state |
+| Projects/activities, drafts and rules | Scoped feature records with explicit revisions/deletion; private persistent edits blocked |
+| Documents | Normalized extracted evidence, hashes and cited parts; 1–365 day retention; private sources expire in RAM after one hour |
+| Chosen windows | Session-bound RAM only, ten-minute expiry and immediate deletion |
+| Device jobs and receipts | Remote store plus executor journal; private result content not journaled; uncertain effects retained |
+| Push | Encrypted device tokens, generic payload and bounded outbox retries |
+| Credentials | Private local settings/Keychain references; remote model/integration/OAuth secrets encrypted with the core master key |
 
-## 5. Proposed internal roles
+Encryption at rest is not end-to-end encryption against the VM administrator.
+The core must process data and send permitted context to the selected model.
 
-| Role | When needed | Minimum context and tools |
-| --- | --- | --- |
-| Coordinator | Every request | Identity, policy, task state; no unrestricted shell |
-| Researcher | Comparisons and current questions | Search, fetch, extraction, bibliography |
-| Programmer | Implementation/debugging | One repository, Git, files, worker commands |
-| Productivity operator | Agenda, notes, tasks | Relevant provider adapter |
-| Memory curator | Complex recall/writes | Second Brain and relevant original source |
-| Voice interlocutor | Desktop and phone | Current summary and task-delegation functions |
+Directory/document workspace tools use the core host's filesystem. They do not
+watch or mount an executor's folders. Remote mode grants no host workspace or
+command execution by default. Uploaded documents use the isolated parser broker.
 
-These are logical boundaries, not six models for a simple request. Delegation must improve accuracy or elapsed time before becoming a default.
+## 8. Voice, availability and deployment
 
-## 6. Separate voice from long-running work
+Local Mac voice has Apple and optional OpenAI Live paths, with local wake,
+guarded recovery, microphone selection and echo-protected interruption.
+Companion voice instead records an explicit WAV, transcribes for review, submits
+text and optionally requests TTS. Phone calls use their separate Twilio bridge.
+These have different transports, permissions, costs and availability.
 
-The voice runtime owns turn-taking, interruption, and playback; the coordinator owns tasks, authorization, and sources. A `start_task` facade returns an ID; `get_task_status` retrieves a summary. Long execution never blocks the audio thread.
+A remote core continues server-side work with a sleeping/offline desktop.
+Local file/native operations need that desktop connected. Second Brain and Home
+Assistant need an independently available network/service path. Closing a mobile
+app does not cancel accepted server work; push delivery remains OS/provider-dependent.
 
-Cloud speech-to-speech receives only permitted facade tools, such as agenda retrieval or starting research. Actual calls still use the gateway. The cloud model receives no MCP credentials or unrestricted shell.
+Compose supplies one non-root core, a network-disabled parser and HTTPS proxy,
+private volumes and health checks. The core keeps its database locally.
+Encrypted age restore revokes old device credentials/pairing, disables schedules,
+sets emergency stop and makes pending dispatch uncertain before reuse.
 
-Only one component may modify/execute each tool call. Events replicated across frontend, sideband, and backend share an ID and owner to prevent duplicate execution. Pattern source: [OpenAI server-side controls](https://developers.openai.com/api/docs/guides/voice-server-controls).
-
-## 7. Tool gateway
-
-Proposed application contract, independent of the external protocol:
-
-```text
-ToolSpec:
-  id, version, origin, input_schema, output_schema
-  capability, allowed_scopes, execution_location
-  side_effect_kind, required_authority, timeout
-  idempotency_strategy, cancellation_strategy
-
-Invocation:
-  invocation_id, task_id, operation_key, arguments_hash
-  authorization_reference, state, provider_reference
-  started_at, finished_at, result_reference, error_code
-```
-
-MCP annotations such as `readOnlyHint` and `destructiveHint` are classification hints, not sufficient permission. Unknown servers use gateway-owned mapping and may require review before enabling a capability.
-
-Each server has managed processes/connections, dedicated credentials, timeouts, circuit breaking, and versioned tool schemas. Unexpected schema changes cannot expand already-approved privileges.
-
-Current LangChain documentation moves toward beta `langchain[mcp]` and `MCPAdapter`. Domain code should not couple directly to that API in many places. Source: [LangChain MCP](https://docs.langchain.com/oss/python/langchain/mcp).
-
-## 8. Persistence and data model
-
-| Entity | Required data | Purpose |
-| --- | --- | --- |
-| `Conversation` / `Turn` | Channel, scope, content/task references | Continuity without mixing voice, identity, and tasks |
-| `Task` / `TaskRun` | Goal, state, policy, model, budget, checkpoint | Resumption and reporting |
-| `Schedule` | Zone, trigger, next due time, tolerance, misfire policy | Reliable daily execution within Mac availability |
-| `Effect` / `ToolInvocation` | Operation key, state, provider reference | External-effect reconciliation |
-| `Approval` | Proposal, argument hash, identity, expiry, scope | Decision valid for one specific action |
-| `Notification` | Event, channel, fingerprint, attempts, outcome | Deduplication and escalation |
-| `MemoryOutbox` | Original source, scope, `request_id`, Second Brain state | Retain writes without blocking voice |
-| `Integration` | Type, capability, secret reference, state | No plaintext key in the domain database |
-| `Artifact` | Private path, type, hash, sources | Reviewable, portable results |
-
-SQLite WAL helps concurrency but does not remove locks or the need for short transactions. Checkpoints and domain tables may use separate files. Serialize critical mutations and limit worker concurrency.
-
-## 9. Task and effect states
-
-```mermaid
-stateDiagram-v2
-    [*] --> queued
-    queued --> running
-    running --> waiting_user
-    waiting_user --> running
-    running --> paused
-    paused --> queued
-    running --> succeeded
-    running --> failed
-    running --> unknown_effect
-    unknown_effect --> reconciling
-    reconciling --> running
-    reconciling --> failed
-    queued --> cancelled
-    running --> cancelling
-    cancelling --> cancelled
-```
-
-Graph checkpoints do not guarantee **exactly once** for calls, sends, or remote writes. Use provider idempotency where supported; otherwise record intent before the effect and reconcile the provider ID. A lost creation response remains uncertain until verified.
-
-Leases prevent two workers from owning one task; restart recovers expired leases and examines the last effect. An in-memory lock alone cannot recover a crash.
-
-## 10. GUI events
-
-Proposed contract, not an already-implemented API:
-
-```json
-{
-  "event_id": "uuid",
-  "sequence": 42,
-  "occurred_at": "timestamp-UTC",
-  "task_id": "uuid-or-null",
-  "conversation_id": "uuid-or-null",
-  "type": "tool.completed",
-  "data": {"tool_id": "calendar.list_events", "result_ref": "artifact-id"}
-}
-```
-
-Minimum events: `service.status`, `voice.state`, `audio.level`, `transcript.partial`, `transcript.final`, `task.updated`, `tool.started`, `tool.completed`, `approval.requested`, `memory.status`, `call.status`, `notification.updated`.
-
-Audio levels are ephemeral, outside the event ledger. Task mutations are persistent with reconnect ordering and compact snapshots. Resume at the latest sequence or request a snapshot when retention has removed events.
-
-## 11. Local and cloud inference
-
-The router selects profile-permitted models according to data classification, verified capabilities, and resources, rather than unrestricted model judgment about the “best” provider.
-
-- **Strict local:** local LLM/STT/TTS; blocked egress except explicit exceptions. Remote MCP/web are unavailable unless authorized by the profile.
-- **Local with connected services:** local inference with permitted remote calendar/web/MCP; GUI makes the distinction visible.
-- **Cloud:** configured cloud LLM, profile-dependent voice, gateway-controlled tools.
-- **Hybrid:** select a candidate by role/task; private requests cannot migrate to cloud without compatible authority.
-
-Ollama documents tool calling; LM Studio exposes compatible tool endpoints. Transport compatibility does not establish model quality against our schemas. Sources: [Ollama](https://docs.ollama.com/capabilities/tool-calling), [LM Studio](https://lmstudio.ai/docs/developer/openai-compat/tools).
-
-## 12. Memory and context
-
-Checkpoints hold observable operational state, necessary messages, results, and references. Second Brain holds personal/work facts, evidence, and revisions. Artifacts retain reports/code. A project knowledge base can index documents without becoming a biographical preference ledger.
-
-The first release does not need another Neo4j, Mem0, or personal-memory vector database. Document knowledge can start with text search and file citations; semantic indexing is an optimization to justify.
-
-## 13. Future server path
-
-Coordinator, scheduler, and telephony could move to an always-available machine while wake detection, audio, and local tools stay on the Mac. Adapters declare `execution_location` and handle temporary Mac unavailability. Preserve that boundary now without building a distributed control plane.
-
-Migration would require Postgres, device pairing, authenticated command transport, and revised operational guarantees. It is not merely an env-variable change.
+See [deployment](../deploy/README.md), [companion build/pairing](../companions/README.md),
+[configuration](12-configurazione-env.md) and [security](../SECURITY.md).
+Production hosting, signing, real-device/account checks and high availability
+are separate from the verified source implementation.

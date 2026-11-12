@@ -10,7 +10,7 @@ export default defineConfig({
     proxy: {
       "/api": { target: backend, changeOrigin: false },
       "/health": { target: backend, changeOrigin: false },
-      "/remote": { target: backend, changeOrigin: false },
+      "/remote": { target: backend, changeOrigin: false, ws: true },
       "/oauth": { target: backend, changeOrigin: false },
     },
   },

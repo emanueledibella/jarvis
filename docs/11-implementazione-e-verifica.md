@@ -1,8 +1,11 @@
 # Implementation, verification, and operations
 
-Version 0.1.0, initially October 24, 2026; language/branding update October 25. This describes implemented code; chapters 01–09 preserve initial analysis/proposals. The catalog is a product baseline, not 132 already-passed tests.
+Version 0.1.0; updated November 3, 2026. This chapter describes shared/local
+runtime operations and the remote extension. The original catalog is a
+132-requirement baseline, not 132 passed tests. Current modes, feature coverage and
+rerun totals are in [chapter 33](33-current-state-and-verification.md).
 
-## Implemented system
+## Local native runtime
 
 ```mermaid
 flowchart TD
@@ -30,9 +33,37 @@ flowchart TD
     Phone --> Agent
 ```
 
-The native host owns audio, permissions, Apple Calendar, and Python supervision. No Tauri, Electron, Pipecat, or LiveKit dependency was introduced. Deep Agents provides the requested agent framework with LangGraph, explicit planning, typed tools, and durable checkpoints.
+The local native host owns audio, permissions, Apple Calendar and Python
+supervision, using AppKit/WebKit rather than Tauri/Electron. The separate remote
+desktop companion now uses Electron, and mobile uses Capacitor. Pipecat/LiveKit
+remain research alternatives. Deep Agents supplies LangGraph, explicit planning,
+typed tools and durable checkpoints in both modes.
 
-Framework files are a virtual scratchpad. Real disk files require `workspace_*`, avoiding confusion between agent state and actual file edits. Dedicated/specialist tools use the application gateway.
+## Remote core and expanded assistant
+
+The [current architecture](03-architettura.md) adds one server authority,
+device/session authentication, filtered event polling, administrator settings,
+outbound-WSS desktop dispatch, an isolated parser and push outbox. The core uses
+cloud models and disables host commands/workspaces/native voice and stdio MCP.
+Local mode remains independent; it does not synchronize its database or take over
+when the remote core is offline.
+
+Today/briefings, projects/activities, mail/drafts, event automations, documents/OCR,
+chosen-window context, Jira/GitHub and Home Assistant are implemented and exposed
+through shared views/tools. Read [feature setup](29-assistant-setup.md),
+[server operations](../deploy/README.md) and [companion enrollment](../companions/README.md).
+Server sources need independent reachability; Mac files/EventKit/window capture
+need their granted executor. Directory rules inspect the core host, not the desktop.
+
+Remote private data belongs to a client session; ordinary conversations can be
+continued across devices in the same scope. The local bearer/native bridge is
+denied remotely. Companion STT/review/TTS is distinct from native Live and carrier
+audio. Remote settings use revision checks; old saves return HTTP 409.
+
+Framework files are a virtual scratchpad. Real local-core disk files require
+`workspace_*`; paired desktop files use `device_*` and local executor grants.
+Remote mode has no core-host workspace by default. Dedicated/specialist tools
+use the application gateway.
 
 ## Request path
 
@@ -127,7 +158,11 @@ The ingestion queue preserves original source and `request_id`; timeout does not
 
 Explicit scopes are `personal`/`work`. `memory_remember` only accepts a source contained in the original user request, not generated biography. Default policy captures explicit remember requests; English/Italian opt-out is enforced in the tool too.
 
-Initial OAuth requests read/ingest according to the server contract; corrections/retractions require a separate option/`memory:write` consent. The owner's existing dedicated read connection has been restored and verified without new writes. Jarvis credentials remain separate from development-chat credentials.
+Initial OAuth requests read/ingest according to the server contract;
+corrections/retractions require a separate option/`memory:write` consent.
+Jarvis credentials remain separate from development-chat credentials. Personal
+connection outcomes belong in private records, not a claim of account acceptance
+from the synthetic regression suite.
 
 Use the canonical endpoint announced in server OAuth metadata. Correct audience rejection of a loopback endpoint advertising a tunneled HTTPS resource is not bypassed. Configure the dedicated connection against the announced resource.
 
@@ -147,7 +182,12 @@ Orb levels come from actual capture/playback buffers; processing animation is a 
 
 Separate silence (`kAFAssistantErrorDomain:1110`) from service failure. Silence renews sessions; transient interruptions use bounded exponential delays. Missing models, disabled Dictation, and denied authorization have specific domain/code diagnostics. Invalidate cancelled-session callbacks before replacement. Classification: [Apple Speech errors](https://developer.apple.com/documentation/speech/sfspeechrecognitiontask/error?language=objc).
 
-Capture uses the hardware microphone stream. Forcing VoiceProcessingIO on a graph separate from playback produced repeated Core Audio downlink errors on the test Mac, so it is not forced. Diagnostics distinguish input buffers, recognizer callbacks, and wake matches without pre-activation transcripts.
+Capture uses the hardware microphone stream. An initial separate capture-only
+VoiceProcessingIO graph failed; the implemented automatic mode instead shares
+capture/playback for an actual echo reference, as described in
+[chapter 20](20-spoken-interruption.md). An independently selected non-default
+input uses protected/manual interruption. Diagnostics distinguish input buffers,
+recognizer callbacks and wake matches without pre-activation transcripts.
 
 An Apple Silicon MacBook physically disconnects its built-in microphone with the lid closed. Permission and a running audio engine do not establish usable input. Open the lid or choose external input; reactivate after device changes. This occurs before transcription/model invocation. Source: [Apple hardware microphone disconnect](https://support.apple.com/en-gb/guide/security/secbbd20b00b/1/web/1).
 
@@ -165,13 +205,27 @@ Before creating an outbound call, a signed challenge on `/telephony/status` prov
 
 Known Call SIDs are checked against the carrier every 30 seconds, when the call list is refreshed (throttled to 15 seconds), and before starting another call. Verified terminal states recover missed status callbacks, preserve the carrier end time, and settle the reservation using rounded actual minutes at the configured rate, or the carrier price when higher. Missing usage retains the full reservation. A lookup failure or an uncertain creation without a SID cannot clear the active-call block; manual reconciliation remains available. Carrier verification uses the SDK's `_from` field and checks the SID, numbers, direction and creation time.
 
-This path recognizes a turn, waits for the agent, and synthesizes an answer over bidirectional audio. It is not native provider speech-to-speech; no unmeasured latency claim. No real line, voicemail, or carrier billing was tested without the phone account.
+The legacy path recognizes a turn, waits for the agent and synthesizes an answer
+over bidirectional audio. Selecting OpenAI Live instead uses the shared native
+voice/model/style through the phone Live bridge; see [chapter 14](14-audio-quality-and-voice.md#the-same-voice-on-phone-calls).
+Neither path claims unmeasured latency or real-line/voicemail/billing acceptance.
 
-Optional inbound calling requires carrier voice/status webhooks. Reserve rounded minutes plus inbound PIN tolerance; daily window is UTC. Preload local STT models before calls; do not download during a call. Audio keys are dedicated, not implicitly copied from LLM keys. STT no longer forces Italian, while fixed service/authentication messages are English.
+Optional inbound calling requires carrier voice/status webhooks. Reserve rounded
+minutes plus inbound PIN tolerance; daily window is UTC. Preload local STT models
+before calls; do not download during a call. Audio keys follow their explicit
+provider policy; phone Live can reuse the eligible official OpenAI desktop/text
+key. STT does not force Italian. Carrier PIN prompts use the configured
+Italian/English response/recognition language.
 
 `scripts/Caddyfile.telephony.example` exposes only phone routes. Managed mode generates the same restricted routes on a free loopback port and supervises Caddy/Cloudflare from the Activate/Deactivate controls, including cleanup after shutdown or parent death. External mode retains the manually supplied proxy. See [managed telephony](26-managed-telephony.md). Never publish the local API, GUI, or token. Sleep/shutdown interrupt availability.
 
 ## Completed verification
+
+The table below preserves the **initial local implementation** evidence. Its
+72-case/31-scenario totals are historical. The November 3 review reran the current
+Python, web, desktop bridge and native suites; see
+[current results](33-current-state-and-verification.md#verification-on-november-3).
+The dated assistant and remote build gates remain in chapters 27 and 32.
 
 | Area | Evidence |
 | --- | --- |
@@ -198,14 +252,19 @@ JUnit: `output/pytest.xml`; screenshots: `output/playwright/`. Scripted-model te
 | --- | --- | --- |
 | PR, CV | Background host, permissions, voice, mute, turns, playback, recovery | Exercise wake/audio/login/sleep with actual devices/consent |
 | IN, TL | Routing/env, Deep Agents, checkpoints, MCP schemas, policy, deduplication | Other providers/personal MCP accounts need credentials; each model needs compatibility tests |
-| RS, CD | Search, web reader, files, diff, commands, sandbox, artifacts | Verify each project toolchain; one task does not certify general model quality |
+| RS, CD | Search, web reader, cited documents/OCR, files/diff/commands, scoped Jira/GitHub PR/CI evidence | Verify each project toolchain/account; partial/stale evidence and OS/executor limits remain |
 | TK, NT | Persistent routines, JSON monitors, misfires, notifications, explicit escalation, pause/cancel | Observe OS/carrier delivery/network separately from local records |
 | ME | Sourced/revisioned recall, outbox/adoption, corrections, scope, opt-out | Real writes require appropriate consent and a safe test source; no existing memories altered |
 | PH | Carrier/media, identity, PIN, DTMF, policy, reservation, reconciliation | Real calls, interruptions, latency, voicemail, tunnel availability remain |
-| PD | Weather, Apple/Google/Microsoft/ICS adapters | Personal calendar/account authorization remains |
+| PD | Weather/calendar analysis, Today/briefings, projects/activities, mail/drafts and Home Assistant MCP | Personal consent, sending permission, physical readback and independently reachable providers remain |
 | UI, CF | Dashboard/menu bar, text/timeline, approval, themes, env/audit, emergency stop | Dedicated VoiceOver, contrast, assistive-technology validation remains |
 
-Integrated encrypted backup, signed updater, mobile app, biometric speaker verification, home automation, universal desktop automation, and server deployment are not claimed implemented. Authorized MCP tools can extend some capabilities. Third-party actions retain service policy/account consent requirements.
+Encrypted age backup/restore, Home Assistant MCP, remote core deployment assets
+and desktop/mobile companion source are implemented. The
+[current matrix](33-current-state-and-verification.md) distinguishes them from
+signing, real-device/account acceptance and actual production deployment.
+A signed updater, biometric speaker verification, universal desktop automation,
+automatic offline failover and server high availability remain outside delivery.
 
 ## Everyday operations
 
@@ -216,6 +275,7 @@ Integrated encrypted backup, signed updater, mobile app, biometric speaker verif
 - For `unknown` effects, check the original system before recording executed/not executed. Check carrier logs before retrying calls.
 - Emergency stop blocks new tasks/tools/audio, cancels pending decisions, and attempts to close known calls. Already-sent operations may need reconciliation.
 - For consistent manual backup, stop the service and copy private data/`.env` to protected storage. Keychain and Second Brain vault are separate; copying Jarvis data does not replace them.
+- For encrypted snapshots and conservative restore, use [the age backup procedure](../deploy/README.md#backup-e-ripristino); separately protect mounted push credentials and external memory data.
 
 This local bundle depends on the project path. Distribution requires embedded runtimes, Developer ID signing, notarization, verified updates, and testing on other Macs. These follow the local implementation.
 

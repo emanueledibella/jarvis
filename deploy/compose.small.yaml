@@ -1,0 +1,27 @@
+# Opt-in budget for a dedicated 1 GiB VM. Use prebuilt amd64/arm64 images.
+# This limits each process; it does not reserve RAM or validate heavy OCR loads.
+services:
+  core:
+    image: ${JARVIS_CORE_IMAGE:?Set a verified prebuilt JARVIS_CORE_IMAGE}
+    mem_limit: 448m
+    memswap_limit: 448m
+    cpus: 0.8
+    pids_limit: 96
+    command: ["/app/.venv/bin/jarvis", "server", "--bind", "0.0.0.0", "--limit-concurrency", "24"]
+    tmpfs: !override ["/tmp:rw,nosuid,nodev,noexec,size=32m"]
+  document-worker:
+    image: ${JARVIS_WORKER_IMAGE:?Set a verified prebuilt JARVIS_WORKER_IMAGE}
+    mem_limit: 192m
+    memswap_limit: 192m
+    cpus: 0.5
+    pids_limit: 32
+    tmpfs: !override ["/tmp:rw,nosuid,nodev,noexec,size=32m"]
+  proxy:
+    image: ${JARVIS_PROXY_IMAGE:?Set a verified prebuilt JARVIS_PROXY_IMAGE}
+    mem_limit: 96m
+    memswap_limit: 96m
+    cpus: 0.3
+    pids_limit: 64
+    environment:
+      GOMEMLIMIT: 56MiB
+      GOMAXPROCS: "1"

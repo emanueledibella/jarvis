@@ -1,0 +1,10 @@
+[Unit]
+Description=Encrypted consistent Jarvis backup
+Requires=jarvis.service
+After=jarvis.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/jarvis-backup
+TimeoutStartSec=300
+UMask=0077

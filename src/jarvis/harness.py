@@ -20,6 +20,7 @@ from .calendar_assistant import CALENDAR_POLICY
 from .harness_context import HarnessRun, excerpt, project_evidence, stopping_reason, tool_rounds
 from .language import language_instructions
 from .memory_retrieval import MEMORY_RETRIEVAL_POLICY, automatic_recall_query
+from .personality import personality_instructions
 from .policy import TaskContext, active_task
 from .retrieval import WEB_FALLBACK_POLICY, query_uses_owner_terms
 from .voice_style import SOURCE_POLICY
@@ -237,6 +238,7 @@ def initial_prompt(route, settings, remote=False):
         + playbooks
         + (WEB_FALLBACK_POLICY if {"web", "weather"} & set(route.groups) else "")
         + (CODING_PLAYBOOK if route.mode == "coding" else RESEARCH_PLAYBOOK if route.mode == "research" else "")
+        + personality_instructions(settings.response_personality)
     )
 
 

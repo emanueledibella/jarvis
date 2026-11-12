@@ -9,6 +9,8 @@
     "build:ui": "node scripts/build-ui.mjs",
     "desktop": "electron .",
     "build:desktop": "npm run build:ui && electron-builder",
+    "build:desktop:dev": "npm run build:ui && node scripts/build-desktop-dev.cjs",
+    "build:desktop:adhoc": "npm run build:ui && node scripts/build-desktop-adhoc.cjs",
     "sync": "npm run build:ui && cap sync",
     "android": "cap open android",
     "ios": "cap open ios",
@@ -22,6 +24,7 @@
   },
   "devDependencies": {
     "@capacitor/cli": "8.6.0",
+    "@electron/osx-sign": "1.3.3",
     "electron": "45.2.1",
     "electron-builder": "26.18.0"
   },
@@ -63,7 +66,8 @@
       "entitlements": "desktop/entitlements.mac.plist",
       "entitlementsInherit": "desktop/entitlements.mac.plist",
       "extendInfo": {
-        "NSMicrophoneUsageDescription": "Jarvis registra le richieste vocali avviate da te."
+        "NSMicrophoneUsageDescription": "Jarvis ascolta il nome di attivazione e le richieste vocali quando abiliti la voce.",
+        "NSSpeechRecognitionUsageDescription": "Jarvis riconosce il nome di attivazione sul dispositivo."
       },
       "icon": "../assets/jarvis-icon.png",
       "minimumSystemVersion": "14.0"

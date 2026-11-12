@@ -19,6 +19,7 @@ jobs:
         with: { persist-credentials: false }
       - run: docker build --target core -f deploy/Dockerfile -t jarvis-remote-core:dev .
       - run: docker build --target document-worker -f deploy/Dockerfile -t jarvis-document-worker:dev .
+      - run: docker build -f deploy/Proxy.Dockerfile -t jarvis-proxy:dev .
       - run: python3 scripts/smoke-remote.py
       - run: JARVIS_PUBLIC_HOST=jarvis.invalid docker compose -f deploy/compose.yaml config --quiet
   desktop:

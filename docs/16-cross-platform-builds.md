@@ -1,5 +1,13 @@
 # Cross-platform builds and portable preview
 
+Scope update, November 3, 2026: this is the **local portable core/dashboard**
+guide. The downloadable October preview and its CI totals below are an older
+baseline, not verification of all later assistant/remote source. Electron
+macOS/Windows companions and Capacitor iOS/Android have a separate
+[build guide](../companions/README.md) and [current evidence](33-current-state-and-verification.md).
+Windows companion CI configuration is not evidence that its build ran locally.
+No packaged Linux Electron companion is provided.
+
 October 25, 2026. The owner extended the original Mac-only scope to Windows/Linux compilation, configuration, and downloadable packages. The native Swift host still supplies macOS-specific capabilities. The portable distribution launches the Python service and opens its authenticated React dashboard in the system browser.
 
 ## Supported surfaces

@@ -26,12 +26,15 @@ export default function RemoteShared({ notify }: { notify: (s: string) => void }
         let raw = ""; for (const byte of bytes) raw += String.fromCharCode(byte);
         content = btoa(raw);
       }
-      const document = await post("/documents", { name: item.name || "shared-source.txt", content,
+      const source = await post("/documents", { name: item.name || "shared-source.txt", content,
         scope: session.scope, private: session.private, privacy_revision: session.revision, session_id: sessionId });
       if (remoteClient.sessionId !== sessionId) throw new Error(tr("Conversation changed. Review the uploaded source before attaching it."));
-      window.dispatchEvent(new CustomEvent("jarvis-shared-source", { detail: { id: document.id } }));
+      const attached = window.dispatchEvent(new CustomEvent("jarvis-shared-source", {
+        cancelable: true,
+        detail: { id: source.id, name: source.name, sessionId, revision: session.revision },
+      }));
       await nativePlugin.removeShared({ id: item.id }); await refresh();
-      notify(tr("Source attached. Write your request in chat; shared content is treated as external evidence."));
+      notify(tr(attached ? "Source attached. Write your request in chat." : "Source uploaded. Choose it from previously uploaded documents in chat."));
     } catch (e: any) { notify(e.message); } finally { setBusy(false); }
   }
   return <aside className="remote-shared" aria-label={tr("Shared sources")}>

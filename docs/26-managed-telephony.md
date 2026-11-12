@@ -1,5 +1,31 @@
 # Managed telephony connection
 
+## Remote core and companion apps
+
+With `jarvis server`, managed telephony runs on the remote core. Mac, iOS and
+Android companions edit the same administrator settings and control activation;
+Twilio credentials remain encrypted on the core. Webhooks and signed media
+streams use `JARVIS_REMOTE_PUBLIC_URL`. No desktop Caddy/cloudflared processes
+are launched by the core, and closing a companion does not stop phone service.
+An enabled, complete managed configuration keeps its stable ingress after a
+core restart. Explicit deactivation still disables callbacks and ends calls.
+
+Activation validates the account, numbers, PIN and audio configuration, probes
+the signed public endpoint, then updates incoming webhooks only when incoming
+calls are enabled. It does not place a call. Missing requirements are shown with
+English/Italian field labels without returning secrets; an unsuccessful public
+probe or webhook update leaves telephony disabled. Incoming calls always need a
+PIN, including when the outbound PIN option is off.
+
+The local native application's managed connection behaves as described below.
+
+## Local native application
+
+The managed Caddy/Cloudflare lifecycle below applies to **local installations**
+with those binaries installed. Stock remote Compose uses its existing HTTPS
+proxy as described above. Companion app voice/push is a separate channel and
+does not place a phone call.
+
 In **Settings → Telephony**, choose **Connection management → Managed by Jarvis**.
 Fill in the carrier, numbers, PIN when required, and audio settings, then click
 **Activate telephony**. Activation saves pending settings and starts a private

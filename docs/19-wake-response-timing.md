@@ -1,5 +1,10 @@
 # Wake response timing
 
+Platform scope, November 3, 2026: this is **local AppKit wake/Live behavior**.
+Electron/Capacitor companions record explicit requests for STT/review/TTS and do
+not use these bundled wake cues, the native recognizer or its PCM pre-roll.
+See [current modes](33-current-state-and-verification.md#deployment-modes).
+
 ## Expected behavior
 
 Saying only “Jarvis” can produce a brief local “Dimmi” or “Yes?” after a short pause. Continuing directly with a question suppresses this invitation. If wake recognition arrives late, the invitation expires instead of interrupting the question. OpenAI answers the substantive request without an additional activation greeting.
@@ -28,6 +33,16 @@ A wake-only pause keeps a rolling queue of at most 480,000 PCM bytes (10 seconds
 The short local cue gates its own audio out of the provider stream. If the user begins during it, recognized request text stops playback and supplies a bounded, incomplete user prefix at Live startup. Backend delegation joins that prefix with the provider transcript, removing overlapping words. Cue-only partial transcripts do not start a cloud session. Private-mode prefix data follows the existing RAM-only task/transcript policy.
 
 The Live prompt delegates activation feedback to the application and excludes delayed wake greetings. Startup text uses the documented user-input history contract; the implementation does not depend on invented response-cancellation or output-boundary events. See the [OpenAI Live conversation guide](https://developers.openai.com/api/docs/guides/live-conversations).
+
+## Listening continuity after activation
+
+The [latest workspace update](34-voice-listening-continuity.md) preserves a local
+request across recognition final events, renewals and recoverable errors, including
+audio captured during the renewal gap. The wait-for-speech timeout now measures
+inactivity rather than a fixed ten-second command limit. OpenAI session duration
+and the bounded startup audio queue retain their own limits. Confirmed local spoken
+interruption starts the replacement Live connection directly without waiting for
+a second Apple transcript. Wake-only cue timing remains independent.
 
 ## Verification and practical limits
 

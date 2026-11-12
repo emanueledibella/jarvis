@@ -79,8 +79,8 @@ async def main():
                     if await locator.count() != 1:
                         raise ValueError("Choose a selector matching exactly one element.")
                     if op == "fill":
-                        if await locator.get_attribute("type") == "password" and not command.get("allow_password"):
-                            raise ValueError("Enter passwords directly in the browser panel.")
+                        if await locator.get_attribute("type") == "password":
+                            raise ValueError("Password fields are unavailable to the agent.")
                         await locator.fill(command.get("text", ""))
                     else:
                         await locator.click()

@@ -286,7 +286,10 @@ async def test_duration_cap_cancels_an_incomplete_delegation_and_reports_its_rea
 
 @pytest.mark.parametrize("voice", ["cedar", "voice_contract_test"])
 async def test_live_delegation_uses_deep_agent_once_and_accounts_audio(runtime, monkeypatch, voice):
-    configure(runtime, desktop_voice_name=voice)
+    configure(
+        runtime, desktop_voice_name=voice,
+        response_personality={"enabled": True, "irony": 65},
+    )
     monkeypatch.setattr(runtime.tasks, "model", model_factory())
     connection, peer = Connection(), Peer()
     await asyncio.wait_for(
@@ -308,6 +311,8 @@ async def test_live_delegation_uses_deep_agent_once_and_accounts_audio(runtime, 
     assert "Do not produce any backchannel interjections" in connection.configuration["instructions"]
     assert "Do not answer or delegate a partial request" in connection.configuration["instructions"]
     assert runtime.config.settings.desktop_voice_style in connection.configuration["instructions"]
+    assert "Irony 65/100" in connection.configuration["instructions"]
+    assert "pacing and emphasis" in connection.configuration["instructions"]
     assert connection.configuration["audio"]["output"]["voice"] == (
         {"id": voice} if voice.startswith("voice_") else voice
     )

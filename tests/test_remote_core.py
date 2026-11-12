@@ -1,5 +1,7 @@
 import asyncio
 import json
+import time
+from types import SimpleNamespace
 from uuid import uuid4
 
 import httpx
@@ -54,6 +56,155 @@ async def test_no_default_or_local_owner_credential(server, config):
         await http.get("/api/tasks", headers={"Authorization": "Bearer " + config.token})
     ).status_code == 401
     assert (await http.get("/health")).json()["service"] == "jarvis-remote"
+
+
+async def test_companion_window_attachment_uses_executor_grant_and_session(server, monkeypatch):
+    from test_agent_policy import model_factory
+
+    app, http = server
+    runtime = app.state.runtime
+    remote = runtime.remote
+    _, headers = await enroll(app, http)
+    _, other_headers = await enroll(app, http)
+    executor, executor_headers = await enroll(app, http, kind="executor")
+    session_id = str(uuid4())
+    headers["X-Jarvis-Session"] = session_id
+    other_headers["X-Jarvis-Session"] = str(uuid4())
+    key = executor["device_id"]
+    caps = {"native": ["calendar.list"], "native_scope": "personal", "locked": False}
+    remote.capabilities[key] = caps
+    remote.capability_seen[key] = time.monotonic()
+    remote.connections[key] = SimpleNamespace()
+    selected = await http.post(
+        "/remote/v1/session/executor", headers=headers, json={"device_id": key}
+    )
+    assert selected.status_code == 200
+    capture_request = {"scope": "personal", "session_id": session_id, "privacy_revision": 1}
+
+    async def status():
+        response = await http.get("/api/status", headers=headers)
+        return response.json()["screen_capture"]
+
+    assert await status() == "executor_required"
+    denied = await http.post("/api/screen/captures", headers=headers, json=capture_request)
+    assert denied.status_code == 403
+    assert "Mac executor" in denied.json()["detail"]
+    caps.update(native=["screen.capture"], locked=True)
+    assert await status() == "locked"
+    caps["locked"] = False
+    assert await status() == "available"
+
+    await remote.store.execute(
+        "UPDATE devices SET capabilities=? WHERE id=?", (json.dumps(caps), key)
+    )
+    delivered = asyncio.Event()
+
+    async def capture(job):
+        assert job["operation"] == "screen.capture" and job["private"]
+        result = await http.post(
+            "/remote/v1/executor-results/" + job["id"],
+            headers=executor_headers,
+            json={
+                "type": "result",
+                "id": job["id"],
+                "argument_hash": job["argument_hash"],
+                "state": "succeeded",
+                "result": {
+                    "image": "fixture-jpeg",
+                    "text": "Synthetic window evidence",
+                    "confidence": 0.9,
+                },
+            },
+        )
+        assert result.status_code == 200, result.text
+        delivered.set()
+
+    worker = remote.connections[key] = SimpleNamespace(send_json=capture)
+    async with asyncio.timeout(3), asyncio.TaskGroup() as group:
+        pending = group.create_task(
+            http.post("/api/screen/captures", headers=headers, json=capture_request)
+        )
+        while not delivered.is_set() and not pending.done():
+            await remote.jobs.deliver(key, worker)
+            await asyncio.sleep(0.01)
+    captured = pending.result()
+    assert captured.status_code == 200, captured.text
+    assert captured.json()["image"] == "fixture-jpeg"
+    job = await remote.store.fetchone(
+        "SELECT arguments,result FROM executor_jobs WHERE operation='screen.capture'"
+    )
+    assert job == {"arguments": "", "result": ""}
+    request = {
+        "text": "What does this say?",
+        "screen_capture_id": captured.json()["id"],
+        "attachment_session": session_id,
+        "privacy_revision": 1,
+    }
+    # Another paired device with the same executor grant cannot attach the capture.
+    selected = await http.post(
+        "/remote/v1/session/executor", headers=other_headers, json={"device_id": key}
+    )
+    assert selected.status_code == 200
+    denied = await http.post(
+        "/api/chat",
+        headers=other_headers,
+        json={**request, "attachment_session": other_headers["X-Jarvis-Session"]},
+    )
+    assert denied.status_code == 403
+    assert not await runtime.db.fetchone("SELECT id FROM tasks")
+
+    evidence = []
+
+    async def inspect_context(ctx, messages):
+        assert ctx.private_sources_read and ctx.untrusted_context
+        evidence.extend(
+            json.loads(message.content)
+            for message in messages
+            if getattr(message, "name", None) == "screen_read"
+        )
+
+    monkeypatch.setattr(runtime.tasks, "recall_personal_context", inspect_context)
+    monkeypatch.setattr(runtime.tasks, "model", model_factory())
+    accepted = await http.post("/api/chat", headers=headers, json=request)
+    assert accepted.status_code == 202, accepted.text
+    task_id = accepted.json()["id"]
+    if job := runtime.tasks.running.get(task_id):
+        await job
+    row = await runtime.db.fetchone(
+        "SELECT state,prompt,error,usage FROM tasks WHERE id=?", (task_id,)
+    )
+    assert row["state"] == "succeeded", row["error"]
+    assert row["prompt"] == request["text"]
+    assert len(evidence) == 1 and evidence[0]["text"] == "Synthetic window evidence"
+    assert "image" not in evidence[0]
+    assert request["screen_capture_id"] not in row["usage"]
+    assert (
+        await runtime.tasks.checkpointer.aget_tuple({"configurable": {"thread_id": task_id}})
+        is None
+    )
+
+    runtime.screen.forget(request["screen_capture_id"])
+    expired = await http.post("/api/chat", headers=headers, json=request)
+    assert expired.status_code == 403
+    assert "expired" in expired.json()["detail"]
+
+
+@pytest.mark.parametrize("content_type", [None, "application/problem+json", "Application/JSON"])
+@pytest.mark.parametrize(
+    "restricted",
+    [{"scope": "work"}, {"profile": "local_connected"}, {"attachment_session": str(uuid4())}],
+)
+async def test_json_authority_checks_do_not_depend_on_content_type(server, content_type, restricted):
+    app, http = server
+    _, headers = await enroll(app, http)
+    if content_type is not None:
+        headers["Content-Type"] = content_type
+    response = await http.post(
+        "/api/chat", headers=headers,
+        content=json.dumps({"text": "Synthetic unauthorized request", **restricted}),
+    )
+    assert response.status_code == 403, response.text
+    assert not await app.state.runtime.db.fetchone("SELECT id FROM tasks")
 
 
 async def test_explicit_device_revocation_cancels_its_accepted_work(server):

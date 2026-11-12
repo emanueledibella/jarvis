@@ -5,12 +5,13 @@ RUN npm ci --no-audit --no-fund
 COPY web/ ./
 RUN npm run build
 
-FROM python:3.12-slim-bookworm AS runtime
+FROM python:3.12.15-slim-trixie AS runtime
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 UV_PYTHON_DOWNLOADS=never \
     JARVIS_DATA_DIR=/data JARVIS_UI_DIR=/app/web/dist JARVIS_PROFILE=cloud \
-    JARVIS_VOICE_ENABLED=false JARVIS_WAKE_ENABLED=false LANGSMITH_TRACING=false
+    LANGSMITH_TRACING=false
 WORKDIR /app
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates age \
+RUN apt-get update && apt-get upgrade -y \
+    && apt-get install -y --no-install-recommends ca-certificates age \
     && rm -rf /var/lib/apt/lists/* \
     && python -m pip install --no-cache-dir uv==0.13.5
 COPY pyproject.toml uv.lock ./

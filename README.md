@@ -2,11 +2,11 @@
 
 <img src="assets/jarvis-icon.png" alt="Jarvis orbital app icon" width="112" align="right" />
 
-A personal assistant with a dashboard, local/cloud models, MCP tools, programming, web research, persistent routines, and Second Brain memory. Native macOS voice is complemented by portable Windows and Linux service/dashboard previews.
+A personal assistant with a dashboard, local/cloud models, MCP tools, programming, web research, persistent routines, and Second Brain memory. Run it locally, or use an always-on remote core from desktop and mobile companion apps.
 
-Built with **React** and a **Python, FastAPI, LangGraph, Deep Agents** service, with **AppKit/WebKit** for the native Mac host. On macOS, close the window and Jarvis keeps running in the menu bar. The computer must remain awake and logged in.
+Built with **React** and a **Python, FastAPI, LangGraph, Deep Agents** service. Local macOS uses **AppKit/WebKit**; remote companions use **Electron** on macOS/Windows and **Capacitor** on iOS/Android. The local Mac service needs an awake, logged-in computer. The remote core continues server-side work while the computer is off; desktop files and Apple capabilities require its connected executor.
 
-The interface supports **English and Italian**: choose **Settings → Interface → Interface language**. It changes immediately and saves automatically. Documentation and code comments remain English. **You can still speak Italian.** With response language set to `auto`, Jarvis follows substantive requests in Italian, English, or another supported language. English tool results do not force an English reply.
+The interface supports **English and Italian**: choose **Settings → Interface → Interface language**. It changes immediately and saves automatically. **You can still speak Italian.** With response language set to `auto`, Jarvis follows substantive requests in Italian, English, or another supported language. English tool results do not force an English reply.
 
 The command center uses a midnight-blue palette, cyan accents, framed panels, and an audio-reactive circular core. Weather, calendar, task activity, Second Brain, and configured models stay connected to real service data. See [interface design and verification](docs/15-command-center-interface.md).
 
@@ -24,6 +24,31 @@ when the computer is off. Model keys stay on the server. Start with the
 Local macOS, Android debug and iOS simulator builds have been verified; Windows
 builds are configured in CI. Device testing, signing, push credentials and a real
 server deployment remain explicit release steps.
+
+The agent uses isolated Chromium and Python for web and data analysis. Its
+temporary files are downloadable from the chat attachment panel. **Apple Health** imports an iPhone
+Health export (XML/ZIP), or explicitly shared HealthKit aggregates from the iOS
+companion, into daily source-separated summaries, with cloud model
+access disabled by default. Install the worker images with
+`./scripts/build-lab.sh`; remote deployments also use the dedicated broker
+in `deploy/compose.lab.yaml`. See [setup, permissions and verification](docs/37-browser-python-apple-health.md).
+
+## Choose a deployment mode
+
+| Mode | Start here | Availability |
+| --- | --- | --- |
+| Local native Mac | [Native macOS app](#native-macos-app) | Native wake/voice, EventKit, Hue Bluetooth and selected windows while the Mac is awake |
+| Local Windows/Linux | [Portable preview/source builds](#build-and-run-on-windows-or-linux) | Local text dashboard while the console service runs |
+| Remote core + companions | [Server deployment](deploy/README.md), then [companion setup/builds](companions/README.md) | Server owns conversations, schedules, models and integrations; optional desktop executor for local work |
+
+The remote core uses external model APIs and its own device credentials. It has
+one database/scheduler authority; companions do not run a second assistant.
+Local standalone and remote modes have separate data and lifecycles, with no
+automatic offline failover or live database synchronization. Linux portable
+support does not include a packaged Linux Electron companion.
+
+See [current capabilities and verification](docs/33-current-state-and-verification.md)
+for platform boundaries and [the changelog](CHANGELOG.md) for recent development.
 
 ## Native macOS app
 
@@ -46,7 +71,7 @@ The bundle is compiled/ad-hoc signed for local use. It references this project a
 
 ## Build and run on Windows or Linux
 
-Download the [portable preview release](https://github.com/emanueledibella/jarvis/releases/tag/v0.1.0-portable-preview.4): [Windows ZIP with EXE](https://github.com/emanueledibella/jarvis/releases/download/v0.1.0-portable-preview.4/Jarvis-Windows-x86_64.zip) · [Linux TAR.GZ](https://github.com/emanueledibella/jarvis/releases/download/v0.1.0-portable-preview.4/Jarvis-Linux-x86_64.tar.gz). SHA256 checksum files are included on the release page.
+The **October portable baseline** is available as a [portable preview release](https://github.com/emanueledibella/jarvis/releases/tag/v0.1.0-portable-preview.4): [Windows ZIP with EXE](https://github.com/emanueledibella/jarvis/releases/download/v0.1.0-portable-preview.4/Jarvis-Windows-x86_64.zip) · [Linux TAR.GZ](https://github.com/emanueledibella/jarvis/releases/download/v0.1.0-portable-preview.4/Jarvis-Linux-x86_64.tar.gz). SHA256 checksum files are included on the release page. These binaries predate the expanded assistant and remote companion work; build current source for those changes. The table below describes current local-mode source capabilities.
 
 The portable preview includes the Python runtime pinned in `.python-version` and the same React dashboard. Extract the **entire** archive, keeping the executable beside `_internal`. Windows starts with `Jarvis.exe`; Linux starts with `./Jarvis`. The launcher opens the local authenticated dashboard. Keep its console open; **Ctrl+C** stops the service. Closing the browser tab keeps tasks running.
 
@@ -115,6 +140,12 @@ Each archive has a sibling `.sha256` checksum and `BUILD-INFO.json` with its sou
 
 ## First use
 
+The steps below configure a **local installation**. For remote use, deploy the
+core, issue an administrator pairing code and configure it from a paired browser
+or companion using the [server guide](deploy/README.md). Companion voice uses
+explicit recording, transcript review and optional STT/TTS; the native wake and
+OpenAI Live instructions below apply to the local Mac app.
+
 Choose **Settings → Interface → Interface language** (or **Impostazioni → Interfaccia → Lingua dell’interfaccia**) to switch the entire dashboard and native Mac menus between English and Italian. The preference survives restarts and syncs open dashboards. It is independent of wake recognition and conversation language. Set `JARVIS_UI_LANGUAGE=en` or `it` only when the environment should control and lock this preference. See the [interface language guide](docs/18-interface-language.md).
 
 1. **Models:** select runtime/model in Settings and run “Test tool calling”. Configure cloud key, model ID, and input/output rates. Hybrid chooses configured cloud or otherwise local at task start, without mid-task fallback.
@@ -128,6 +159,11 @@ Text chat, authorized workspace tools, and reminders work without completing eve
 **Interrupt by speaking:** with OpenAI Live on the Mac, select **Settings → Voice → Microphone during playback → Automatic · interrupt by speaking**. Local echo cancellation protects the microphone while a speech detector stops playback when you speak. Unsupported processing keeps the manual ⌘⇧J fallback. Existing installations retain their saved mode until changed. See the [spoken interruption guide](docs/20-spoken-interruption.md) for conversation continuity and device validation.
 
 **Automatic wake recovery:** if local recognition stops progressing after its own retry, Jarvis automatically rebuilds the idle audio capture instead of requiring a manual microphone click. Recovery uses no AI/audio upload, observes backoff, and rechecks mute, lock, permissions, and active conversations inside the native app before executing. Silence alone does not trigger it. See [wake recovery](docs/23-automatic-wake-recovery.md).
+
+The latest workspace [voice continuity changes](docs/34-voice-listening-continuity.md)
+preserve long local requests across recognition renewals, distinguish waiting for
+speech from the Live session cap, and avoid timeout/restart on quiet replacement
+recognizers. They have separate regression evidence in the current-state guide.
 
 **Choose a microphone:** in **Settings → Voice → Microphone**, refresh the input list and select the built-in mic, a headset, or a USB microphone, then **Save changes**. **Follow macOS default input** follows the system choice. An explicit selection applies only to Jarvis and is remembered across launches; a disconnected microphone pauses listening until the same device returns. See [microphone selection](docs/24-microphone-selection.md).
 
@@ -165,9 +201,18 @@ Precedence: process environment → `.env` → private GUI settings → defaults
 
 Data is separate from source: `~/Library/Application Support/Jarvis` on macOS, `%LOCALAPPDATA%\Jarvis` on Windows, and `$XDG_DATA_HOME/Jarvis` or `~/.local/share/Jarvis` on Linux. It holds private settings, the local token, database, checkpoints, approvals, and memory queue. Private-session content stays in service RAM and cannot be recovered after restart. Ordinary history follows configured retention.
 
+Remote Compose stores core data under `/data` in its private volume. Remote-only
+`JARVIS_REMOTE_*` options come from the process environment; `deploy/.env` supplies
+Compose's domain/push substitutions. The [complete configuration reference](docs/12-configurazione-env.md)
+distinguishes the 99 shared settings, 12 remote options and worker configuration.
+Companion/executor credentials and grants remain on their own devices. For
+encrypted backup and conservative restore, follow [the deployment guide](deploy/README.md#backup-e-ripristino).
+
 ## Tools and control
 
 - Time, weather, calendar, web, memory, workspace, routine tools; HTTP/stdio MCP servers with explicit schemas/permissions.
+- Today/briefings, projects/activities, reviewed mail, event automations, cited documents/OCR, selected-window context, Jira/GitHub and Home Assistant. See [setup and acceptance](docs/29-assistant-setup.md).
+- Remote device tools for explicitly granted desktop workspaces/commands, with core approvals, local grant checks and durable uncertain-outcome handling. Remote cores accept HTTP MCP; server-side stdio is disabled.
 - File read/write with path, symlink, SHA-256 revision checks; reviewable diffs and command timeouts.
 - Action/argument-bound approvals; dashboard reconciliation for uncertain outcomes. Model confirmation text cannot authorize an action.
 - Model-free reminders, agent jobs, JSON monitors that notify actual changes. Policy-driven sleep recovery; expired calls are skipped.
@@ -186,12 +231,14 @@ Data is separate from source: `~/Library/Application Support/Jarvis` on macOS, `
 .venv/bin/jarvis tasks
 ```
 
-Browser-only mode: `.venv/bin/jarvis serve`, then `.venv/bin/jarvis open`. The native host supplies microphone, Apple Calendar, menu bar, login. A lock prevents multiple services owning one data directory.
+Browser-only local mode: `.venv/bin/jarvis serve`, then `.venv/bin/jarvis open`. The native host supplies microphone, Apple Calendar, menu bar, login. A lock prevents multiple services owning one data directory. The local `ask/status/doctor` commands authenticate to loopback; use the paired UI for remote interaction. Remote entry points are `jarvis server`, `jarvis remote-pair`, `jarvis-executor` and `jarvis-backup`; their exact setup is in the [server](deploy/README.md) and [companion](companions/README.md) guides.
 
 ```sh
 .venv/bin/pytest -q
 .venv/bin/ruff check src tests
 npm --prefix web run build
+npm --prefix web test
+npm --prefix companions test
 ./scripts/build-macos.sh
 ./scripts/test-native.sh
 ```
@@ -206,9 +253,17 @@ Read the [security policy](SECURITY.md) and [audit/remediation record](docs/17-s
 
 ## Analysis and verification
 
-The [dossier](docs/README.md) contains GitHub research, 132 requirements, architecture, and decisions. The [implementation design](docs/10-progetto-esecutivo.md) records implemented choices. The [operations/coverage guide](docs/11-implementazione-e-verifica.md) distinguishes automated tests, real experiments, and integrations awaiting authorization. Existing document filenames are retained to preserve links.
+The [documentation index](docs/README.md) links current setup, architecture, feature coverage and historical research. Its original catalog contains 132 requirements; the expanded assistant and remote scope have additional acceptance records. The [implementation design](docs/10-progetto-esecutivo.md) records implemented choices, and the [operations/coverage guide](docs/11-implementazione-e-verifica.md) distinguishes automated tests, real experiments, and integrations awaiting authorization. Existing document filenames are retained to preserve links.
 
-The current regression suite collects **552 Python tests**, with platform-specific skips, plus **181 Swift regression scenarios** on macOS. The October 30 assistant-expansion gate passed 550 Python cases (two skips), all 10 frontend checks, TypeScript/Vite, Python lint and Mac bundle compilation/signing. See the [feature verification record](docs/27-assistant-expansion.md#final-integration-review). Windows/Linux executables were verified for the [earlier portable baseline](docs/16-cross-platform-builds.md#verification-results); those binaries have not been rebuilt and verified for this expansion.
+The November 3 documentation review verified the latest workspace, including the
+voice continuity changes: **631 passing Python tests with 2 skips, 14 web tests,
+2 desktop bridge tests and 191 Swift scenarios**. See [current
+verification](docs/33-current-state-and-verification.md#verification-on-november-3)
+for reproducible commands and the distinct development-package evidence. Windows/Linux
+portable binaries belong to the [earlier baseline](docs/16-cross-platform-builds.md#verification-results).
+Current macOS companion, Android debug and iOS simulator packages have a separate
+development record; Windows companion build execution, signed physical-device
+testing, real push/provider checks and production hosting remain unverified.
 
 Account-specific integration tests should be recorded privately. Public regression tests use synthetic fixtures and never need a personal provider key, calendar, phone number, or memory corpus.
 

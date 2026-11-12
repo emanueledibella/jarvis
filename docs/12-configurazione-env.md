@@ -1,6 +1,10 @@
 # Implemented environment configuration
 
-Based on the `Settings` schema for version 0.1.0, updated October 27, 2026.
+Based on version 0.1.0, reviewed November 3, 2026 against `Settings` in
+[`config.py`](../src/jarvis/config.py) and `ServerOptions` in
+[`remote.py`](../src/jarvis/remote.py). There are **99 shared settings** and
+**12 remote server options**. Feature/account registries and executor grants
+are separate configuration, not additional `Settings` environment fields.
 
 Precedence: process environment → `.env` → private GUI settings → defaults. Source checkouts default to the repository `.env`; portable executables default to `.env` inside their private application data directory. Select another file with `JARVIS_ENV_FILE` or `jarvis --env-file /path/file.env ...`. Environment-provided fields are locked in the GUI. Editing `.env` requires a service restart; closing only the window does not restart the backend.
 
@@ -11,7 +15,7 @@ on other operating systems, so the administrator can enter replacement server ke
 in a companion. It does not export the Mac's Keychain. The standalone mode retains
 the explicit unsupported-platform error.
 
-`api_host` stays loopback. Change `api_port`, `data_dir`, and `ui_dir` before startup through env. `record_audio` and `allow_cloud_fallback` can only be false: hybrid selects a provider at task start, without silently retrying another provider. Interrupting a task does not move its checkpoint to cloud.
+`api_host` stays loopback in local mode. Change `api_port`, `data_dir`, and `ui_dir` before startup through env. The remote listener uses `jarvis server --bind ... --port ...` instead; it does not relax the local validator. `record_audio` and `allow_cloud_fallback` can only be false: hybrid selects a provider at task start, without silently retrying another provider. Interrupting a task does not move its checkpoint to cloud.
 
 `telephony_tunnel_mode` selects `external` (the compatible default) or `managed`.
 Managed mode provides Activate/Deactivate controls for supervised Caddy and
@@ -40,6 +44,7 @@ When `JARVIS_DESKTOP_VOICE_PROVIDER=openai_live`, phone conversation audio reuse
 | `JARVIS_LANGUAGE` | string | `it-IT` | On-device wake/Apple recognition locale |
 | `JARVIS_UI_LANGUAGE` | en / it | `en` | Dashboard, interface messages and native Mac menus; independent of speech |
 | `JARVIS_RESPONSE_LANGUAGE` | string | `auto` | auto or a BCP 47 language tag; independent of recognition locale |
+| `JARVIS_RESPONSE_PERSONALITY` | JSON object | `{"enabled":false,"humor":20,"irony":10,"professionalism":70,"warmth":60,"conciseness":70}` | Optional shared chat and Live voice profile. Scores are integers from 0 to 100. Edit in Settings → Personality. |
 | `JARVIS_PROFILE` | local_strict, local_connected, cloud, hybrid | `local_connected` |  |
 | `JARVIS_CLOUD_PROVIDER` | openai, anthropic, openai_compatible | `openai` |  |
 | `JARVIS_CLOUD_MODEL` | string | `` |  |
@@ -60,6 +65,8 @@ When `JARVIS_DESKTOP_VOICE_PROVIDER=openai_live`, phone conversation audio reuse
 | `JARVIS_TASK_TIMEOUT_SECONDS` | integer | `1800` | minimum: 30, maximum: 14400 |
 | `JARVIS_TOOL_TIMEOUT_SECONDS` | integer | `30` | minimum: 1, maximum: 600 |
 | `JARVIS_WORKSPACE_ROOTS` | array | Source: `["<project>"]`; portable executable: `[]` | Grant folders explicitly; env accepts a JSON array, e.g. `["C:/Projects/example"]` on Windows |
+| `JARVIS_PYTHON_SANDBOX_ENABLED` | boolean | `true` | Disposable Docker Python worker; requires installed worker images/broker |
+| `JARVIS_BROWSER_ENABLED` | boolean | `true` | Isolated interactive browser; requires installed worker image/broker |
 | `JARVIS_COMMAND_EXECUTION` | disabled, approval, sandbox | `approval` |  |
 | `JARVIS_COMMAND_TIMEOUT_SECONDS` | integer | `120` | minimum: 1, maximum: 600 |
 | `JARVIS_MCP_CONFIG_PATH` | string | `` |  |
@@ -70,6 +77,7 @@ When `JARVIS_DESKTOP_VOICE_PROVIDER=openai_live`, phone conversation audio reuse
 | `JARVIS_MEMORY_CAPTURE` | explicit_only, explicit_facts, off | `explicit_only` |  |
 | `JARVIS_MEMORY_RECALL_TOKEN_BUDGET` | integer | `2000` | minimum: 256, maximum: 10000 |
 | `JARVIS_VOICE_ENABLED` | boolean | `true` |  |
+| `JARVIS_MICROPHONE_DEVICE_UID` | string | empty | maxLength: 512; no control characters; empty follows the macOS default; selected UID is private local metadata |
 | `JARVIS_DESKTOP_VOICE_PROVIDER` | apple, openai_live | `apple` |  |
 | `JARVIS_DESKTOP_VOICE_MODEL` | string | `gpt-live-1` |  |
 | `JARVIS_DESKTOP_VOICE_NAME` | string | `cedar` | Built-in name or saved voice_… ID |
@@ -82,8 +90,8 @@ When `JARVIS_DESKTOP_VOICE_PROVIDER=openai_live`, phone conversation audio reuse
 | `JARVIS_WAKE_ENABLED` | boolean | `true` |  |
 | `JARVIS_WAKE_PHRASE` | string | `Jarvis` | minLength: 2, maxLength: 40 |
 | `JARVIS_FOLLOWUP_SECONDS` | integer | `8` | minimum: 0, maximum: 60 |
-| `JARVIS_LISTEN_TIMEOUT_SECONDS` | integer | `10` | minimum: 2, maximum: 120 |
-| `JARVIS_END_OF_TURN_MS` | integer | `900` | minimum: 300, maximum: 4000 |
+| `JARVIS_LISTEN_TIMEOUT_SECONDS` | integer | `10` | minimum: 2, maximum: 120; latest workspace: inactivity while waiting for speech, not a maximum request length; see chapter 34 |
+| `JARVIS_END_OF_TURN_MS` | integer | `900` | minimum: 300, maximum: 4000; quiet period for local request completion and latest Live delegation |
 | `JARVIS_TTS_VOICE` | string | `` |  |
 | `JARVIS_VOICE_ON_LOCK_SCREEN` | boolean | `false` |  |
 | `JARVIS_LIGHTING_ENABLED` | boolean | `true` | Enables owner-configured lighting adapters; discovery and registration remain explicit. See chapter 21. |
@@ -108,6 +116,7 @@ When `JARVIS_DESKTOP_VOICE_PROVIDER=openai_live`, phone conversation audio reuse
 | `JARVIS_MODEL_INPUT_USD_PER_MILLION` | number | `0.0` | minimum: 0 |
 | `JARVIS_MODEL_OUTPUT_USD_PER_MILLION` | number | `0.0` | minimum: 0 |
 | `JARVIS_TELEPHONY_ENABLED` | boolean | `false` |  |
+| `JARVIS_TELEPHONY_TUNNEL_MODE` | external, managed | `external` | Managed Caddy/Cloudflare lifecycle applies to local installations; stock remote Compose uses external ingress |
 | `JARVIS_TELEPHONY_PUBLIC_BASE_URL` | string | `` |  |
 | `JARVIS_TELEPHONY_ACCOUNT_ID` | string | `` |  |
 | `JARVIS_TELEPHONY_AUTH_TOKEN` | string | `secret, empty` |  |
@@ -128,3 +137,81 @@ When `JARVIS_DESKTOP_VOICE_PROVIDER=openai_live`, phone conversation audio reuse
 | `JARVIS_PHONE_LOCAL_TTS_VOICE` | string | `` |  |
 | `JARVIS_PHONE_LOCAL_STT_MODEL` | string | `small` |  |
 | `JARVIS_UI_DIR` | string | Source: `<project>/web/dist`; portable executable: bundled `web/dist` | Startup-only override; normally leave unset |
+
+## Remote server options
+
+`ServerOptions` reads these values from the **process environment**. It does not
+automatically parse the main `.env` selected by `--env-file` / `JARVIS_ENV_FILE`.
+`deploy/.env` instead supplies Compose substitutions; `compose.yaml` translates
+them to the container environment. See [deployment](../deploy/README.md).
+
+| Variable | Type / values | Default | Constraints / purpose |
+| --- | --- | --- | --- |
+| `JARVIS_REMOTE_PUBLIC_URL` | string | required | Single HTTPS origin, no path, user info, query or fragment; binds Host checks and public callbacks |
+| `JARVIS_REMOTE_ALLOWED_ORIGINS` | JSON string array | `["capacitor://localhost","https://localhost","jarvis://app"]` | Exact companion origins; the configured public origin is also accepted |
+| `JARVIS_REMOTE_DEVELOPMENT_HTTP` | boolean | `false` | Explicit loopback-only HTTP development; client must also be a development build |
+| `JARVIS_REMOTE_TRANSCRIPTION_USD_PER_MINUTE` | number | `0.006` | Greater than 0, at most 10; owner-declared STT budget rate |
+| `JARVIS_REMOTE_TTS_USD_PER_MILLION_CHARACTERS` | number | `15` | Greater than 0, at most 1000; owner-declared TTS budget rate |
+| `JARVIS_REMOTE_APNS_TEAM_ID` | string | empty | Apple team identifier, server-side push configuration |
+| `JARVIS_REMOTE_APNS_KEY_ID` | string | empty | APNs key identifier |
+| `JARVIS_REMOTE_APNS_PRIVATE_KEY` | string | empty | Path to the server-readable `.p8` file, not inline key contents |
+| `JARVIS_REMOTE_APNS_TOPIC` | string | `it.jarvis.companion` | Match the installed iOS bundle ID |
+| `JARVIS_REMOTE_APNS_SANDBOX` | boolean | `false` | Match the development/production push entitlement |
+| `JARVIS_REMOTE_FCM_SERVICE_ACCOUNT` | string | empty | Path to the server-readable Firebase service-account JSON |
+| `JARVIS_REMOTE_DOCUMENT_WORKER_SOCKET` | string | empty | Unix parser-broker socket; required for remote document extraction; Compose sets `/run/jarvis-worker/parser.sock` |
+
+The parser service reads `JARVIS_DOCUMENT_WORKER_SOCKET` (without `REMOTE_`),
+defaulting to `/run/jarvis-worker/parser.sock`. Core and worker must share that
+socket directory; only the core mounts its private data and push secrets.
+
+### Compose names and forced remote settings
+
+`deploy/.env.example` uses `JARVIS_PUBLIC_HOST` plus `JARVIS_APNS_TEAM_ID`,
+`JARVIS_APNS_KEY_ID`, `JARVIS_APNS_PRIVATE_KEY`, `JARVIS_APNS_TOPIC`,
+`JARVIS_APNS_SANDBOX` and `JARVIS_FCM_SERVICE_ACCOUNT`. These are Compose inputs,
+not aliases accepted directly by `ServerOptions`. Their credential paths refer
+to files inside the container, normally `/run/secrets/...`. Extra remote options
+need explicit Compose environment entries; merely adding an unused variable to
+`deploy/.env` does not inject it into the container.
+
+The remote runtime forces `profile=cloud`, `workspace_roots=[]`,
+`command_execution=disabled`. Voice/wake preferences now configure companion
+devices; the core never captures microphone audio. They are no longer forced
+off by the runtime or the container image. Explicit environment values still
+lock the corresponding controls.
+Compose additionally fixes `max_parallel_tasks=1`. Local desktop operations go
+through a paired executor; HTTP MCP is supported and server-side stdio is denied.
+The companion cannot turn the remote core into an unrestricted host shell or
+select a desktop local model as an inference backend.
+
+Remote administrator settings cover cloud provider/model/endpoint/key, declared
+prices/budget, supported limits, language/time zone/weather, cloud calendars,
+search, Second Brain, companion wake/Live voice and Twilio configuration (carrier
+credentials, verified numbers, PIN, inbound calls and limits). Saving requires
+the current `ETag` in `If-Match`; HTTP 409 requires a reload. Host paths/listener,
+push credentials and non-allowlisted settings require
+server administration. Environment-controlled fields remain locked.
+
+Manual companion recording STT/TTS uses `JARVIS_PHONE_STT_MODEL`, `JARVIS_PHONE_TTS_MODEL` and
+`JARVIS_PHONE_TTS_VOICE`. It uses a
+dedicated `JARVIS_DESKTOP_VOICE_API_KEY` or the official OpenAI text key when
+eligible. Its STT/TTS rates are the remote options above. Hands-free companion
+Live instead uses `JARVIS_DESKTOP_VOICE_*`, including saved `voice_…` IDs, style,
+duration, idle timeout and the existing Live budget reservation. Wake recognition
+stays on each device. Microphone permission/selection and local listening opt-in
+are device preferences, not server environment variables. See
+[companion voice parity](35-companion-native-parity.md).
+
+## Feature and device configuration
+
+Today preferences, projects/activities, mail accounts/drafts, automation rules,
+documents, development targets, Home Assistant grants and the light registry are
+managed through their dedicated pages. Do not invent `JARVIS_MAIL_*`,
+`JARVIS_GITHUB_*` or similar env settings for these registries.
+Account credentials and OAuth state stay private; remote secret stores are encrypted.
+Persistent feature edits are blocked in private sessions.
+
+Desktop executors store local grants in their own `executor.json`, keep device
+credentials in the OS vault and journal effects separately. CLI JSON enrollment
+supports up to 32 workspaces; the companion GUI configures one. These are not core
+`JARVIS_WORKSPACE_ROOTS` settings. See [companion enrollment](../companions/README.md).

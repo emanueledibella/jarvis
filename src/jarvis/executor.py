@@ -242,7 +242,70 @@ class DesktopExecutor:
             min(600, max(1, int(job["expires"] - time.time()))),
         )
 
+    def _win32_window_operation(self, operation: str, arguments: dict) -> dict:
+        if operation == "window.list":
+            import ctypes
+            from ctypes import wintypes
+
+            user32 = ctypes.windll.user32
+            windows = []
+
+            def enum_proc(hwnd, _lparam):
+                if user32.IsWindowVisible(hwnd):
+                    length = user32.GetWindowTextLengthW(hwnd)
+                    if length > 0:
+                        buffer = ctypes.create_unicode_buffer(length + 1)
+                        user32.GetWindowTextW(hwnd, buffer, length + 1)
+                        title = buffer.value
+                        rect = wintypes.RECT()
+                        user32.GetWindowRect(hwnd, ctypes.byref(rect))
+                        windows.append({
+                            "id": hwnd,
+                            "app": title,
+                            "title": title,
+                            "bounds": {
+                                "x": rect.left,
+                                "y": rect.top,
+                                "width": rect.right - rect.left,
+                                "height": rect.bottom - rect.top,
+                            },
+                            "active": hwnd == user32.GetForegroundWindow(),
+                        })
+                return True
+
+            enum_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+            user32.EnumWindows(enum_type(enum_proc), 0)
+            return {"frontmost": "", "apps": [], "windows": windows, "count": len(windows)}
+
+        if operation == "window.action":
+            action = str(arguments.get("action", "focus")).lower()
+            url = arguments.get("url", "")
+            if action == "open_url" and url:
+                import webbrowser
+
+                webbrowser.open(url)
+                return {"action": "open_url", "url": url, "success": True}
+            import ctypes
+
+            user32 = ctypes.windll.user32
+            app = arguments.get("app", "")
+            hwnd = arguments.get("window_id")
+            if not hwnd and app:
+                hwnd = user32.FindWindowW(None, app)
+            if hwnd:
+                if action in {"focus", "activate"}:
+                    user32.SetForegroundWindow(hwnd)
+                    return {"action": "focus", "window_id": hwnd, "success": True}
+                if action in {"close", "terminate"}:
+                    user32.PostMessageW(hwnd, 0x0010, 0, 0)
+                    return {"action": "close", "window_id": hwnd, "success": True}
+            return {"action": action, "success": False, "message": "Target window not found."}
+        raise ValueError(f"Unsupported Win32 operation: {operation}")
+
     async def native_call(self, operation, arguments=None, expires=None):
+        if sys.platform == "win32" and operation in {"window.list", "window.action"}:
+            return await asyncio.to_thread(self._win32_window_operation, operation, arguments or {})
+
         import hashlib
 
         helper = self.config.get("native_helper", "")
@@ -558,13 +621,18 @@ async def configure(directory, data):
 
         helper = data.get("native_helper", "")
         if sys.platform != "darwin" or not helper:
-            raise PermissionError("Native calendar and window capabilities require macOS.")
+            if not (sys.platform == "win32" and set(native) <= {"window.list", "window.action"}):
+                raise PermissionError("Native calendar and window capabilities require macOS.")
         native_config = {
             "native": native,
             "native_scope": data.get("native_scope", "personal"),
             "native_helper": helper,
-            "native_helper_hash": await asyncio.to_thread(
-                lambda: hashlib.sha256(Path(helper).read_bytes()).hexdigest()
+            "native_helper_hash": (
+                await asyncio.to_thread(
+                    lambda: hashlib.sha256(Path(helper).read_bytes()).hexdigest()
+                )
+                if helper and Path(helper).is_file()
+                else ""
             ),
         }
         setup = DesktopExecutor(

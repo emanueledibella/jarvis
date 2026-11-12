@@ -166,6 +166,30 @@ test("telephony can be cancelled while starting and stopped even with locked con
   assert.ok(!error.includes("fixture.trycloudflare.com"));
 });
 
+test("remote telephony explains core ownership and shows escaped requirements without local tunnel instructions", async () => {
+  const { TelephonyTunnelPanel } = await vite.ssrLoadModule("/src/TelephonyConnection.tsx");
+  locale.setInterfaceLanguage("it");
+  const html = renderToStaticMarkup(React.createElement(TelephonyTunnelPanel, {
+    status: {
+      state: "stopped", hosting: "remote",
+      dependencies: { caddy: false, cloudflared: false },
+      requirements: ["SID account Twilio", "<synthetic requirement>"],
+    },
+    locked: false, action: "", onStart() {}, onStop() {},
+  }));
+  assert.ok(html.includes("La telefonia resta attiva anche chiudendo questa app."));
+  assert.ok(html.includes("Completa queste impostazioni telefoniche prima dell’attivazione:"));
+  assert.ok(html.includes("SID account Twilio"));
+  assert.ok(html.includes("&lt;synthetic requirement&gt;") && !html.includes("<synthetic requirement>"));
+  assert.ok(!html.includes("cloudflared") && !html.includes("Chiudendo Jarvis"));
+  const { ErrorMessage } = await vite.ssrLoadModule("/src/components.tsx");
+  const validation = renderToStaticMarkup(React.createElement(ErrorMessage, {
+    message: "Invalid fields: SID account Twilio, PIN personale di 6–8 cifre.",
+  }));
+  assert.ok(validation.includes("Campi non validi: SID account Twilio"));
+  assert.ok(!validation.includes("Dettagli tecnici"));
+});
+
 test("actual dashboard, settings tabs, tasks, routines and memory render in both languages", async () => {
   const { default: App } = await vite.ssrLoadModule("/src/App.tsx");
   const { default: Settings } = await vite.ssrLoadModule("/src/Settings.tsx");
@@ -225,7 +249,10 @@ test("actual dashboard, settings tabs, tasks, routines and memory render in both
   assert.ok(render(Routines, props).includes("Routine e promemoria"));
   assert.ok(render(Memory, props).includes("La tua memoria"));
   assert.ok(render(Integrations, props).includes("Connessioni"));
-  assert.ok(render(Orb, { state: "armed" }).includes("Sono qui."));
+  assert.match(
+    render(Orb, { state: "armed" }),
+    /role="status">In attesa della parola di attivazione<\/span>/,
+  );
   assert.ok(
     render(Badge, { state: "waiting_user" }).includes("Serve una decisione"),
   );
@@ -261,7 +288,36 @@ test("actual dashboard, settings tabs, tasks, routines and memory render in both
   locale.setInterfaceLanguage("en");
   assert.ok(render(App).includes("Your command center"));
   assert.ok(render(Settings, props).includes("Interface language"));
-  assert.ok(render(Orb, { state: "armed" }).includes("I am here."));
+  assert.match(
+    render(Orb, { state: "armed" }),
+    /role="status">Waiting for the wake phrase<\/span>/,
+  );
+});
+
+test("voice phases have distinct cues at silence and a screen reader status", async () => {
+  const { Orb } = await vite.ssrLoadModule("/src/components.tsx");
+  locale.setInterfaceLanguage("en");
+  for (const [state, tone, icon, label] of [
+    ["armed", "wake", "radar", "Waiting for the wake phrase"],
+    ["listening", "listening", "mic", "Listening"],
+    ["followup", "listening", "mic", "Listening"],
+    ["speaking", "speaking", "volume-2", "Jarvis is speaking"],
+    ["processing", "working", "hourglass", "Working on your request"],
+    ["muted", "idle", "mic-off", "Microphone off"],
+    ["unrecognized", "idle", "mic-off", "Voice unavailable"],
+  ]) {
+    const html = renderToStaticMarkup(
+      React.createElement(Orb, { state, level: 0 }),
+    );
+    assert.ok(html.includes(`data-voice-tone="${tone}"`), state);
+    assert.ok(html.includes(`lucide-${icon} orb-icon`), state);
+    assert.ok(html.includes(`title="${label}"`), state);
+    assert.ok(
+      html.includes(`class="orb-status" role="status">${label}</span>`),
+      state,
+    );
+    assert.doesNotMatch(html, /class="orb-state"|<h2>|<p>/);
+  }
 });
 
 test("selection changes immediately, persists only ui_language, and rolls back on failure", async () => {

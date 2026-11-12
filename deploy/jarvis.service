@@ -1,0 +1,16 @@
+[Unit]
+Description=Jarvis personal remote core
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/jarvis-compose up -d --no-build --pull never --wait --wait-timeout 180
+ExecStop=/usr/local/sbin/jarvis-compose stop --timeout 60
+TimeoutStartSec=240
+TimeoutStopSec=90
+
+[Install]
+WantedBy=multi-user.target

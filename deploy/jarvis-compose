@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Root-owned entry point; deployment settings never come from the caller's cwd.
+set -euo pipefail
+exec /usr/bin/docker compose --project-name jarvis \
+    --env-file /etc/jarvis/deploy.env \
+    -f /opt/jarvis/current/compose.yaml \
+    -f /opt/jarvis/current/compose.small.yaml "$@"

@@ -33,7 +33,7 @@ export async function syncInterfaceLanguage() {
   }
 }
 
-export async function saveInterfaceLanguage(selected: InterfaceLanguage) {
+export async function saveInterfaceLanguage(selected: InterfaceLanguage, settingsRevision?: string) {
   if (!isInterfaceLanguage(selected))
     throw new Error("Unsupported interface language.");
   const previous = getInterfaceLanguage();
@@ -41,7 +41,9 @@ export async function saveInterfaceLanguage(selected: InterfaceLanguage) {
   saving += 1;
   setInterfaceLanguage(selected);
   try {
-    const result = await patch("/settings", { ui_language: selected });
+    const result = settingsRevision === undefined ? await patch("/settings", { ui_language: selected }) : await api("/settings", {
+      method: "PATCH", body: JSON.stringify({ ui_language: selected }), headers: { "If-Match": '"' + settingsRevision + '"' },
+    });
     if (!isInterfaceLanguage(result.values.ui_language))
       throw new Error("Unsupported interface language.");
     if (started === revision) setInterfaceLanguage(result.values.ui_language);

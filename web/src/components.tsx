@@ -6,11 +6,15 @@ import {
   Check,
   ChevronRight,
   Circle,
+  Hourglass,
   LoaderCircle,
   LockKeyhole,
+  MessageSquare,
   Mic,
   MicOff,
+  Radar,
   Radio,
+  Volume2,
   X,
 } from "lucide-react";
 import Markdown from "react-markdown";
@@ -257,63 +261,66 @@ export function ErrorMessage({ message }: { message: string }) {
     </>
   );
 }
+const listeningPhase = { tone: "listening", Icon: Mic, label: "Listening" };
+const voicePhases: Record<
+  string,
+  { tone: string; Icon: typeof Mic; label: string }
+> = {
+  armed: { tone: "wake", Icon: Radar, label: "Waiting for the wake phrase" },
+  listening: listeningPhase,
+  followup: listeningPhase,
+  speaking: { tone: "speaking", Icon: Volume2, label: "Jarvis is speaking" },
+  processing: {
+    tone: "working",
+    Icon: Hourglass,
+    label: "Working on your request",
+  },
+  connecting: { tone: "working", Icon: Hourglass, label: "Connecting…" },
+  recovering: { tone: "working", Icon: Hourglass, label: "Restoring listening." },
+  muted: { tone: "idle", Icon: MicOff, label: "Microphone off" },
+  locked: { tone: "idle", Icon: LockKeyhole, label: "Session protected." },
+  permission_required: {
+    tone: "idle",
+    Icon: AlertCircle,
+    label: "Permissions required",
+  },
+  unavailable: { tone: "idle", Icon: MicOff, label: "Voice unavailable" },
+  text_ready: { tone: "idle", Icon: MessageSquare, label: "Text mode" },
+};
+
+export function voicePhase(state: string) {
+  return Object.hasOwn(voicePhases, state)
+    ? voicePhases[state]
+    : voicePhases.unavailable;
+}
+
 export function Orb({
   state = "unavailable",
   level = 0,
-  small = false,
-  interruptible = false,
 }: {
   state?: string;
   level?: number;
-  small?: boolean;
-  interruptible?: boolean;
 }) {
   useI18n();
-  const descriptions: Record<string, [string, string]> = {
-    text_ready: ["Ready to help.", "Write a request to begin."],
-    armed: ["I am here.", "Say “Jarvis” to begin."],
-    listening: [
-      "I am listening.",
-      "Voice input is active; your configured provider processes the conversation.",
-    ],
-    processing: ["Working on it.", "Follow the steps in Tasks."],
-    speaking: [
-      "An answer, with context.",
-      interruptible
-        ? "You can interrupt while I speak."
-        : "Press ⌘⇧J to stop playback and speak.",
-    ],
-    followup: ["Go ahead.", "Continue without repeating “Jarvis”."],
-    muted: ["Ready when you are.", "The microphone is muted."],
-    recovering: [
-      "Restoring listening.",
-      "Local recognition will resume in a few seconds.",
-    ],
-    connecting: ["Just a moment.", "Preparing the voice conversation."],
-    unavailable: ["Ready for the first step.", "Set up voice or type below."],
-    permission_required: [
-      "Voice is waiting for you.",
-      "Grant permissions in the Voice section.",
-    ],
-    locked: ["Session protected.", "Listening resumes after unlock."],
-  };
-  const [title, detail] = descriptions[state] || descriptions.unavailable;
+  const { tone, Icon, label } = voicePhase(state);
+  const status = tr(label);
   const safeLevel = Math.max(
     0,
     Math.min(1, Number.isFinite(level) ? level : 0),
   );
   return (
-    <div className={"orb-block " + (small ? "orb-small" : "")}>
+    <div className="orb-block">
       <div
-        className={"orb orb-" + state}
+        className="orb"
+        data-voice-tone={tone}
         style={
           {
             "--level": safeLevel,
             "--pulse": 1 + safeLevel * 0.14,
           } as React.CSSProperties
         }
-        role="img"
-        aria-label={tr("Jarvis: ") + tr(title)}
+        aria-hidden="true"
+        title={status}
       >
         <div className="orb-haze" />
         <svg
@@ -346,9 +353,8 @@ export function Orb({
         <div className="orb-ring ring-b" />
         <div className="orb-ring ring-c" />
         <div className="orb-core">
-          <span className="reactor-name">{tr("JARVIS")}</span>
-          <small>{tr("VOICE LINK")}</small>
-          <div className="spectrum" aria-hidden="true">
+          <Icon className="orb-icon" size={24} strokeWidth={1.6} />
+          <div className="spectrum">
             {Array.from({ length: 13 }, (_, i) => (
               <i
                 key={i}
@@ -362,21 +368,9 @@ export function Orb({
         <span className="orb-cross cross-top" />
         <span className="orb-cross cross-bottom" />
       </div>
-      <div className="orb-state">
-        <span className="eyebrow">
-          {state === "armed"
-            ? tr("LOCAL VOICE READY")
-            : state === "speaking"
-              ? tr("VOICE OUTPUT")
-              : state === "listening"
-                ? tr("VOICE INPUT")
-                : state === "processing"
-                  ? tr("WORKING")
-                  : tr("PERSONAL INTELLIGENCE")}
-        </span>
-        <h2>{tr(title)}</h2>
-        <p>{tr(detail)}</p>
-      </div>
+      <span className="orb-status" role="status">
+        {status}
+      </span>
     </div>
   );
 }

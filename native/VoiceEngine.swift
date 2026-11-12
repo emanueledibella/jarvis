@@ -13,6 +13,7 @@ final class VoiceEngine: NSObject {
   private var recovery = RecognitionRecovery()
   private var recognitionLiveness = RecognitionLiveness()
   private var recognitionRecoveries = 0
+  private var recognitionAudioSeconds: Double = 0
   private var inputRouteWatch = AudioInputRouteWatch()
   private var lastInputRouteCheck = Date.distantPast
   private var inputDeviceMissing = false
@@ -63,13 +64,14 @@ final class VoiceEngine: NSObject {
   private var muted = true
   private var locked = false
   private var settings: [String: Any] = [:]
-  private var command = ""
+  private var listeningTurn = ListeningTurn()
+  private var command: String { listeningTurn.text }
   private var lastTranscript = ""
   private var prefix = ""
   private var lastTextAt = Date.distantPast
   private var lastSoundAt = Date.distantPast
-  private var turnStartedAt = Date.distantPast
   private var recognitionStartedAt = Date.distantPast
+  private var recognitionResumeFrame: Int64?
   private var followupUntil = Date.distantPast
   private var lastLevelAt = Date.distantPast
   private var spokenText = ""
@@ -78,6 +80,9 @@ final class VoiceEngine: NSObject {
   private var finalBufferSeen = false
   private var conversationID: String?
   private var activeTaskID: String?
+  private var taskAwaitingApproval = false
+  private var speakingProgress = false
+  private var deferredTaskAnswer: String?
   private var privateSession = false
   private var turnPrivate = false
   private var turnScope = "personal"
@@ -274,6 +279,9 @@ final class VoiceEngine: NSObject {
       conversationID = nil
       sessionGeneration = UUID()
       stopSpeaking()
+      listeningTurn.begin()
+      prefix = ""
+      if state == "listening" { setState(muted ? "muted" : "armed") }
       liveAudio.clear()
       recognitionSeed = nil
       if !muted && !locked { resetRecognition() }
@@ -448,6 +456,7 @@ final class VoiceEngine: NSObject {
         if recognitionAccepted {
           self.recognitionLiveness.receivedAudio(at: ProcessInfo.processInfo.systemUptime,
             seconds: audioSeconds, level: Double(level))
+          if level >= 0.1 { self.recognitionAudioSeconds += audioSeconds }
         }
         if level > 0.1 { self.lastSoundAt = Date() }
         if level > 0.035 {
@@ -464,7 +473,10 @@ final class VoiceEngine: NSObject {
     cancelOpeningTurn()
     stopSpeechDetection()
     cancelRecognition()
+    listeningTurn.begin()
+    prefix = ""
     recognitionSeed = nil
+    recognitionResumeFrame = nil
     let shared = capture === output
     if let engine = capture {
       engine.stop()
@@ -498,6 +510,12 @@ final class VoiceEngine: NSObject {
   }
 
   private func scheduleRecognition(after delay: TimeInterval) {
+    if state == "listening" {
+      listeningTurn.renewRecognition()
+    }
+    // Replaying just the capture gap preserves words spoken during a task
+    // renewal without duplicating the transcript already kept above.
+    recognitionResumeFrame = liveAudio.position()
     cancelRecognition()
     guard
       liveSocket == nil && enabled && !muted && capture?.isRunning == true
@@ -526,6 +544,10 @@ final class VoiceEngine: NSObject {
       return
     }
     self.recognizer = recognizer
+    if recognitionSeed == nil, let frame = recognitionResumeFrame {
+      recognitionSeed = liveAudio.snapshot(afterFrame: frame)
+    }
+    recognitionResumeFrame = nil
     recognitionStartedAt = Date()
     guard recognizer.isAvailable else {
       handleRecognitionError(NSError(domain: "JarvisSpeechAvailability", code: 1))
@@ -566,9 +588,8 @@ final class VoiceEngine: NSObject {
           self.receive(result.bestTranscription.formattedString, transcription: result.bestTranscription)
           guard self.recognitionID == requestID else { return }
           if result.isFinal {
-            if self.state == "listening" && !self.command.isEmpty {
-              self.finishTurn(restartRecognition: false)
-            }
+            // This finalizes Apple's recognition task, not the user's turn.
+            // Only the activity-based pause below may submit the request.
             self.resetRecognition()
             return
           }
@@ -576,6 +597,7 @@ final class VoiceEngine: NSObject {
         if let error = error, !self.muted { self.handleRecognitionError(error as NSError) }
       }
     }
+    logger.info("Local recognition renewed: state=\(self.state, privacy: .public)")
   }
   private var recognitionID = UUID()
 
@@ -595,13 +617,13 @@ final class VoiceEngine: NSObject {
     wakeReply.cancel()
     stopWakeReply()
     logger.error(
-      "Speech ended: domain=\(error.domain, privacy: .public) code=\(error.code, privacy: .public)")
+      "Speech ended: domain=\(error.domain, privacy: .public) code=\(error.code, privacy: .public) state=\(self.state, privacy: .public)")
     let decision = recovery.handle(
       error, sessionDuration: Date().timeIntervalSince(recognitionStartedAt))
     switch decision {
     case .retry(let delay):
-      if !["processing", "speaking"].contains(state) {
-        command = ""
+      if !["listening", "processing", "speaking"].contains(state) {
+        listeningTurn.begin()
         prefix = ""
         setState("recovering")
       }
@@ -675,17 +697,17 @@ final class VoiceEngine: NSObject {
         prefix = String(text[..<range.upperBound])
       }
       if !prefix.isEmpty && text.hasPrefix(prefix) {
-        command = String(text.dropFirst(prefix.count)).trimmingCharacters(
-          in: .punctuationCharacters.union(.whitespacesAndNewlines))
+        listeningTurn.update(String(text.dropFirst(prefix.count)).trimmingCharacters(
+          in: .punctuationCharacters.union(.whitespacesAndNewlines)))
       } else if prefix.isEmpty {
-        command = text
+        listeningTurn.update(text)
       }
       lastTextAt = Date()
       if liveInputPrepared && !command.isEmpty {
         if wakeReplyPlayed && WakeAcknowledgement.isCueOnlyOrPrefix(command) {
           // Recognizer delivery can lag playback. A cue or its partial spelling
           // is never a user request, even when the transcript arrives later.
-          command = ""
+          listeningTurn.begin()
           return
         }
         wakeReply.heardRequest()
@@ -697,14 +719,16 @@ final class VoiceEngine: NSObject {
 
   private func beginTurn(_ text: String, wakeEndFrame: Int64? = nil, acknowledge: Bool = false,
                          audioSeed: Data? = nil) {
+    activeTaskID = nil
+    taskAwaitingApproval = false
     turnPrivate = privateSession
     turnScope = voiceScope
     turnProfile = settings["profile"] as? String ?? "local_connected"
     turnGeneration = sessionGeneration
     turnConversationID = conversationID
-    command = text
-    turnStartedAt = Date()
+    listeningTurn.begin(text)
     lastTextAt = Date()
+    lastSoundAt = Date()
     if usesOpenAIVoice {
       stopWakeReply()
       wakeReplyPlayed = false
@@ -720,7 +744,6 @@ final class VoiceEngine: NSObject {
       if !text.isEmpty { startLive() }
       return
     }
-    lastSoundAt = Date()
     setState("listening")
   }
 
@@ -818,9 +841,9 @@ final class VoiceEngine: NSObject {
     stopSpeaking(handoff: true)
     beginTurn("", audioSeed: seed.data)
     nextResumeID = resume
-    cancelRecognition()
-    recognitionSeed = seed
-    startRecognition()
+    // The local classifier already confirmed user speech. Do not wait for a
+    // second Apple transcription; that delay can overflow the startup queue.
+    startLive()
   }
 
   private func startLive(speech: String? = nil, initialText: String = "") {
@@ -859,7 +882,7 @@ final class VoiceEngine: NSObject {
     if !initialText.isEmpty { metadata["initial_text"] = initialText }
     if let resume = nextResumeID { metadata["resume_id"] = resume }
     nextResumeID = nil
-    command = ""
+    listeningTurn.begin()
     prefix = ""
     if let id = conversationID { metadata["conversation_id"] = id }
     liveReader = Task { [weak self] in
@@ -902,12 +925,12 @@ final class VoiceEngine: NSObject {
           case "task":
             if session == self.sessionGeneration {
               self.conversationID = event["conversation_id"] as? String ?? self.conversationID
-              self.activeTaskID = event["id"] as? String
             }
           case "error":
             self.closeLive(error: event["message"] as? String ?? "OpenAI voice is unavailable.")
             return
           case "closed":
+            self.logger.info("Live session closed: reason=\(event["reason"] as? String ?? "unspecified", privacy: .public)")
             self.closeLive(drain: true)
             return
           default: break
@@ -979,7 +1002,7 @@ final class VoiceEngine: NSObject {
     guard let socket = liveSocket else {
       stopSpeechDetection()
       if opening {
-        command = ""
+        listeningTurn.begin()
         prefix = ""
         setState(muted ? "muted" : "armed")
         if !muted && !locked { resetRecognition() }
@@ -1025,15 +1048,15 @@ final class VoiceEngine: NSObject {
     outputLevel = 0
     if let error = error {
       setState("unavailable", error: error)
-    } else {
+    } else if !handoff {
       setState(muted ? "muted" : "armed")
     }
-    if !muted && !locked { resetRecognition() }
+    if !handoff && !muted && !locked { resetRecognition() }
   }
 
-  private func finishTurn(restartRecognition: Bool = true) {
+  private func finishTurn() {
     let text = command.trimmingCharacters(in: .whitespacesAndNewlines)
-    command = ""
+    listeningTurn.begin()
     prefix = ""
     guard !text.isEmpty else {
       cancelOpeningTurn()
@@ -1046,28 +1069,36 @@ final class VoiceEngine: NSObject {
     let scope = turnScope
     let generation = turnGeneration
     let profile = turnProfile
+    // The request UUID is also the task ID; a progress event may beat the POST reply.
+    let requestID = UUID().uuidString.lowercased()
+    activeTaskID = requestID
     Task {
       do {
         var body: [String: Any] = [
           "text": text, "channel": "voice", "private": privacy, "scope": scope, "profile": profile,
-          "request_id": UUID().uuidString,
+          "request_id": requestID,
         ]
         if let conversation = conversation { body["conversation_id"] = conversation }
         let response: [String: Any]
         do { response = try await client.request("/api/chat", method: "POST", body: body) } catch {
           response = try await client.request("/api/chat", method: "POST", body: body)
         }
-        activeTaskID = response["id"] as? String
+        if response["id"] == nil && activeTaskID == requestID {
+          activeTaskID = nil
+          setState("armed")
+        }
         if generation == sessionGeneration && privacy == privateSession {
           conversationID = response["conversation_id"] as? String ?? conversationID
         }
       } catch {
+        guard activeTaskID == requestID else { return }
+        activeTaskID = nil
         setState(
           "armed",
           error: "Delivery is unconfirmed: check the task before repeating the request.")
       }
     }
-    if restartRecognition { resetRecognition() }
+    resetRecognition()
   }
 
   private func tick() {
@@ -1107,9 +1138,13 @@ final class VoiceEngine: NSObject {
         && wakeReply.take(at: current.timeIntervalSinceReferenceDate, lastSoundAt: wakeReplyLastSoundAt.timeIntervalSinceReferenceDate) {
         playWakeReply()
       }
-      if current.timeIntervalSince(turnStartedAt) > Double(settings["listen_timeout_seconds"] as? Int ?? 10) {
+      if recognitionRestart == nil && listeningTurn.finished(
+        at: current.timeIntervalSinceReferenceDate,
+        lastActivityAt: max(lastTextAt, lastSoundAt).timeIntervalSinceReferenceDate,
+        endOfTurn: Double(settings["end_of_turn_ms"] as? Int ?? 900) / 1000,
+        waitForSpeech: Double(settings["listen_timeout_seconds"] as? Int ?? 10)) {
         cancelOpeningTurn()
-        command = ""
+        listeningTurn.begin()
         prefix = ""
         setState("armed")
         resetRecognition()
@@ -1133,14 +1168,13 @@ final class VoiceEngine: NSObject {
           bargeIn.reset()
         }
       }
-    } else if state == "listening" {
+    } else if state == "listening" && recognitionRestart == nil {
       let silence = max(lastTextAt, lastSoundAt)
       let threshold = Double(settings["end_of_turn_ms"] as? Int ?? 900) / 1000
-      if !command.isEmpty && current.timeIntervalSince(silence) > threshold {
-        finishTurn()
-      } else if current.timeIntervalSince(turnStartedAt)
-        > Double(settings["listen_timeout_seconds"] as? Int ?? 30)
-      {
+      if listeningTurn.finished(at: current.timeIntervalSinceReferenceDate,
+        lastActivityAt: silence.timeIntervalSinceReferenceDate,
+        endOfTurn: threshold,
+        waitForSpeech: Double(settings["listen_timeout_seconds"] as? Int ?? 10)) {
         finishTurn()
       }
     } else if state == "followup" && current > followupUntil {
@@ -1175,7 +1209,26 @@ final class VoiceEngine: NSObject {
       }
       return
     }
-    stopSpeaking()
+    speakLocally(text)
+  }
+
+  func speakForTask(_ id: String, text: String, progress: Bool = false) {
+    guard id == activeTaskID, !muted, settings["voice_enabled"] as? Bool != false,
+      !locked || settings["voice_on_lock_screen"] as? Bool == true
+    else { return }
+    if progress {
+      guard state == "processing", !usesOpenAIVoice else { return }
+      speakLocally(text, progress: true)
+    } else {
+      activeTaskID = nil
+      if speakingProgress { deferredTaskAnswer = text }
+      else { speak(text) }
+    }
+  }
+
+  private func speakLocally(_ text: String, progress: Bool = false) {
+    stopSpeaking(preserveTask: true)
+    speakingProgress = progress
     spokenText = text
     pendingBuffers = 0
     finalBufferSeen = false
@@ -1208,9 +1261,15 @@ final class VoiceEngine: NSObject {
           }
           try self.enqueuePlayback(self.playbackConverter.convert(pcm), realtime: false)
         } catch {
-          self.stopSpeaking()
+          let answer = self.deferredTaskAnswer
+          self.stopSpeaking(preserveTask: progress)
+          if let answer {
+            self.speak(answer)
+            return
+          }
           self.setState(
-            self.muted ? "muted" : "armed", error: "Audio playback is unavailable.")
+            self.muted ? "muted" : (self.activeTaskID == nil ? "armed" : "processing"),
+            error: "Audio playback is unavailable.")
         }
       }
     }
@@ -1267,6 +1326,18 @@ final class VoiceEngine: NSObject {
   private func finishPlaybackIfNeeded() {
     guard finalBufferSeen && pendingBuffers == 0 else { return }
     outputLevel = 0
+    if speakingProgress {
+      speakingProgress = false
+      finalBufferSeen = false
+      if let answer = deferredTaskAnswer {
+        deferredTaskAnswer = nil
+        speak(answer)
+      } else {
+        setState(muted ? "muted" : (activeTaskID == nil || taskAwaitingApproval ? "armed" : "processing"))
+        if !muted { resetRecognition() }
+      }
+      return
+    }
     if endingLive {
       endingLive = false
       nextResumeID = nil
@@ -1285,7 +1356,13 @@ final class VoiceEngine: NSObject {
     }
   }
 
-  func stopSpeaking(handoff: Bool = false) {
+  func stopSpeaking(handoff: Bool = false, preserveTask: Bool = false) {
+    if !preserveTask {
+      activeTaskID = nil
+      taskAwaitingApproval = false
+    }
+    speakingProgress = false
+    deferredTaskAnswer = nil
     closeLive(handoff: handoff)
     playbackInputGated = false
     endingLive = false
@@ -1297,7 +1374,7 @@ final class VoiceEngine: NSObject {
     resetPlayback()
     finalBufferSeen = false
     outputLevel = 0
-    if state == "speaking" { setState(muted ? "muted" : "armed") }
+    if !handoff && state == "speaking" { setState(muted ? "muted" : "armed") }
   }
 
   private func setState(_ value: String, error: String? = nil) {
@@ -1319,6 +1396,7 @@ final class VoiceEngine: NSObject {
       "recognition_callbacks": recognitionCallbacks, "wake_matches": wakeMatches,
       "recognition_task": recognitionTaskState.rawValue,
       "recognition_recoveries": recognitionRecoveries,
+      "recognition_audio_seconds": recognitionAudioSeconds,
       "wake_recovery_supported": true,
       "audio_input_selection_supported": true,
       "input_device_state": inputDeviceMissing ? "missing" : ((settings["microphone_device_uid"] as? String ?? "").isEmpty ? "system_default" : "selected"),
@@ -1343,10 +1421,16 @@ final class VoiceEngine: NSObject {
   }
 
   func taskChanged(_ id: String, state: String) {
-    guard liveSocket == nil else { return }
-    if id == activeTaskID && ["failed", "cancelled", "waiting_user"].contains(state) {
+    guard liveSocket == nil, id == activeTaskID else { return }
+    if state == "waiting_user" {
+      taskAwaitingApproval = true
+      if !muted && !speakingProgress { setState("armed") }
+    } else if state == "running" {
+      if taskAwaitingApproval && !muted && !speakingProgress { setState("processing") }
+      taskAwaitingApproval = false
+    } else if ["failed", "cancelled", "paused"].contains(state) {
       activeTaskID = nil
-      if !muted { setState("armed") }
+      if !muted && !speakingProgress { setState("armed") }
     }
   }
 }

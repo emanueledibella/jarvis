@@ -126,7 +126,10 @@ def install_provider(monkeypatch, connection, captured):
 @pytest.mark.parametrize("voice", ["cedar", "voice_saved_desktop_test"])
 @pytest.mark.parametrize("pin_enabled", [True, False])
 async def test_phone_inherits_desktop_voice_key_language_and_delegates(runtime, monkeypatch, voice, pin_enabled):
-    configure(runtime, desktop_voice_name=voice, phone_pin_enabled=pin_enabled)
+    configure(
+        runtime, desktop_voice_name=voice, phone_pin_enabled=pin_enabled,
+        response_personality={"enabled": True, "warmth": 83},
+    )
     await call_row(runtime)
     monkeypatch.setattr(runtime.tasks, "model", model_factory())
     socket = PhoneSocket(runtime)
@@ -146,6 +149,7 @@ async def test_phone_inherits_desktop_voice_key_language_and_delegates(runtime, 
         "output": {"voice": {"id": voice} if voice.startswith("voice_") else voice},
     }
     assert runtime.config.settings.desktop_voice_style in session["instructions"]
+    assert "Warmth 83/100" in session["instructions"]
     assert language_instructions("auto", "it-IT") in session["instructions"]
     assert session["store"] is False and session["delegation"] == {"type": "client"}
     opening = session["input"][0]["content"][0]["text"]

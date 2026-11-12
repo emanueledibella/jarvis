@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Keep the decryption identity off this host. Only the public age recipient is read.
+set -euo pipefail
+umask 077
+[[ $(id -u) == 0 ]] || { echo 'Run as root.' >&2; exit 1; }
+exec 9>/run/lock/jarvis-backup.lock
+flock -n 9 || { echo 'Another backup is running.' >&2; exit 1; }
+recipient=$(</etc/jarvis/backup-recipient.txt)
+[[ "$recipient" =~ ^age1[0-9a-z]+$ ]] || { echo 'Invalid age recipient.' >&2; exit 1; }
+backup_dir=/var/backups/jarvis/encrypted
+install -d -m 0700 -o 10001 -g 10001 "$backup_dir"
+filename="jarvis-$(date -u +%Y%m%dT%H%M%SZ).tar.gz.age"
+resume_core() {
+    /usr/local/sbin/jarvis-compose start core
+}
+trap resume_core EXIT
+/usr/local/sbin/jarvis-compose stop --timeout 60 core
+/usr/local/sbin/jarvis-compose run --rm --no-deps -T \
+    -v "$backup_dir:/backups" --entrypoint /app/.venv/bin/jarvis-backup core \
+    backup --data-dir /data --output "/backups/$filename" --recipient "$recipient"
+# Retention applies only after a successful new encrypted backup.
+find "$backup_dir" -maxdepth 1 -type f -name 'jarvis-*.tar.gz.age' -mtime +14 -delete
+printf 'Encrypted backup: %s/%s\n' "$backup_dir" "$filename"

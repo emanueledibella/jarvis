@@ -52,6 +52,19 @@ try:request('/api/tasks');raise AssertionError('Anonymous core access')
 except urllib.error.HTTPError as error:assert error.code==401
 paired=request('/remote/v1/pair',{'code':asyncio.run(code()),'name':'Synthetic deployment QA','platform':'android'})
 token=paired['access_token']
+settings=request('/api/settings',token=token)
+for flag in ('voice_enabled','wake_enabled'):
+    assert settings['values'][flag] is True, 'Companion voice must not be forced off by the core image: '+flag
+    assert flag not in settings['locked'], 'Companion voice must remain configurable: '+flag
+phone=request('/api/telephony/status',token=token)
+assert phone['hosting']=='remote' and phone['dependencies'] is None,phone
+assert phone['requirements'] and not phone['ready'],phone
+try:request('/api/telephony/start',{},token);raise AssertionError('Unconfigured telephony was activated')
+except urllib.error.HTTPError as error:
+    assert error.code==400
+    detail=json.load(error)['detail']
+    assert 'Twilio account SID' in detail and 'telephony_account_id' not in detail,detail
+assert request('/api/settings',token=token)['values']['telephony_enabled'] is False
 session=request('/api/voice/session',token=token)
 source=request('/api/documents',{'name':'fixture.txt','content':base64.b64encode(b'chosen synthetic source').decode(),'scope':'personal','privacy_revision':session['revision'],'session_id':session['client_session_id']},token)
 assert source['isolation']=='isolated_container_worker',source
@@ -62,7 +75,7 @@ assert not Path('/var/run/docker.sock').exists()
 request('/remote/v1/devices/'+paired['device_id']+'/revoke',{},token)
 try:request('/api/tasks',token=token);raise AssertionError('Revoked device accepted')
 except urllib.error.HTTPError as error:assert error.code==401
-print('Core authentication, isolated parsing, non-root execution and revocation passed.')
+print('Core authentication, companion voice settings, remote telephony preflight, isolated parsing, non-root execution and revocation passed.')
 '''
         print(docker("exec", core, "/app/.venv/bin/python", "-c", program))
         info = json.loads(docker("inspect", worker))[0]

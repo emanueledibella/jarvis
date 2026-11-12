@@ -118,8 +118,8 @@ type Props = {
   schedules: Json[];
   approvals: Json[];
   connection: string;
-  orbState: string;
-  audio: { input: number; output: number };
+  voiceState: string;
+  voiceLevel: number;
   composer: React.ReactNode;
   onPage: (page: Destination) => void;
   onSettings: (section: string) => void;
@@ -136,8 +136,8 @@ export default function CommandCenter({
   schedules,
   approvals,
   connection,
-  orbState,
-  audio,
+  voiceState,
+  voiceLevel,
   composer,
   onPage,
   onSettings,
@@ -159,7 +159,9 @@ export default function CommandCenter({
       count + (server.tools || []).filter((tool: Json) => tool.enabled).length,
     0,
   );
-  const upcoming = (dashboard.calendar?.events || [])
+  const calendar = dashboard.calendar || {};
+  const calendarNeedsAuthorization = calendar.state === "reauthorization_required";
+  const upcoming = (calendar.events || [])
     .filter(
       (event: Json) =>
         !event.start ||
@@ -168,12 +170,11 @@ export default function CommandCenter({
     .slice(0, 2);
   const weather = dashboard.weather || {};
   const online = connection === "connected" && !status.emergency_stop;
-  const voiceReady = remoteCore ? online :
-    status.native?.connected &&
-    !status.native?.muted &&
-    ["armed", "listening", "speaking", "followup"].includes(orbState);
-  const level =
-    orbState === "speaking" ? audio.output : voiceReady ? audio.input : 0;
+  const orbState = portableText
+    ? activeTasks.some((t) => t.state === "running")
+      ? "processing"
+      : "text_ready"
+    : voiceState;
 
   return (
     <div className="command-center">
@@ -200,79 +201,45 @@ export default function CommandCenter({
       <div className="command-grid">
         <section
           className="hud-panel core-panel"
-          aria-label={tr("Jarvis voice core")}
+          aria-labelledby="core-heading"
         >
           <header className="hud-heading">
-            <span>
+            <span id="core-heading">
               <AudioLines size={14} />{" "}
               {portableText ? tr("ASSISTANT CORE") : tr("VOICE & PRESENCE")}
             </span>
-            <span className="panel-index">{tr("01 / CORE")}</span>
-          </header>
-          <div className="core-body">
-            <div className="core-copy">
-              <span className="core-kicker">
-                <span className={"tiny-dot " + (!voiceReady ? "off" : "")} />
-                {portableText
-                  ? tr("TEXT CONVERSATION")
-                  : voiceReady
-                    ? tr("A VOICE WITHIN REACH")
-                    : tr("READY TO CONNECT")}
-              </span>
-              <h2>
-                {tr("A little more")}
-                <br />
-                {tr(" possible")}
-                <span>.</span>
-              </h2>
-              <p>
-                {tr("Your ideas, the right context,")}
-                <br className="desktop-break" />
-                {tr(" and a way forward.")}
-              </p>
-              <button
-                className="btn primary talk-button"
-                onClick={portableText ? onNewChat : onListen}
-              >
-                {portableText ? <MessageSquare size={15} /> : <Mic size={15} />}{" "}
-                {portableText
-                  ? tr("Start a conversation")
-                  : tr("Talk to Jarvis")}{" "}
-                {!portableText && <span>{tr("⌘ ⇧ J")}</span>}
-              </button>
-              <button className="text-btn core-chat" onClick={onNewChat}>
-                {tr("Or start with a message ")}
-                <ArrowUpRight size={13} />
-              </button>
-            </div>
-            <div className="core-visual">
-              <Orb
-                state={
-                  portableText
-                    ? activeTasks.some((t) => t.state === "running")
-                      ? "processing"
-                      : "text_ready"
-                    : orbState
-                }
-                level={level}
-                interruptible={Boolean(status.native?.barge_in)}
-              />
-            </div>
-          </div>
-          <div className="core-footnote">
-            <span>
-              <ShieldCheck size={12} />{" "}
-              {status.native?.on_device
-                ? tr("Wake detection on your Mac")
-                : tr("Voice settings under your control")}
-            </span>
-            <VoiceSignal level={level} />
             <button
+              className="text-btn core-settings"
               onClick={() => onSettings(portableText ? "models" : "voice")}
             >
-              {portableText ? tr("Model settings") : tr("Voice settings")}{" "}
-              <ChevronRight size={11} />
+              {portableText ? tr("Model settings") : tr("Voice settings")}
+              <ChevronRight size={12} />
             </button>
+          </header>
+          <div className="core-body">
+            <Orb state={orbState} level={voiceLevel} />
+            <div className="core-actions">
+              {!portableText && (
+                <button className="btn primary talk-button" onClick={onListen}>
+                  <Mic size={16} />
+                  {tr("Talk to Jarvis")}
+                  <kbd aria-hidden="true">{tr("⌘ ⇧ J")}</kbd>
+                </button>
+              )}
+              <button
+                className={portableText ? "btn primary" : "btn ghost"}
+                onClick={onNewChat}
+              >
+                <MessageSquare size={16} />
+                {tr("Write to Jarvis")}
+              </button>
+              {!portableText && status.native?.on_device && (
+                <p className="core-note">
+                  <ShieldCheck size={12} />
+                  {tr("Wake detection on your Mac")}
+                </p>
+              )}
+            </div>
           </div>
         </section>
 
@@ -360,26 +327,26 @@ export default function CommandCenter({
                   <div>
                     <h3>{event.title}</h3>
                     <small>
-                      {event.calendar || dashboard.calendar.provider}
+                      {event.calendar || calendar.provider}
                     </small>
                   </div>
                 </div>
               ))
             ) : (
-              <div className="agenda-empty">
+              <div className="agenda-empty" role={calendarNeedsAuthorization ? "status" : undefined}>
                 <span className="timeline-marker" />
                 <div>
                   <h3>
-                    {dashboard.calendar?.state === "ready"
-                      ? tr("A little room to breathe.")
-                      : tr("Bring your calendar along.")}
+                    {calendarNeedsAuthorization
+                      ? tr("Calendar authorization required")
+                      : calendar.state === "ready"
+                        ? tr("A little room to breathe.")
+                        : tr("Bring your calendar along.")}
                   </h3>
                   <p>
-                    {dashboard.calendar?.state === "ready"
+                    {calendar.state === "ready"
                       ? tr("No upcoming events in this view.")
-                      : (dashboard.calendar?.message &&
-                          tr(dashboard.calendar.message)) ||
-                        tr("Your next events, in one place.")}
+                      : tr(calendar.message || "Your next events, in one place.")}
                   </p>
                 </div>
               </div>
@@ -388,7 +355,7 @@ export default function CommandCenter({
               className="text-btn"
               onClick={() => onSettings("productivity")}
             >
-              {dashboard.calendar?.state === "ready"
+              {calendar.state === "ready" || calendarNeedsAuthorization
                 ? tr("Calendar settings")
                 : tr("Connect calendar")}{" "}
               <ArrowRight size={12} />

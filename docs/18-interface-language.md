@@ -1,5 +1,13 @@
 # Interface language
 
+November 3 scope update: the shared catalog now covers expanded assistant and
+companion screens. In remote mode `ui_language` is a core setting and changing it
+requires administrator authority/current settings revision; it is not another
+device's microphone or private-scope switch. Electron's native tray text is not
+covered by the AppKit menu catalog. The totals near the end are the dated portable
+release baseline; current regression evidence is in
+[chapter 33](33-current-state-and-verification.md#verification-on-november-3).
+
 Open **Settings → Interface → Interface language** and choose **English** or **Italian**. In Italian the path is **Impostazioni → Interfaccia → Lingua dell’interfaccia**. The selection applies immediately and saves automatically; the main Save changes button is not required for this preference.
 
 English remains the default for existing installations. The service stores `ui_language` in private settings. Reopening the app restores it, and settings events synchronize other open dashboards. A local browser preference prevents an unnecessary English flash while the authenticated service loads. If saving fails, the UI restores the previous language. Changing this field preserves other unsaved form edits.
@@ -29,4 +37,4 @@ Application-owned strings use English source keys and the shared Italian catalog
 
 Frontend tests cover real rendered pages in both languages, catalog completeness, status labels, numeric formatting, interpolation, immediate save, persistence and rollback. Backend tests cover validation, environment precedence, native synchronization and unchanged voice/cache settings. Native tests cover the shared catalog and English/Italian menu selection. These checks use synthetic data without paid model or carrier calls.
 
-The [native CI matrix](https://github.com/emanueledibella/jarvis/actions/runs/40289020296) and [security gate](https://github.com/emanueledibella/jarvis/actions/runs/40289020314) passed for the released source. There are 119 collected Python tests (platform-specific skips), eight frontend tests and 40 Swift scenarios. Real-browser checks confirmed instant switching in both directions, persistence after reopening, unchanged unsaved model fields and the Italian layout. The [portable preview](https://github.com/emanueledibella/jarvis/releases/tag/v0.1.0-portable-preview.4) includes the same interface on Windows and Linux.
+The [native CI matrix](https://github.com/emanueledibella/jarvis/actions/runs/40289020296) and [security gate](https://github.com/emanueledibella/jarvis/actions/runs/40289020314) passed for the released source. That release baseline collected 119 Python tests (platform-specific skips), eight frontend tests and 40 Swift scenarios. Real-browser checks confirmed instant switching in both directions, persistence after reopening, unchanged unsaved model fields and the Italian layout. The [portable preview](https://github.com/emanueledibella/jarvis/releases/tag/v0.1.0-portable-preview.4) includes the same interface on Windows and Linux.

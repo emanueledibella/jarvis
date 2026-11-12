@@ -1,5 +1,12 @@
 # Default Second Brain retrieval
 
+Remote scope, November 3, 2026: the same retrieval/write policy runs on the
+remote core for paired clients. Credentials and canonical endpoint belong to
+that core; Second Brain needs independent availability while the Mac is off.
+Personal/Work and private source evidence are resolved from the current client
+session. A mobile scope change does not modify another client's context.
+See [remote setup](../deploy/README.md#oauth-e-servizi-di-casa).
+
 Second Brain is Jarvis's default persistent source for personal and work context. Recent
 conversation remains available, and explicit statements or corrections from the current
 user take precedence over older stored evidence. No personal memory corpus is included in

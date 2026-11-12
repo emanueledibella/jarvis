@@ -32,7 +32,7 @@ struct LiveAudioBufferTests {
     do {
       _ = try buffer.drain()
       fatalError("A stalled connection must not create an unbounded recording")
-    } catch ServiceClient.ClientError.server {}
+    } catch is LiveAudioBuffer.Overflow {}
     buffer.clear()
     let afterClear = try buffer.drain()
     expect(afterClear.isEmpty, "Mute and session changes discard pending audio")
@@ -76,6 +76,27 @@ struct LiveAudioBufferTests {
     expect(commandAudio.count == Int(commandFrames) * 2,
       "Trim the wake word at its audio timestamp while preserving the complete command onset; activation is idempotent")
 
+    let companion = LiveAudioBuffer(preRollBytes: 384000)
+    for _ in 0..<200 { companion.append(audio) }
+    let companionWakeEnd = companion.position()
+    for _ in 0..<300 { companion.append(audio) }
+    expect(!companion.begin(afterFrame: companion.position(), requireWholeRange: true),
+      "A wake boundary with no subsequent audio cannot open a Live request")
+    expect(companion.begin(afterFrame: companionWakeEnd, requireWholeRange: true),
+      "The whole companion command is retained until after the end of the turn")
+    var retained = Data()
+    while true {
+      let part = try companion.drain(maxBytes: 24000)
+      if part.isEmpty { break }
+      retained.append(part)
+    }
+    expect(retained.count == Int(companion.position() - companionWakeEnd) * 2,
+      "The companion uplink excludes everything before the wake boundary")
+    companion.clear()
+    for _ in 0..<1000 { companion.append(audio) }
+    expect(!companion.begin(afterFrame: companionWakeEnd, requireWholeRange: true),
+      "An expired onset must use the complete local transcript instead of a clipped stream")
+
     buffer.clear()
     buffer.begin(deferred: true)
     for _ in 0..<1500 { buffer.append(audio) }
@@ -93,7 +114,7 @@ struct LiveAudioBufferTests {
     do {
       _ = try buffer.drain()
       fatalError("Once delivery starts, a stalled provider must still fail closed")
-    } catch ServiceClient.ClientError.server {}
+    } catch is LiveAudioBuffer.Overflow {}
 
     buffer.clear()
     let future = buffer.position() + 24000

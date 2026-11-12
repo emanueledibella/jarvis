@@ -1,5 +1,12 @@
 # Calendar specialist
 
+Remote scope, November 3, 2026: this shared analysis also runs on the core for
+companion requests. Google/Microsoft/ICS depend on server connectivity; Apple
+EventKit requires a selected, connected macOS executor with the relevant grant.
+A sleeping Mac cannot supply its calendar merely because the core is online.
+Today/briefings and event automations now use this analysis through separate
+features; the specialist prompt alone does not create monitoring or notifications.
+
 Calendar operations use a dedicated system-prompt section, `CALENDAR_POLICY`, in [calendar_assistant.py](../src/jarvis/calendar_assistant.py). It is installed in the shared Deep Agent, so text, native voice and phone tasks receive the same procedure, including follow-up questions. It uses the configured reasoning model and existing calendar tools and permission gateway.
 
 The complete executable prompt lives in that module. In Italian, its operating brief is:

@@ -6,6 +6,7 @@ import {
   syncInterfaceLanguage,
 } from "./i18n";
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { randomId } from "./randomId";
 import {
   ArrowRight,
   ArrowUp,
@@ -23,6 +24,7 @@ import {
   Mic,
   MicOff,
   OctagonX,
+  Paperclip,
   Plus,
   Send,
   Settings2,
@@ -41,6 +43,7 @@ import {
   Text,
   formatDate,
   profileLabels,
+  voicePhase,
 } from "./components";
 import { Tasks, Routines } from "./Activity";
 import { Memory, Integrations } from "./Memory";
@@ -51,13 +54,15 @@ import Today from "./Today";
 import Organizer from "./Organizer";
 import Mail from "./Mail";
 import Automations from "./Automations";
-import Documents from "./Documents";
-import Screen from "./Screen";
+import ChatAttachments, { MAX_DOCUMENT_ATTACHMENTS, type DocumentAttachment } from "./ChatAttachments";
+import { deleteScreenCapture, type ScreenAttachment } from "./ScreenAttachment";
 import Development from "./Development";
 import HomeAssistant from "./HomeAssistant";
+import AppleHealth, { type HealthAttachment } from "./AppleHealth";
+import { iosHealth } from "./appleHealthNative";
 import "./assistant.css";
 import { remoteClient } from "./remoteClient";
-import { RemoteModelSettings } from "./Remote";
+import { companionVoice, useCompanionVoice } from "./companionVoice";
 
 type Page =
   | "home"
@@ -65,10 +70,9 @@ type Page =
   | "organizer"
   | "mail"
   | "automations"
-  | "documents"
-  | "screen"
   | "development"
   | "homeAssistant"
+  | "appleHealth"
   | "chat"
   | "tasks"
   | "routines"
@@ -78,15 +82,22 @@ type Page =
 
 export default function App() {
   useI18n();
-  const [attachments, setAttachments] = useState<string[]>([]);
+  const [attachments, setAttachments] = useState<DocumentAttachment[]>([]);
+  const [healthAttachment, setHealthAttachment] = useState<HealthAttachment | null>(null);
+  const [screenAttachment, setScreenAttachment] = useState<ScreenAttachment | null>(null);
+  const [showAttachments, setShowAttachments] = useState(false);
   const [mobileMenu, setMobileMenu] = useState(false);
   const [, setSessionRevision] = useState(-1);
-  const attachmentSession = useRef(crypto.randomUUID());
+  const attachmentSession = useRef(randomId());
+  const attachmentDraft = useRef(0);
+  const attachmentsRef = useRef(attachments);
+  attachmentsRef.current = attachments;
+  const showAppleHealth = iosHealth.supported();
   const [authenticated, setAuthenticated] = useState(hasToken()),
     [entryToken, setEntryToken] = useState(""),
     [page, setPage] = useState<Page>("home"),
     [settingsSection, setSettingsSection] = useState("interface"),
-    [status, setStatus] = useState<Json>({
+    [serviceStatus, setStatus] = useState<Json>({
       native: {},
       models: {},
       memory: {},
@@ -110,7 +121,7 @@ export default function App() {
     [external, setExternal] = useState(false),
     [sending, setSending] = useState(false),
     [connection, setConnection] = useState("connecting"),
-    [audio, setAudio] = useState({ input: 0, output: 0 }),
+    [serviceAudio, setAudio] = useState({ input: 0, output: 0 }),
     [toast, setToast] = useState<{ message: string; error: boolean } | null>(
       null,
     ),
@@ -135,10 +146,23 @@ export default function App() {
     if (toastTimer.current) clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(() => setToast(null), 7000);
   }, []);
+  const companion = useCompanionVoice();
+  const audio = remoteClient.enabled ? { input: companion.input, output: companion.output } : serviceAudio;
+  const status = remoteClient.enabled ? {
+    ...serviceStatus,
+    platform: { ...serviceStatus.platform, native_voice: companion.supported },
+    native: { ...serviceStatus.native, connected: companion.supported, muted: companion.muted, voice_state: companion.state },
+  } : serviceStatus;
+  const refreshStatus = useCallback(() => {
+    const session = remoteClient.sessionId, revision = privacyRevision.current;
+    return api("/status").then(value => {
+      if (session === remoteClient.sessionId && revision === privacyRevision.current) setStatus(value);
+    });
+  }, []);
   const refresh = useCallback(() => {
     if (!hasToken()) return;
     Promise.allSettled([
-      api("/status").then(setStatus),
+      refreshStatus(),
       api("/tasks").then(setTasks),
       api("/schedules").then(setSchedules),
       api("/approvals").then(setApprovals),
@@ -150,7 +174,7 @@ export default function App() {
           .then(setMessages)
           .catch(() => {});
     });
-  }, []);
+  }, [refreshStatus]);
   const loadDashboard = useCallback(
     () =>
       api("/dashboard")
@@ -163,11 +187,19 @@ export default function App() {
         }),
     [],
   );
+  function resetAttachments() {
+    attachmentDraft.current++;
+    setAttachments([]);
+    setHealthAttachment(null);
+    setScreenAttachment(null);
+    setShowAttachments(false);
+  }
   function applyPreference(value: Json) {
     if (remoteClient.enabled && value.client_session_id && value.client_session_id !== remoteClient.sessionId) return;
     if (value.revision < privacyRevision.current) return;
     const changed =
       privateRef.current !== value.private || scopeRef.current !== value.scope;
+    const revisionChanged = value.revision !== privacyRevision.current;
     privacyRevision.current = value.revision;
     setSessionRevision(value.revision);
     privateRef.current = value.private;
@@ -175,9 +207,15 @@ export default function App() {
     setPrivateMode(value.private);
     setScope(value.scope);
     setPrivacyReady(true);
+    if (revisionChanged) {
+      setScreenAttachment(null);
+      setStatus(current => ({ ...current, screen_capture: undefined }));
+      void refreshStatus().catch(() => {});
+    }
     if (changed) {
-      setAttachments([]);
-      attachmentSession.current = crypto.randomUUID();
+      if (remoteClient.enabled) { remoteClient.conversationId = null; window.dispatchEvent(new Event("jarvis-session-changed")); }
+      resetAttachments();
+      attachmentSession.current = randomId();
       setConversation(null);
       setMessages([]);
     }
@@ -190,16 +228,35 @@ export default function App() {
   useEffect(() => {
     const openTasks = () => { setPage("tasks"); };
     const shared = (event: Event) => {
-      const id = (event as CustomEvent).detail?.id;
-      if (typeof id === "string") { setAttachments(items => [...new Set([...items, id])]); setPage("chat"); }
+      const source = (event as CustomEvent).detail;
+      if (typeof source?.id !== "string" || typeof source.name !== "string") return;
+      if (source.sessionId !== remoteClient.sessionId || source.revision !== privacyRevision.current ||
+          attachmentsRef.current.length >= MAX_DOCUMENT_ATTACHMENTS) {
+        event.preventDefault();
+        return;
+      }
+      setAttachments(items => {
+        if (items.length >= MAX_DOCUMENT_ATTACHMENTS || items.some(item => item.id === source.id)) return items;
+        return [...items, { id: source.id, name: source.name }];
+      });
+      setPage("chat");
+    };
+    const voiceTask = (event: Event) => {
+      const task = (event as CustomEvent).detail;
+      if (!task?.conversation_id) return;
+      if (task.conversation_id !== currentConversation.current) resetAttachments();
+      setConversation(task.conversation_id);
+      refresh();
     };
     window.addEventListener("jarvis-session-changed", syncPreference);
     window.addEventListener("jarvis-remote-open-tasks", openTasks);
     window.addEventListener("jarvis-shared-source", shared);
-    return () => { window.removeEventListener("jarvis-session-changed", syncPreference); window.removeEventListener("jarvis-remote-open-tasks", openTasks); window.removeEventListener("jarvis-shared-source", shared); };
+    window.addEventListener("jarvis-companion-task", voiceTask);
+    return () => { window.removeEventListener("jarvis-session-changed", syncPreference); window.removeEventListener("jarvis-remote-open-tasks", openTasks); window.removeEventListener("jarvis-shared-source", shared); window.removeEventListener("jarvis-companion-task", voiceTask); };
   }, []);
   async function preference(privateValue: boolean, scopeValue: string) {
     setPrivacyReady(false);
+    if (remoteClient.enabled) await companionVoice.stop(false);
     try {
       applyPreference(
         await post("/voice/session", {
@@ -207,6 +264,7 @@ export default function App() {
           scope: scopeValue,
         }),
       );
+      if (remoteClient.enabled) companionVoice.sessionChanged();
       return true;
     } catch (e: any) {
       notify(e.message, true);
@@ -237,6 +295,7 @@ export default function App() {
     refresh();
     loadDashboard();
     const controller = new AbortController();
+    let settingsTimer: ReturnType<typeof setTimeout> | undefined;
     eventStream((event) => {
       if (event.type === "connection") {
         setConnection(event.data.state);
@@ -245,8 +304,18 @@ export default function App() {
           syncInterfaceLanguage().catch(() => {});
         }
       } else if (event.type === "settings.updated") {
-        syncInterfaceLanguage().catch(() => {});
-        refresh();
+        // Replayed events all invalidate the same current settings snapshot.
+        if (settingsTimer !== undefined) return;
+        settingsTimer = setTimeout(() => {
+          settingsTimer = undefined;
+          syncInterfaceLanguage().catch(() => {});
+          if (remoteClient.enabled) {
+            void companionVoice.reload().catch((error) => {
+              if (!controller.signal.aborted) notify(error.message, true);
+            });
+          }
+          refresh();
+        }, 200);
       } else if (event.type === "voice.session.updated") {
         syncPreference();
       } else if (event.type === "audio.level") setAudio(event.data);
@@ -268,6 +337,7 @@ export default function App() {
       controller.abort();
       clearInterval(interval);
       clearInterval(weatherInterval);
+      clearTimeout(settingsTimer);
       if (refreshTimer.current) clearTimeout(refreshTimer.current);
     };
   }, [authenticated]);
@@ -288,7 +358,6 @@ export default function App() {
       });
   }, [messages, deltas, page]);
   const openSettings = (section: string) => {
-    if (remoteClient.enabled && section === "voice") { window.dispatchEvent(new Event("jarvis-remote-voice")); return; }
     setSettingsSection(section);
     setPage("settings");
   };
@@ -309,48 +378,104 @@ export default function App() {
           : []),
       ])
     : messages;
-  const voiceState = status.native?.voice_state || "unavailable";
+  const voiceState = !status.native?.connected
+    ? "unavailable"
+    : status.emergency_stop
+      ? "muted"
+      : status.native.voice_state || "unavailable";
   const portableText = status.platform?.native_voice === false;
-  const orbState =
-    voiceState === "muted" && activeTasks.some((t) => t.state === "running")
-      ? "processing"
-      : voiceState;
+  const { Icon: VoiceIcon, tone: voiceTone, label: voiceLabel } =
+    voicePhase(voiceState);
+  const voiceLevel =
+    voiceState === "speaking"
+      ? audio.output
+      : !status.native?.muted &&
+          ["armed", "listening", "followup"].includes(voiceState)
+        ? audio.input
+        : 0;
   const unread = notifications.filter((n) => !n.read).length;
   useEffect(() => { if (status.emergency_stop) window.dispatchEvent(new Event("jarvis-emergency-stop")); }, [status.emergency_stop]);
-  async function send(value = text, attachedIds = attachments) {
+  useEffect(() => {
+    if (!screenAttachment) return;
+    const timer = setTimeout(() => {
+      setScreenAttachment(current => current?.id === screenAttachment.id ? null : current);
+      notify("The window capture expired. Choose it again.");
+    }, Math.max(0, screenAttachment.expiresAt - Date.now()));
+    return () => clearTimeout(timer);
+  }, [screenAttachment, notify]);
+  async function send(value = text) {
     if (!value.trim() || sending) return;
     if (!privacyReady) {
       notify("Wait for privacy settings to load.", true);
       return;
     }
+    const attachedIds = page === "chat" ? attachments.map(item => item.id) : [];
+    const healthSource = page === "chat" ? healthAttachment : null;
+    const screenSource = page === "chat" ? screenAttachment : null;
+    if (screenSource && screenSource.expiresAt <= Date.now()) {
+      setScreenAttachment(null);
+      notify("The window capture expired. Choose it again.", true);
+      return;
+    }
+    const draft = attachmentDraft.current;
+    const session = remoteClient.sessionId;
+    const revision = privacyRevision.current;
+    const isCurrentDraft = () => draft === attachmentDraft.current &&
+      session === remoteClient.sessionId && revision === privacyRevision.current;
     setSending(true);
     try {
+      let requestText = value;
+      if (healthSource) {
+        const summary = await api("/apple-health?scope=personal");
+        if (!isCurrentDraft()) return;
+        if (summary.id !== healthSource.id) {
+          throw new Error("The Apple Health summary changed. Attach the current summary.");
+        }
+        const cloud = !status.profile || status.profile === "cloud" ||
+          (status.profile === "hybrid" && status.models?.cloud_configured);
+        if (cloud && !summary.allow_cloud) {
+          throw new Error("Enable cloud access for health summaries in Add attachments before sending.");
+        }
+        requestText += "\n\n" + tr("Attached Apple Health summary from {start} to {end}, source {id}. Verify the source ID before using its readings.", {
+          start: summary.first_date,
+          end: summary.last_date,
+          id: summary.id,
+        });
+      }
       const signature = JSON.stringify([
-        value,
+        requestText,
         conversation,
         scope,
         privateMode,
         external,
         attachedIds,
+        screenSource?.id,
+        session,
+        draft,
       ]);
       if (submission.current?.signature !== signature)
-        submission.current = { signature, id: crypto.randomUUID() };
+        submission.current = { signature, id: randomId() };
       const task = await post("/chat", {
-        text: value,
+        text: requestText,
         conversation_id: conversation,
         scope,
         private: privateMode,
         external_authorized: external,
-        privacy_revision: privacyRevision.current,
+        privacy_revision: revision,
         request_id: submission.current.id,
         attachment_ids: attachedIds,
         attachment_session: attachmentSession.current,
+        ...(screenSource ? { screen_capture_id: screenSource.id } : {}),
       });
       submission.current = null;
+      if (!isCurrentDraft()) {
+        refresh();
+        return;
+      }
       if (remoteClient.enabled) remoteClient.bindConversation(task.conversation_id);
       setConversation(task.conversation_id);
+      if (screenSource) setScreenAttachment(current => current?.id === screenSource.id ? null : current);
       setText("");
-      setAttachments([]);
       setExternal(false);
       setPage("chat");
       refresh();
@@ -362,7 +487,7 @@ export default function App() {
   }
   async function native(action: string) {
     if (remoteClient.enabled) {
-      window.dispatchEvent(new Event("jarvis-remote-voice"));
+      try { await companionVoice.control(action); } catch (error: any) { notify(error.message, true); }
       return;
     }
     if (portableText) {
@@ -390,13 +515,13 @@ export default function App() {
     }
   }
   async function newChat() {
+    resetAttachments();
     if (remoteClient.enabled) {
       setPrivacyReady(false);
       await remoteClient.selectConversation();
       privacyRevision.current = -1;
       if (!(await preference(privateMode, scope))) return;
     }
-    setAttachments([]);
     setConversation(null);
     setMessages([]);
     setText("");
@@ -404,6 +529,7 @@ export default function App() {
     input.current?.focus();
   }
   async function chooseConversation(c: Json) {
+    if (c.id !== currentConversation.current) resetAttachments();
     if (remoteClient.enabled) {
       setPrivacyReady(false);
       await remoteClient.selectConversation(c.id);
@@ -413,10 +539,34 @@ export default function App() {
     setConversation(c.id);
     setPage("chat");
   }
+  const pickerDraft = attachmentDraft.current;
+  const pickerSession = remoteClient.sessionId;
+  const pickerRevision = privacyRevision.current;
+  const pickerIsCurrent = () => pickerDraft === attachmentDraft.current &&
+    pickerSession === remoteClient.sessionId && pickerRevision === privacyRevision.current;
+  const screenContext = { scope, privacy_revision: pickerRevision, session_id: attachmentSession.current };
+  const windowAttachment = screenAttachment ? { id: screenAttachment.id, name: tr("Selected window") } : null;
   const composer = (
     <div className="composer-wrap">
-      {!!attachments.length && <div className="assistant-actions"><Badge>{tr("Attached sources")}: {attachments.length}</Badge><button className="btn" onClick={() => setPage("documents")}>{tr("Review attachments")}</button><button className="btn" onClick={() => setAttachments([])}>{tr("Clear attachments")}</button></div>}
       <div className="composer">
+        {page === "chat" && (attachments.length > 0 || healthAttachment || windowAttachment) && (
+          <ul className="chat-attachments" aria-label={tr("Attached sources")}>
+            {[...attachments, ...(healthAttachment ? [healthAttachment] : []), ...(windowAttachment ? [windowAttachment] : [])].map(item => (
+              <li key={item.id}>
+                <span title={item.name}>{item.name}</span>
+                <button className="icon-btn" disabled={sending} aria-label={tr("Remove attachment {name}", { name: item.name })} onClick={() => {
+                  if (item.id === windowAttachment?.id) {
+                    setScreenAttachment(null);
+                    void deleteScreenCapture(item.id, screenContext).catch(error => {
+                      if (pickerIsCurrent()) notify(error.message, true);
+                    });
+                  } else if (item.id === healthAttachment?.id) setHealthAttachment(null);
+                  else setAttachments(current => current.filter(attachment => attachment.id !== item.id));
+                }}><X size={14} /></button>
+              </li>
+            ))}
+          </ul>
+        )}
         <textarea
           ref={input}
           value={text}
@@ -464,6 +614,13 @@ export default function App() {
             </select>
           </div>
           <div className="composer-actions">
+            {page === "chat" && <button
+              className="icon-btn"
+              aria-label={tr("Add attachments")}
+              title={tr("Add attachments")}
+              disabled={!privacyReady || sending}
+              onClick={() => { setShowAttachments(true); void refreshStatus().catch(() => {}); }}
+            ><Paperclip size={17} /></button>}
             {runningChat.length > 0 && (
               <button
                 className="icon-btn"
@@ -589,8 +746,7 @@ export default function App() {
               { id: "today", label: tr("Today"), icon: Sun },
               { id: "organizer", label: tr("Activities"), icon: Check },
               { id: "mail", label: tr("Mail"), icon: MessageSquare },
-              { id: "documents", label: tr("Documents"), icon: Link2 },
-              { id: "screen", label: tr("Screen context"), icon: Computer },
+              { id: "appleHealth", label: tr("Apple Health"), icon: Sun },
               { id: "development", label: tr("Jira and GitHub"), icon: Workflow },
               { id: "homeAssistant", label: "Home Assistant", icon: Sun },
               { id: "chat", label: tr("Conversation"), icon: MessageSquare },
@@ -600,7 +756,7 @@ export default function App() {
               { id: "memory", label: tr("Memory"), icon: Brain },
               { id: "integrations", label: tr("Connections"), icon: Link2 },
             ] as { id: Page; label: string; icon: any }[]
-          ).map((item) => (
+          ).filter(item => item.id !== "appleHealth" || showAppleHealth).map((item) => (
             <button
               key={item.id}
               className={page === item.id ? "active" : ""}
@@ -649,47 +805,20 @@ export default function App() {
         <div className="sidebar-bottom">
           <button
             className="sidebar-voice"
+            data-voice-tone={voiceTone}
             onClick={() => openSettings("voice")}
             aria-label={tr("Open voice settings")}
+            title={tr(voiceLabel)}
           >
             <span className="eyebrow">
-              {tr("VOICE CHANNEL")}{" "}
-              <span
-                className={
-                  "tiny-dot " +
-                  (status.native?.muted || !status.native?.connected
-                    ? "off"
-                    : "")
-                }
+              {tr("VOICE CHANNEL")}
+              <VoiceIcon
+                className="sidebar-voice-icon"
+                size={15}
+                aria-hidden="true"
               />
             </span>
-            <VoiceSignal
-              level={
-                status.native?.muted ||
-                !status.native?.connected ||
-                !["armed", "listening", "speaking", "followup"].includes(
-                  voiceState,
-                )
-                  ? 0
-                  : voiceState === "speaking"
-                    ? audio.output
-                    : audio.input
-              }
-            />
-            <span>
-              <Mic size={12} />
-              {remoteClient.enabled ? tr("Push to talk") : !status.native?.connected
-                ? tr("Not connected")
-                : status.native?.muted
-                  ? tr("Microphone muted")
-                  : voiceState === "speaking"
-                    ? tr("Jarvis is speaking")
-                    : voiceState === "armed"
-                      ? tr("Listening for Jarvis")
-                      : voiceState === "listening" || voiceState === "followup"
-                        ? tr("Listening")
-                        : tr("Open voice settings")}
-            </span>
+            <VoiceSignal level={voiceLevel} />
           </button>
           <div className="brain-state">
             <Brain size={17} />
@@ -743,8 +872,7 @@ export default function App() {
                   today: tr("Today"),
                   organizer: tr("Activities"),
                   mail: tr("Mail"),
-                  documents: tr("Documents"),
-                  screen: tr("Screen context"),
+                  appleHealth: tr("Apple Health"),
                   development: tr("Jira and GitHub"),
                   homeAssistant: "Home Assistant",
                   automations: tr("Automations"),
@@ -772,14 +900,15 @@ export default function App() {
               aria-label={tr("Emergency stop")}
               disabled={status.emergency_stop}
               title={tr("Stop tasks, tools, voice, and calls")}
-              onClick={() =>
-                post("/control/emergency", { stopped: true })
+              onClick={() => {
+                window.dispatchEvent(new Event("jarvis-emergency-stop"));
+                void post("/control/emergency", { stopped: true })
                   .then(() => {
                     refresh();
                     notify("Emergency stop is active.");
                   })
-                  .catch((e) => notify(e.message, true))
-              }
+                  .catch((e) => notify(e.message, true));
+              }}
             >
               <OctagonX size={17} />
             </button>
@@ -827,19 +956,19 @@ export default function App() {
                 "mic-status " + (status.native?.muted ? "muted-mic" : "")
               }
               onClick={() =>
-                remoteClient.enabled ? native("listen") : portableText
+                portableText && !remoteClient.enabled
                   ? newChat()
                   : native(status.native?.muted ? "unmute" : "mute")
               }
               aria-label={
-                remoteClient.enabled ? tr("Talk to Jarvis") : portableText
+                portableText && !remoteClient.enabled
                   ? tr("Open text conversation")
                   : status.native?.muted
                     ? tr("Unmute microphone")
                     : tr("Mute microphone")
               }
             >
-              {portableText ? (
+              {portableText && !remoteClient.enabled ? (
                 <MessageSquare size={14} />
               ) : status.native?.muted ? (
                 <MicOff size={14} />
@@ -847,7 +976,7 @@ export default function App() {
                 <Mic size={14} />
               )}
               <span>
-                {remoteClient.enabled ? tr("Push to talk") : portableText
+                {portableText && !remoteClient.enabled
                   ? tr("Text mode")
                   : status.native?.connected
                     ? status.native?.muted
@@ -897,8 +1026,8 @@ export default function App() {
               schedules={schedules}
               approvals={approvals}
               connection={connection}
-              orbState={orbState}
-              audio={audio}
+              voiceState={voiceState}
+              voiceLevel={voiceLevel}
               composer={composer}
               onPage={setPage}
               onSettings={openSettings}
@@ -915,8 +1044,7 @@ export default function App() {
           {page === "organizer" && <Organizer key={scope + ":" + privacyRevision.current} scope={scope} privateMode={privateMode} privacyRevision={privacyRevision.current} notify={notify} onAsk={(prompt) => { void send(prompt); }} />}
           {page === "mail" && <Mail key={scope + ":" + privacyRevision.current} scope={scope} privateMode={privateMode} privacyRevision={privacyRevision.current} notify={notify} onAsk={(prompt) => { void send(prompt); }} />}
           {page === "automations" && <Automations key={scope + ":" + privacyRevision.current} scope={scope} privateMode={privateMode} privacyRevision={privacyRevision.current} notify={notify} onAsk={(prompt) => { void send(prompt); }} />}
-          {page === "documents" && <Documents key={scope + ":" + privacyRevision.current} scope={scope} privateMode={privateMode} privacyRevision={privacyRevision.current} sessionId={attachmentSession.current} selected={attachments} onSelect={setAttachments} notify={notify} onAsk={(prompt, ids) => { void send(prompt, ids); }} />}
-          {page === "screen" && <Screen key={scope + ":" + privacyRevision.current} scope={scope} privacyRevision={privacyRevision.current} sessionId={attachmentSession.current} nativeAvailable={!!status.native?.connected} notify={notify} onAsk={(prompt) => { void send(prompt); }} />}
+          {page === "appleHealth" && showAppleHealth && <AppleHealth key={scope + ":" + privacyRevision.current + ":" + attachmentSession.current} scope={scope} privateMode={privateMode} privacyRevision={privacyRevision.current} notify={notify} onAsk={(prompt) => { void send(prompt); }} />}
           {page === "development" && <Development key={scope + ":" + privacyRevision.current} scope={scope} privateMode={privateMode} privacyRevision={privacyRevision.current} notify={notify} onAsk={(prompt) => { void send(prompt); }} />}
           {page === "homeAssistant" && <HomeAssistant key={scope + ":" + privacyRevision.current} scope={scope} privateMode={privateMode} privacyRevision={privacyRevision.current} notify={notify} onAsk={(prompt) => { void send(prompt); }} />}
           {page === "chat" && (
@@ -1042,7 +1170,6 @@ export default function App() {
             <Integrations notify={notify} openSettings={openSettings} />
           )}{" "}
           {page === "settings" && (
-            remoteClient.enabled ? <RemoteModelSettings notify={(message) => notify(message)} /> :
             <Settings
               platform={status.platform}
               nativeVoice={status.native}
@@ -1081,8 +1208,32 @@ export default function App() {
         <button aria-expanded={mobileMenu} onClick={() => setMobileMenu(true)}><Workflow size={19} /><span>{tr("More")}</span></button>
       </nav>}
       {mobileMenu && <Modal title={tr("More sections")} onClose={() => setMobileMenu(false)}><div className="modal-body remote-mobile-sections">
-        {([["organizer", "Activities"], ["mail", "Mail"], ["documents", "Documents"], ["screen", "Screen context"], ["development", "Jira and GitHub"], ["homeAssistant", "Home Assistant"], ["routines", "Routines"], ["automations", "Automations"], ["memory", "Memory"], ["integrations", "Connections"], ["settings", "Settings"]] as const).map(([id, label]) => <button className="btn" key={id} onClick={() => { setPage(id); setMobileMenu(false); }}>{tr(label)}</button>)}
+        {([["appleHealth", "Apple Health"], ["organizer", "Activities"], ["mail", "Mail"], ["development", "Jira and GitHub"], ["homeAssistant", "Home Assistant"], ["routines", "Routines"], ["automations", "Automations"], ["memory", "Memory"], ["integrations", "Connections"], ["settings", "Settings"]] as const).filter(([id]) => id !== "appleHealth" || showAppleHealth).map(([id, label]) => <button className="btn" key={id} onClick={() => { setPage(id); setMobileMenu(false); }}>{tr(label)}</button>)}
       </div></Modal>}
+      {page === "chat" && showAttachments && privacyReady && <ChatAttachments
+        key={`${pickerDraft}:${pickerSession}:${pickerRevision}`}
+        scope={scope}
+        privateMode={privateMode}
+        privacyRevision={pickerRevision}
+        sessionId={attachmentSession.current}
+        selected={attachments}
+        healthAttached={!!healthAttachment}
+        screenAttached={!!screenAttachment}
+        screenCapture={serviceStatus.screen_capture ?? "unavailable"}
+        isCurrent={pickerIsCurrent}
+        onSelect={update => { if (pickerIsCurrent()) setAttachments(update); }}
+        onAttachHealth={attachment => { if (pickerIsCurrent()) setHealthAttachment(attachment); }}
+        onAttachScreen={attachment => {
+          if (!pickerIsCurrent()) return false;
+          if (screenAttachment) void deleteScreenCapture(screenAttachment.id, screenContext).catch(() => {});
+          setScreenAttachment(attachment);
+          setShowAttachments(false);
+          setTimeout(() => input.current?.focus(), 0);
+          return true;
+        }}
+        onClose={() => setShowAttachments(false)}
+        notify={notify}
+      />}
       {showNotifications && (
         <Modal
           title={tr("Your notifications")}

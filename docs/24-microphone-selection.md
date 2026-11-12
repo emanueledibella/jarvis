@@ -1,5 +1,11 @@
 # Microphone selection
 
+Platform scope, November 3, 2026: the saved Core Audio UID and picker below
+configure **local AppKit capture**. They do not select an input for a remote
+Electron/Capacitor companion, which uses its own OS/browser recording permission.
+Remote voice is explicit STT/review/TTS, not the native wake/echo path; see
+[companion voice](33-current-state-and-verification.md#remote-contracts).
+
 Open **Settings → Voice → Microphone**, use **Refresh microphones**, choose an input,
 and **Save changes**. The input list contains available recording devices reported by
 Core Audio, including the built-in microphone, connected Bluetooth headsets, and USB

@@ -1,6 +1,12 @@
 import Lighting from "./Lighting";
 import MicrophoneSettings from "./Microphone";
 import TelephonyConnection from "./TelephonyConnection";
+import CompanionVoiceSettings from "./CompanionVoiceSettings";
+import PersonalitySettings from "./PersonalitySettings";
+import { companionVoice } from "./companionVoice";
+import IntegrationConnect from "./IntegrationConnect";
+import { remoteClient } from "./remoteClient";
+import { RemoteDevices, RemoteConnection } from "./Remote";
 import {
   t as tr,
   useI18n,
@@ -9,6 +15,7 @@ import {
   saveInterfaceLanguage,
 } from "./i18n";
 import React, { useEffect, useState } from "react";
+import { randomId } from "./randomId";
 import {
   Check,
   Cloud,
@@ -23,7 +30,7 @@ import {
   ShieldCheck,
   Volume2,
 } from "lucide-react";
-import { api, patch, post, type Json } from "./api";
+import { api, post, type Json } from "./api";
 import {
   Badge,
   Field,
@@ -48,6 +55,8 @@ export default function Settings({
 }: Props) {
   const language = useI18n();
   const [savingLanguage, setSavingLanguage] = useState(false);
+  const remote = remoteClient.enabled;
+  const [revision, setRevision] = useState("");
   const [tab, setTab] = useState(initial),
     [values, setValues] = useState<Json>({}),
     [changes, setChanges] = useState<Json>({}),
@@ -60,7 +69,8 @@ export default function Settings({
   const load = () =>
     api("/settings").then((data) => {
       setValues(data.values);
-      setLocked(data.locked);
+      setLocked(data.locked || []);
+      setRevision(data.revision || "");
       setChanges({});
     });
   useEffect(() => {
@@ -113,11 +123,17 @@ export default function Settings({
       onChange={(v) => change(key, v)}
     />
   );
+  async function saveChanges() {
+    if (!Object.keys(changes).length) return;
+    await api("/settings", { method: "PATCH", body: JSON.stringify(changes),
+      ...(remote ? { headers: { "If-Match": '"' + revision + '"' } } : {}) });
+    await load();
+    if (remote) await companionVoice.reload();
+  }
   async function save() {
     setSaving(true);
     try {
-      await patch("/settings", changes);
-      await load();
+      await saveChanges();
       notify("Settings saved.");
       onSaved();
     } catch (e: any) {
@@ -143,8 +159,9 @@ export default function Settings({
     }
   }
   async function native(action: string) {
+    if (remote && action === "calendar_authorize") { setTab("devices"); return; }
     try {
-      const result = await post("/voice/control", { action });
+      const result = remote ? await companionVoice.control(action) : await post("/voice/control", { action });
       const states: Record<string, string> = {
         requires_approval: "Confirm launch at login in macOS settings.",
         denied:
@@ -174,15 +191,18 @@ export default function Settings({
     );
     return () => clearInterval(timer);
   }, [tab]);
+  const personality = values.response_personality;
   const tabs = [
     ["interface", "Interface"],
     ["models", "Models"],
     ["voice", "Voice and presence"],
+    ...(personality ? [["personality", "Personality"]] : []),
     ["memory", "Memory"],
     ["productivity", "Productivity"],
     ["lighting", "Lights and devices"],
     ["security", "Autonomy and privacy"],
     ["phone", "Telephony"],
+    ...(remote ? [["devices", "Devices and jobs"], ["connection", "Connection"]] : []),
   ];
   return (
     <div className="page settings-page">
@@ -193,10 +213,10 @@ export default function Settings({
           "Models, connections, and boundaries. All under your control.",
         )}
         action={
-          <button
+          <div className="button-row">{remote && <button className="btn" disabled={saving} onClick={() => void load().catch(error => notify(error.message, true))}><RefreshCw size={15} />{tr("Reload settings")}</button>}<button
             className="btn primary"
             onClick={save}
-            disabled={saving || !Object.keys(changes).length}
+            disabled={saving || !Object.keys(changes).length || (remote && (!remoteClient.admin || !revision))}
           >
             {saving ? (
               <LoaderCircle size={15} className="spin" />
@@ -204,7 +224,7 @@ export default function Settings({
               <Save size={15} />
             )}
             {tr("Save changes")}
-          </button>
+          </button></div>
         }
       />
       <div
@@ -224,12 +244,24 @@ export default function Settings({
           </button>
         ))}
       </div>
-      {!!locked.length && (
+      {remote && <div className="info-line"><ShieldCheck size={14} />{remoteClient.admin ? tr("Shared preferences are saved on the core. Microphone permission and input stay on this device.") : tr("Shared settings are read-only. Pair an administrator device to change them; voice on this device remains under your control.")}</div>}
+      {!remote && !!locked.length && (
         <div className="info-line">
           <KeyRound size={14} />
           {tr(
             "Locked fields are set by the environment. Edit the env file and restart the service.",
           )}
+        </div>
+      )}
+      {remote && tab === "devices" && <div className="settings-card remote-panel"><RemoteDevices notify={notify} /></div>}
+      {remote && tab === "connection" && <div className="settings-card remote-panel"><RemoteConnection notify={notify} /></div>}
+      {tab === "personality" && personality && (
+        <div className="settings-grid">
+          <PersonalitySettings
+            profile={personality}
+            disabled={saving || locked.includes("response_personality")}
+            onChange={(profile) => change("response_personality", profile)}
+          />
         </div>
       )}
       {tab === "interface" && (
@@ -257,7 +289,8 @@ export default function Settings({
               onChange={async (value) => {
                 setSavingLanguage(true);
                 try {
-                  const result = await saveInterfaceLanguage(value);
+                  const result = await saveInterfaceLanguage(value, remote ? revision : undefined);
+                  if (remote) { const current = await api("/settings"); setRevision(current.revision); }
                   setValues((current) => ({
                     ...current,
                     ui_language: result.values.ui_language,
@@ -284,7 +317,7 @@ export default function Settings({
       )}
       {tab === "models" && (
         <div className="settings-grid">
-          <section className="settings-card">
+          {!remote && <section className="settings-card">
             <div className="card-heading">
               <Computer size={19} />
               <div>
@@ -374,7 +407,7 @@ export default function Settings({
                 "Save changes before testing. Models are never downloaded automatically.",
               )}
             </small>
-          </section>
+          </section>}
           <section className="settings-card">
             <div className="card-heading">
               <Cloud size={19} />
@@ -402,13 +435,13 @@ export default function Settings({
               tr("API key"),
               "password",
               tr(
-                "Stored in private configuration; keychain:account references are also supported.",
+                remote ? "Keys are encrypted on the core and are never returned to companion apps." : "Stored in private configuration; keychain:account references are also supported.",
               ),
             )}
             {field("cloud_base_url", tr("Custom endpoint, optional"), "url")}
             <button
               className="btn"
-              disabled={!!testing}
+              disabled={!!testing || (remote && !remoteClient.admin)}
               onClick={() => test("cloud")}
             >
               {testing === "cloud" ? (
@@ -462,7 +495,10 @@ export default function Settings({
                   { value: "max", label: tr("Max") },
                 ],
               )}
+              {toggle("python_sandbox_enabled", tr("Allow the agent to use isolated Python"))}
+              {toggle("browser_enabled", tr("Allow the agent to use an isolated browser"))}
               {field("max_agent_steps", tr("Agent step limit"), "number")}
+              {field("max_parallel_tasks", tr("Concurrent tasks"), "number")}
               {field(
                 "task_timeout_seconds",
                 tr("Maximum task duration, seconds"),
@@ -486,20 +522,21 @@ export default function Settings({
         </>
       )}
       {tab === "voice" && (
-        <div className="settings-grid">
-          <section className="settings-card">
+        <div className={remote ? "settings-grid voice-settings-grid" : "settings-grid"}>
+          {remote && <CompanionVoiceSettings notify={notify} />}
+          <section className="settings-card voice-shared-settings">
             <div className="card-heading">
               <Headphones size={19} />
               <div>
                 <h2>{tr("A voice within reach")}</h2>
                 <p>
                   {tr(
-                    "Microphone access and recognition are managed by the macOS app.",
+                    remote ? "Voice preferences are shared across your companions. Each device manages its microphone permission." : "Microphone access and recognition are managed by the macOS app.",
                   )}
                 </p>
               </div>
             </div>
-            {platform?.native_voice === false && (
+            {!remote && platform?.native_voice === false && (
               <p className="info-line">
                 {tr(
                   "This portable build supports text conversations. Native wake detection and desktop audio are available in the macOS app. Telephony is configured separately.",
@@ -508,14 +545,14 @@ export default function Settings({
             )}
             {toggle("voice_enabled", tr("Enable voice"))}
             {toggle("wake_enabled", tr("Voice activation"))}
-            <MicrophoneSettings
+            {!remote && <MicrophoneSettings
               value={values.microphone_device_uid || ""}
               disabled={locked.includes("microphone_device_uid")}
               onChange={(uid) => change("microphone_device_uid", uid)}
               nativeAvailable={platform?.native_voice !== false}
               connected={Boolean(nativeVoice?.connected)}
               inputMissing={nativeVoice?.input_device_state === "missing"}
-            />
+            />}
             {field(
               "wake_phrase",
               tr("Wake phrase"),
@@ -529,7 +566,7 @@ export default function Settings({
               tr("Recognition language"),
               "text",
               tr(
-                "Example: it-IT. The language must support on-device recognition on this Mac. OpenAI detects the conversation language from audio after activation.",
+                remote ? "Example: it-IT. Install on-device recognition for this language on each companion. OpenAI detects conversation language after activation." : "Example: it-IT. The language must support on-device recognition on this Mac. OpenAI detects the conversation language from audio after activation.",
               ),
             )}
             {field(
@@ -561,7 +598,7 @@ export default function Settings({
               [
                 {
                   value: "apple",
-                  label: tr("Apple · recognition and synthesis on Mac"),
+                  label: tr(remote ? "System · on-device recognition and speech" : "Apple · recognition and synthesis on Mac"),
                 },
                 {
                   value: "openai_live",
@@ -591,7 +628,7 @@ export default function Settings({
             )}
             {values.desktop_voice_duplex === "echo_cancelled" &&
               values.desktop_voice_provider === "openai_live" &&
-              platform?.native_voice !== false && (
+              !remote && platform?.native_voice !== false && (
                 <p className="info-line" role="status">
                   {nativeVoice?.barge_in
                     ? tr(
@@ -635,10 +672,10 @@ export default function Settings({
             )}
             <small className="hint">
               {tr(
-                "Speech is generated by an AI model. With OpenAI Live, wake detection stays local; after activation, the command and conversation audio go to OpenAI with a short initial RAM buffer. Keep the lid open for the built-in microphone or choose an external input.",
+                remote ? "Wake detection stays on this device. With OpenAI Live, conversation audio is sent through your core to OpenAI only after activation. System voice sends the recognized request to the core and speaks its answer locally." : "Speech is generated by an AI model. With OpenAI Live, wake detection stays local; after activation, the command and conversation audio go to OpenAI with a short initial RAM buffer. Keep the lid open for the built-in microphone or choose an external input.",
               )}
             </small>
-            <div className="button-row">
+            {!remote && <div className="button-row">
               <button className="btn primary" onClick={() => native("enable")}>
                 <Headphones size={15} />
                 {tr("Enable voice and permissions")}
@@ -646,7 +683,7 @@ export default function Settings({
               <button className="btn" onClick={() => native("listen")}>
                 {tr("Test listening")}
               </button>
-            </div>
+            </div>}
           </section>
           <section className="settings-card">
             <h2>{tr("Conversation timing")}</h2>
@@ -677,15 +714,16 @@ export default function Settings({
             )}
             {field(
               "listen_timeout_seconds",
-              tr("Maximum command duration, seconds"),
+              tr("Wait for speech, seconds"),
               "number",
+              tr("Listening stays active while you speak. OpenAI session duration has its own limit above."),
             )}
             {toggle(
               "voice_on_lock_screen",
               tr("Allow voice while the screen is locked"),
               tr("Disabled by default."),
             )}
-            <div className="info-box">
+            {(!remote || ["macos", "windows"].includes(remoteClient.platform)) && <><div className="info-box">
               <strong>{tr("⌘ ⇧ J")}</strong>
               <p>
                 {tr(
@@ -711,7 +749,7 @@ export default function Settings({
               {tr(
                 "The Mac must be awake. Sleep and shutdown suspend the assistant.",
               )}
-            </small>
+            </small></>}
           </section>
         </div>
       )}
@@ -765,20 +803,7 @@ export default function Settings({
               tr("Recall context budget"),
               "number",
             )}
-            <button
-              className="btn"
-              onClick={() =>
-                post("/integrations/second_brain/connect")
-                  .then(() =>
-                    notify(
-                      "Connection started. Complete browser consent if requested.",
-                    ),
-                  )
-                  .catch((e) => notify(e.message, true))
-              }
-            >
-              {tr("Connect Second Brain")}
-            </button>
+            <IntegrationConnect name="second_brain" label={tr("Connect Second Brain")} notify={notify} disabled={remote && !remoteClient.admin} />
           </section>
           <section className="settings-card">
             <h2>{tr("Sources and continuity")}</h2>
@@ -882,6 +907,7 @@ export default function Settings({
         <div className="settings-grid">
           <section className="settings-card">
             <h2>{tr("Workspaces and commands")}</h2>
+            {remote && <div className="info-box"><p>{tr("Authorize computer folders and commands in Devices and jobs. These host settings are managed by the server administrator.")}</p><button className="btn" onClick={() => setTab("devices")}>{tr("Devices and jobs")}</button></div>}
             {field(
               "workspace_roots",
               tr("Authorized folders, JSON array"),
@@ -961,14 +987,16 @@ export default function Settings({
               tr("Connection management"),
               "text",
               tr(
-                "Choose Jarvis to activate and deactivate telephony without terminal commands.",
+                remote
+                  ? "These settings are saved on the remote core. Jarvis uses the core's public HTTPS address to connect to Twilio."
+                  : "Choose Jarvis to activate and deactivate telephony without terminal commands.",
               ),
               [
-                { value: "managed", label: tr("Managed by Jarvis") },
+                { value: "managed", label: tr(remote ? "Managed by the remote core" : "Managed by Jarvis") },
                 { value: "external", label: tr("External proxy") },
               ],
             )}
-            {values.telephony_tunnel_mode === "managed" ? (
+            {values.telephony_tunnel_mode === "managed" ? remote && !remoteClient.admin ? <p className="hint">{tr("An administrator device is required to manage telephony.")}</p> : (
               <TelephonyConnection
                 locked={
                   locked.includes("telephony_enabled") &&
@@ -976,14 +1004,15 @@ export default function Settings({
                 }
                 prepare={async () => {
                   if (Object.keys(changes).length) {
-                    await patch("/settings", changes);
-                    await load();
+                    await saveChanges();
                   }
                 }}
-                onChanged={(enabled) => {
+                onChanged={async (enabled) => {
+                  const currentSettings = await api("/settings");
+                  setRevision(currentSettings.revision || "");
                   setValues((current) => ({
                     ...current,
-                    telephony_enabled: enabled,
+                    telephony_enabled: currentSettings.values.telephony_enabled ?? enabled,
                   }));
                   setChanges((current) => {
                     const next = { ...current };
@@ -1077,6 +1106,11 @@ export default function Settings({
               tr("Maximum duration, seconds"),
               "number",
             )}
+            {remote && <details className="settings-details"><summary>{tr("Manual recording")}</summary>
+              {field("phone_stt_model", tr("Transcription model"))}
+              {field("phone_tts_model", tr("Speech model"))}
+              {field("phone_tts_voice", tr("Synthetic voice"))}
+            </details>}
             {values.desktop_voice_provider !== "openai_live" &&
               field(
                 "phone_local_tts_voice",
@@ -1124,7 +1158,7 @@ export default function Settings({
                 try {
                   await post("/calls/owner", {
                     authorized: true,
-                    request_id: crypto.randomUUID(),
+                    request_id: randomId(),
                     reason: "Test call requested by the owner",
                   });
                   notify("Request sent to the carrier.");

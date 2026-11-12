@@ -8,6 +8,7 @@ import android.security.keystore.KeyGenParameterSpec;
 import android.security.keystore.KeyProperties;
 import android.util.Base64;
 import com.getcapacitor.JSObject;
+import com.getcapacitor.JSArray;
 import com.getcapacitor.PermissionState;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
@@ -34,6 +35,37 @@ public class JarvisNativePlugin extends Plugin {
     private File recordingFile;
     private boolean stopped;
     private long started;
+    private CompanionSpeech speech;
+
+    @Override public void load() {
+        getActivity().runOnUiThread(() -> speech = new CompanionSpeech(getContext(), value -> notifyListeners("voice", value)));
+    }
+    @PluginMethod public void voiceStart(PluginCall call) {
+        if (getPermissionState("microphone") != PermissionState.GRANTED) {
+            requestPermissionForAlias("microphone", call, "voiceMicrophonePermission"); return;
+        }
+        getActivity().runOnUiThread(() -> {
+            cleanup();
+            String error = speech.start(call.getString("language", "it-IT"));
+            if (error == null) call.resolve(); else call.reject(error);
+        });
+    }
+    @PermissionCallback private void voiceMicrophonePermission(PluginCall call) {
+        if (getPermissionState("microphone") == PermissionState.GRANTED) voiceStart(call);
+        else call.reject("Allow microphone access in system settings.");
+    }
+    @PluginMethod public void voiceStop(PluginCall call) {
+        getActivity().runOnUiThread(() -> { if (speech != null) speech.stop(); call.resolve(); });
+    }
+    @PluginMethod public void voiceSpeak(PluginCall call) {
+        getActivity().runOnUiThread(() -> speech.speak(call.getString("text", ""), call.getString("language", "it-IT"), error -> {
+            if (error == null) call.resolve(); else call.reject(error);
+        }));
+    }
+    @PluginMethod public void voiceInputs(PluginCall call) {
+        // Android SpeechRecognizer uses the system-selected input route.
+        JSObject value = new JSObject(); value.put("state", "system_default"); value.put("devices", new JSArray()); call.resolve(value);
+    }
 
     @PluginMethod public void shared(PluginCall call) {
         try { JSObject result = new JSObject(); result.put("items", SharedInbox.list(getContext())); call.resolve(result); }
@@ -83,6 +115,7 @@ public class JarvisNativePlugin extends Plugin {
     }
 
     @PluginMethod public void clear(PluginCall call) {
+        getActivity().runOnUiThread(() -> { if (speech != null) speech.stop(); });
         boolean cleared = getContext().getSharedPreferences("jarvis-vault", Context.MODE_PRIVATE).edit().remove("credentials").commit();
         if (cleared) call.resolve(); else call.reject("Rimozione credenziali non riuscita.");
     }
@@ -139,5 +172,12 @@ public class JarvisNativePlugin extends Plugin {
         if (recordingFile != null) { recordingFile.delete(); recordingFile = null; }
     }
 
-    @Override protected void handleOnDestroy() { cleanup(); }
+    @Override protected void handleOnPause() {
+        if (speech != null) speech.stop(); cleanup();
+        JSObject value = new JSObject(); value.put("type", "suspended"); notifyListeners("voice", value);
+    }
+    @Override protected void handleOnResume() {
+        JSObject value = new JSObject(); value.put("type", "resumed"); notifyListeners("voice", value);
+    }
+    @Override protected void handleOnDestroy() { cleanup(); if (speech != null) speech.destroy(); }
 }

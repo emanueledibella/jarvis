@@ -1,10 +1,37 @@
-# Core remoto e agenti sui dispositivi: proposta da discutere
+# Core remoto e agenti sui dispositivi: analisi originaria e decisioni
 
 Aggiornamento del 3 novembre 2026: lo sviluppo è stato successivamente autorizzato.
 Il [capitolo 32](32-remote-implementation.md) raccoglie implementazione, verifiche
 e limiti effettivi; questo capitolo conserva l'analisi originaria.
 
-Analisi del 2 novembre 2026. Stato: proposta architetturale, senza implementazione. Integra l'[analisi di dimensionamento](30-cloud-deployment-feasibility.md) e rivede l'ordine suggerito nel [documento companion](28-companion-architecture.md) alla luce del requisito di disponibilità indipendente dal Mac. Il proprietario ha confermato il supporto a iPhone e Android e la priorità del core remoto; la modalità autonoma sul Mac è rinviata a una fase successiva.
+## Stato attuale al 3 novembre
+
+Il core remoto, Electron macOS/Windows, Capacitor iOS/Android, esecutore WSS,
+configurazione amministrativa, parser isolato e backup age sono implementati.
+L'abbinamento usa codici monouso e token ruotati; la proposta OAuth/OIDC per
+l'identità dei dispositivi non è l'implementazione scelta. L'OAuth delle
+integrazioni resta distinto. SQLite e scheduler hanno una sola autorità.
+
+L'esecutore supporta workspace/comandi concessi e, su Mac, EventKit e scelta
+locale di una finestra. Non comprende Hue Bluetooth, controllo generale di
+mouse/tastiera, inferenza locale delegata o un core offline sincronizzato.
+Mac spento significa capacità locali indisponibili, non arresto del core remoto.
+
+Le build locali macOS, Android debug e iOS simulatore e le prove Linux sono
+registrate nel capitolo 32. Builder Windows, dispositivi fisici, firma,
+credenziali push/OAuth reali e deploy pubblico hanno limiti espliciti. La
+[matrice corrente](33-current-state-and-verification.md) raccoglie le verifiche
+rieseguite e i manuali di [deploy](../deploy/README.md) e
+[companion](../companions/README.md) spiegano l'avvio.
+
+## Analisi storica del 2 novembre
+
+I paragrafi seguenti conservano alternative, requisiti e contratti **prima
+dello sviluppo**; le espressioni «da sviluppare», «proposto» e «da discutere»
+si riferiscono a quel momento. Per API e istruzioni correnti usare i capitoli
+03, 12, 29, 32 e 33.
+
+Analisi del 2 novembre 2026. Stato in quella data: proposta architetturale, senza implementazione. Integra l'[analisi di dimensionamento](30-cloud-deployment-feasibility.md) e rivede l'ordine suggerito nel [documento companion](28-companion-architecture.md) alla luce del requisito di disponibilità indipendente dal Mac. Il proprietario ha confermato il supporto a iPhone e Android e la priorità del core remoto; la modalità autonoma sul Mac è rinviata a una fase successiva.
 
 ## Obiettivo e raccomandazione
 

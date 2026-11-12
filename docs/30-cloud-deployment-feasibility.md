@@ -1,16 +1,23 @@
 # Jarvis su una piccola VM con modello via API
 
-Analisi del 2 novembre 2026 sul codice presente nel workspace. Prezzi consultati nella stessa data; disponibilità, imposte e condizioni finali dipendono dal contratto e dall'account.
+Analisi e benchmark del 2 novembre 2026; architettura aggiornata il 3 novembre.
+Prezzi e misure originari mantengono quella data e non sono stati nuovamente
+verificati durante la revisione documentale. Per distribuzione e limiti attuali
+vedere il [manuale server](../deploy/README.md) e la
+[matrice di verifica](33-current-state-and-verification.md).
 
 ## Valutazione
 
-**Il deploy è fattibile per un solo utente, senza GPU e senza un modello conversazionale locale.** Una VM con 1 vCPU e 2 GB di RAM è un minimo ragionevole per chat e integrazioni leggere. La scelta consigliata è 2 vCPU, 4 GB di RAM e circa 40 GB SSD: lascia margine e può costare poco più di una macchina da 1 GB.
+**Il deploy è fattibile per un solo utente, senza GPU e senza un modello conversazionale locale.** Il benchmark originario indicava 1 vCPU/2 GB per un carico leggero; i limiti della distribuzione completa richiedono più margine. La scelta consigliata è 2 vCPU, 4 GB di RAM e circa 40 GB SSD: lascia margine e può costare poco più di una macchina da 1 GB.
 
 La VM esegue il servizio Python, gli strumenti, lo scheduler e l'archivio; il fornitore API esegue il modello. La velocità delle risposte dipenderà anche da modello, rete e servizi interrogati: aumentare la RAM della VM oltre il necessario non accelera l'inferenza remota.
 
 Il codice supporta già profilo `cloud`, OpenAI, Anthropic e servizi OpenAI-compatible. Il percorso OpenAI usa Responses API. Sono da configurare modello, chiave dedicata, tariffe e budget. La compatibilità del protocollo non garantisce che ogni modello utilizzi correttamente gli strumenti: serve una verifica sul modello scelto.
 
-**Eseguire il servizio in Linux è già possibile; offrire un accesso remoto comodo e sicuro richiede lavoro aggiuntivo.** L'interfaccia e il launcher nativo sono progettati attorno al servizio locale. Il gateway mobile e il collegamento Mac–server descritti nel [progetto companion](28-companion-architecture.md) restano da sviluppare.
+**Il core remoto e i client sono ora implementati.** La distribuzione Linux,
+le companion Electron/Capacitor e il collegamento WSS al desktop sono descritti
+nel [capitolo 32](32-remote-implementation.md). Restano da predisporre la propria
+VM, dominio, credenziali, firma e verifiche su dispositivi/servizi reali.
 
 ## Misure locali e dimensionamento
 
@@ -32,7 +39,7 @@ Il carico ha attraversato il vero agente, una chiamata allo strumento dell'orari
 | Configurazione VM | Uso valutato |
 | --- | --- |
 | 1 vCPU / 1 GB | Laboratorio o uso molto leggero; poco margine per host, aggiornamenti e picchi. |
-| 1 vCPU / 2 GB | Minimo ragionevole per un utente, modello via API, documenti contenuti e una sola attività concorrente. |
+| 1 vCPU / 2 GB | Carico leggero del benchmark; per Compose attuale servono limiti ridotti e nuove misure dell'intero host. |
 | 2 vCPU / 4 GB | Configurazione consigliata per l'uso personale e un margine operativo migliore. |
 | 4 vCPU / 8 GB | Da valutare per ulteriori servizi, elaborazioni pesanti o carico misurato; non necessario per la sola chat ordinaria. |
 
@@ -46,11 +53,11 @@ Queste raccomandazioni sono stime basate sull'architettura e sulla prova sinteti
 | Promemoria, routine, briefing e automazioni | Il server acceso può eseguirli; vanno migrate configurazioni, credenziali e pianificazioni. Un promemoria semplice non richiede necessariamente una chiamata al modello; un briefing generato dall'agente sì. |
 | Jira, GitHub, calendari Google/Microsoft e posta | Possibili via API/MCP, con credenziali, OAuth e permessi da verificare dalla nuova macchina. |
 | Home Assistant | Possibile se la VM può raggiungere l'istanza domestica attraverso un percorso privato disponibile anche a Mac spento. |
-| Documenti | Il parsing Python è disponibile; OCR, strumenti di sistema e isolamento dei worker richiedono configurazione Linux dedicata. |
+| Documenti | Parser isolato senza rete e Tesseract sono inclusi in Compose; permangono limiti di formato/risorse e verifiche OCR sul proprio carico. |
 | Telefonia Twilio e voce cloud telefonica | Possibili con account, consenso del proprietario e ingress HTTPS/webhook/media dedicato. Il costo telefonico si aggiunge al modello. |
-| Calendario Apple EventKit, schermata scelta, Bluetooth Hue e workspace del Mac | Restano legati al Mac. La VM vede i propri file e dispositivi. Un satellite Mac richiede sviluppo. |
-| Microfono, wake word e riproduzione della voce sul Mac | Richiedono il client locale; il launcher attuale non è un client remoto già pronto. |
-| Notifiche e promemoria | La cronologia e la campanella interne restano disponibili. Una VM senza desktop non produce da sola banner sul Mac, voce dagli altoparlanti o push sullo smartphone. Le chiamate configurate sono un canale distinto. |
+| Calendario Apple EventKit, schermata scelta e workspace del Mac | Disponibili tramite esecutore con grant locali quando il Mac è online; la finestra richiede scelta locale. Hue Bluetooth resta nella modalità AppKit locale. |
+| Microfono, wake word e riproduzione della voce sul Mac | Wake/Live richiedono AppKit locale. La companion Electron usa voce esplicita STT/TTS; non eredita il wake nativo. |
+| Notifiche e promemoria | Campanella interna, push APNs/FCM configurate e avvisi della companion desktop attiva. Un core senza audio non parla dagli altoparlanti del Mac; telefonia separata. |
 
 **Second Brain va considerato separatamente.** La documentazione del servizio esistente descrive Neo4j e Ollama per estrazione/embedding. Cambiare il modello conversazionale di Jarvis non modifica quei modelli. I numeri di RAM e costo di questa analisi riguardano Jarvis, non l'insieme Jarvis + Neo4j + inferenza locale.
 
@@ -58,22 +65,40 @@ Per avere memoria disponibile a Mac spento bisogna mantenere Second Brain su un 
 
 ## VM, container e accesso remoto
 
-Un container è un modo di distribuire il servizio e può girare dentro la VM. Per questo scenario propongo una VM Linux europea con una sola istanza di Jarvis, avvio e riavvio supervisionati, disco persistente e backup separato. Un servizio gestito per container è un'alternativa se garantisce processo sempre attivo e storage persistente; sospensione per inattività, istanze effimere e replica automatica sono inadatte all'attuale scheduler e a SQLite.
+Aggiornamento del 3 novembre: esiste una distribuzione in
+[`deploy/`](../deploy/README.md) con un core non root, parser separato e proxy
+Caddy HTTPS/WSS. Avvia `jarvis server`; la porta del core rimane interna alla
+rete Compose. Non richiede rete host, inoltro SSH o condivisione del bearer locale.
 
-Non servono inizialmente GPU, Kubernetes, Redis o database gestiti. Non vanno eseguite repliche indipendenti dello scheduler né condiviso un SQLite attivo su filesystem di rete. Anche Mac e VM non devono diventare due autorità autonome delle stesse routine.
+`jarvis serve` e `JARVIS_API_HOST` restano loopback-only per l'installazione
+locale. Il comando server aggiunge invece una superficie dedicata con Host/Origin
+configurati, codici monouso, token brevi e refresh ruotato, ruoli e revoca.
+Le companion usano questo protocollo. L'esecutore Mac/Windows apre WSS in uscita;
+non servono porte sul computer. Il proxy telefonico rimane un ingresso distinto.
 
-L'accesso presenta vincoli concreti nel codice attuale:
+OAuth sul core remoto usa callback pubblici
+`https://<dominio>/oauth/mail/callback` e
+`https://<dominio>/oauth/mcp/<nome>/callback`. Il consenso parte dal dispositivo
+amministratore e le credenziali restano cifrate sul server. I riferimenti al
+Keychain del Mac richiedono nuove chiavi dedicate; copiarli non esporta il segreto.
 
-- Il validatore `api_host` accetta solo `127.0.0.1` e il comando `serve` usa esplicitamente quell'indirizzo.
-- Il middleware ammette Host e Origin locali. La dashboard verifica il servizio con una prova HMAC legata anche alla porta. Il frontend assume inoltre porta 80 quando l'URL non ne dichiara una: HTTPS standard richiede un adattamento deliberato.
-- Mail OAuth usa un callback loopback sulla porta dell'API; Home Assistant e gli altri client MCP possono usare ulteriori callback locali e avviare il browser per il consenso. Un server senza browser richiede una procedura di autorizzazione assistita e inoltri delle porte corrette, oppure un flusso remoto progettato appositamente.
-- Il proxy di telefonia espone solo i percorsi telefonici autorizzati: non è il gateway della dashboard.
+Il parser comunica via socket Unix, non ha rete né il volume/credenziali del core,
+e include Tesseract. Il suo isolamento non deriva dal solo container del servizio.
+Il core remoto disabilita workspace/comandi dell'host e MCP stdio; le operazioni
+sul computer usano grant dell'esecutore. Non è una sandbox server per compilazioni.
 
-Per una prima prova privata dal computer si può mantenere l'attuale confine locale con un tunnel SSH che inoltri la porta locale 8765 alla 8765 loopback del server. L'istanza locale deve essere ferma per evitare conflitti e duplicazioni. Vanno trasferiti in modo protetto il token proprietario e le credenziali necessarie; i riferimenti al Keychain del Mac non sono segreti utilizzabili automaticamente in Linux. I flussi OAuth e le ulteriori porte MCP vanno collaudati singolarmente.
+Una sola autorità possiede SQLite e scheduler. Non servono GPU, Kubernetes,
+Redis o database gestiti per il carico personale previsto, né si devono
+sincronizzare database attivi fra server e Mac. L'app standalone resta separata,
+senza failover automatico. Backup age e ripristino conservativo sono implementati:
+il restore revoca vecchi dispositivi/codici, disattiva routine e abilita lo stop.
 
-Nel caso Docker, la normale pubblicazione di una porta non rende raggiungibile un processo legato al loopback interno del container. Su una VM Linux una possibile configurazione iniziale usa la rete dell'host mantenendo il listener su loopback; occorre documentare e verificare questa scelta nel packaging di produzione. Il Dockerfile della prova avvia solo il benchmark ed è privo di rete: non è un'immagine di deploy pronta all'uso.
-
-Per l'uso quotidiano da browser remoto o smartphone serve invece un gateway autenticato, con origini esplicite, TLS, sessioni e revoca dei dispositivi, protezione delle approvazioni e API esposte in modo limitato. Una VPN migliora il percorso di rete ma non risolve da sola questi vincoli applicativi. Il [piano Personal di Tailscale](https://tailscale.com/pricing) è gratuito per uso personale non commerciale; per impiego aziendale vanno verificate le condizioni del piano appropriato.
+Le soglie Compose sono 1536 MiB per il core, 512 MiB per il parser e 128 MiB per
+Caddy, circa 2,125 GiB prima dell'host. Per questi limiti il punto di partenza è
+2 vCPU/4 GB RAM; i precedenti test da 1–2 GiB riguardavano il solo benchmark
+leggero, non un collaudo completo della distribuzione attuale.
+Un host da 2 GB richiede adattare i limiti e misurare il carico, soprattutto OCR.
+Second Brain e servizi aggiuntivi vanno dimensionati separatamente.
 
 ## Prezzi delle VM
 
@@ -118,19 +143,40 @@ Le schede [Luna](https://developers.openai.com/api/docs/models/gpt-6-luna) e [Te
 
 ## Lavoro necessario per un utilizzo affidabile
 
-1. **Confezionare il servizio Linux:** immagine o ambiente Python riproducibile, UI compilata, utente dedicato, avvio automatico, arresto pulito, controllo di salute e limiti di risorse. Per la prima VM partire da una sola attività concorrente; disattivare i componenti desktop inutili.
-2. **Configurare il modello cloud:** chiave dedicata sul server, permessi e budget del fornitore, tariffe e soglie Jarvis coerenti. Eseguire una piccola verifica reale di italiano, strumenti, errori e consumo prima di affidargli automazioni continuative.
-3. **Migrare una sola autorità:** fermare il servizio precedente, copiare database/checkpoint/documenti/configurazioni in modo coerente, riconfigurare i segreti non trasferibili e verificare calendari, OAuth, routine e fuso Europe/Rome. Conservare un piano di ripristino che eviti azioni duplicate.
-4. **Garantire la raggiungibilità:** Second Brain e Home Assistant devono rimanere disponibili indipendentemente dal portatile. Verificare callback OAuth, timeout e comportamento durante disconnessioni.
-5. **Scegliere l'accesso:** tunnel privato per il collaudo dal computer; gateway e client per l'esperienza remota quotidiana. Companion, push e satellite Mac sono sviluppi distinti dal semplice deploy.
-6. **Proteggere l'host e i dati:** accessi SSH con chiavi, firewall, aggiornamenti, segreti privati, log minimizzati, backup protetti fuori dalla VM con prova di ripristino. Il passaggio al modello API comporta l'invio al fornitore dei contenuti selezionati per le richieste, secondo le impostazioni e i permessi configurati.
-7. **Rivedere i confini Linux:** i parser hanno un processo limitato, ma l'isolamento filesystem/rete specifico di macOS non viene applicato in Linux. Prima di abilitare documenti non fidati o comandi, isolare i worker con accessi e rete minimi. Il container dell'intero servizio non separa da solo un parser dai segreti del servizio. Evitare mount ampi e socket Docker.
-8. **Collaudare il server reale:** avvio dopo reboot, memoria e disco per più giorni, una sola esecuzione per routine, notifiche effettivamente ricevute sul dispositivo desiderato, autorizzazioni scadute, errori API, ripristino e operatività a Mac spento. Questi controlli non sono stati sostituiti dalla prova sintetica.
+Il codice e il packaging sono disponibili; restano configurazione e collaudo della
+propria installazione:
 
-## Proposta per l'uso personale
+1. **Preparare host/dominio:** Docker/Compose, DNS, porte 80/443, volume privato e
+   riavvio supervisionato; seguire il [manuale di deploy](../deploy/README.md).
+2. **Abbinare l'amministratore e configurare il modello:** chiave dedicata,
+   tariffe/budget coerenti e una verifica reale di lingua, strumenti e consumi.
+3. **Trasferire una sola autorità:** fermare l'istanza precedente, usare una copia
+   coerente e riconfigurare segreti non esportabili; controllare routine e fuso.
+4. **Connettere le dipendenze indipendenti dal Mac:** Second Brain, calendari cloud,
+   posta e percorso privato verso Home Assistant, con callback pubblici corretti.
+5. **Installare le companion e concedere il desktop:** pairing separati, cartelle,
+   prefissi di comando e permessi EventKit/finestra sul Mac; nessuna porta in ingresso.
+6. **Configurare i canali reali:** APNs/FCM e relative identità/progetti, oppure
+   telefonia esterna con credenziali e ingress propri. La voce companion usa STT/TTS,
+   non il percorso Live dei prezzi storici riportati sopra.
+7. **Proteggere e ripristinare:** accesso host, aggiornamenti, backup age fuori VM,
+   copia separata delle chiavi push e del servizio Second Brain, prova di restore
+   con credenziali revocate e routine da rivedere.
+8. **Collaudare il sistema reale:** giorni di memoria/disco/carico, una sola
+   esecuzione per routine, Mac spento, revoca e disconnessioni, notifiche ricevute,
+   OAuth scaduto ed effetti incerti senza replay.
 
-Partirei con **una VM europea da 2 vCPU / 4 GB / 40 GB, modello via API, una sola istanza e accesso privato dal computer**. Prevederei 6–10 €/mese per infrastruttura e un budget API iniziale di 10–20 USD/mese per la chat, misurando il consumo prima di aumentare le automazioni. È un budget di partenza e non una garanzia di costo per qualsiasi utilizzo; voce, telefono e Second Brain possono aggiungere altre voci.
+## Indicazione operativa e limiti economici
 
-Il server sempre acceso è inoltre una base adatta alla futura companion: il telefono invia richieste e riceve risultati anche a portatile spento. Per avere push, voce e capacità del Mac occorre completare i rispettivi client e collegamenti. L'uso tramite SSH serve a validare il servizio; il gateway è il passaggio necessario per rendere comodo l'accesso quotidiano.
+Per la distribuzione attuale usare il dimensionamento e i comandi del
+[manuale server](../deploy/README.md). Le cifre infrastrutturali/API del 2 novembre
+sopra sono scenari storici: non sono un preventivo aggiornato, né una misura
+dell'utilizzo personale. Prima di ordinare verificare il totale effettivo e
+misurare il consumo dopo aver scelto modello, voce, telefono e servizi.
 
-Analisi e prove eseguite localmente, con modello e dati sintetici. Non sono state effettuate chiamate a pagamento né acquistate VM. Non è stato implementato un deploy di produzione in questa attività. Script, Dockerfile di prova, metriche e prezzi OVH estratti sono conservati nella cartella locale ignorata `output/cloud-analysis/`.
+Il core, le companion, il collegamento esecutore, il parser isolato e il backup
+sono stati sviluppati dopo il benchmark. Le verifiche locali sono in
+[capitolo 32](32-remote-implementation.md) e nella
+[matrice corrente](33-current-state-and-verification.md). Nessuna VM è stata
+acquistata o pubblicata per questo lavoro. Gli script e le metriche del benchmark
+originario restano nella cartella ignorata `output/cloud-analysis/`.

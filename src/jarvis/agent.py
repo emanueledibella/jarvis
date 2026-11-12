@@ -385,6 +385,7 @@ class TaskManager:
         automation_run_id=None,
         attachment_ids=None,
         attachment_session=None,
+        screen_capture_id=None,
     ):
         if self.runtime.gateway.blocked:
             raise PermissionError("Emergency stop is active.")
@@ -408,6 +409,7 @@ class TaskManager:
                 schedule_id,
             ] + (["automation", automation_run_id] if automation_run_id is not None else [])
             + (["attachments", attachment_ids, attachment_session] if attachment_ids else [])
+            + (["screen_capture", screen_capture_id, attachment_session] if screen_capture_id else [])
         )
         previous = await self.db.fetchone("SELECT * FROM tasks WHERE id=?", (key,))
         if previous:
@@ -427,6 +429,8 @@ class TaskManager:
                 or self.private_tasks.get(key, {}).get("conversation_id"),
                 "state": previous["state"],
             }
+        if screen_capture_id:
+            self.runtime.screen.read(scope, screen_capture_id, attachment_session, length=1)
         if not conversation_id:
             conversation_id = uid()
             if not private:
@@ -458,7 +462,8 @@ class TaskManager:
                 schedule_id,
                 json.dumps(
                     {"external_authorized": external_authorized, "request_fingerprint": fingerprint, "automation_run_id": automation_run_id, "harness_version": VERSION,
-                     "attachment_ids": [] if private else attachment_ids}
+                     "attachment_ids": [] if private else attachment_ids,
+                     **({"screen_attached": True} if screen_capture_id else {})}
                 ),
             ),
         )
@@ -471,6 +476,7 @@ class TaskManager:
         ctx.automation_run_id = automation_run_id
         ctx.attachment_ids = attachment_ids
         ctx.attachment_session = attachment_session
+        ctx.screen_capture_id = screen_capture_id
         if automation_run_id:
             ctx.mark_sensitive_read()
             ctx.mark_untrusted()
@@ -511,7 +517,7 @@ class TaskManager:
             }
         usage["model_snapshot"] = spec
         if usage.get("harness_version") == VERSION:
-            route = route_request(ctx.prompt, attachments=bool(ctx.attachment_ids), automation=bool(ctx.automation_run_id))
+            route = route_request(ctx.prompt, attachments=bool(ctx.attachment_ids or ctx.screen_capture_id), automation=bool(ctx.automation_run_id))
             if not ctx.private:
                 usage["harness_mode"] = route.mode
         await self.db.execute(
@@ -599,7 +605,8 @@ class TaskManager:
         return create_agent(
             model=model, tools=tools, system_prompt=system,
             middleware=middleware, state_schema=HarnessState,
-            checkpointer=InMemorySaver() if ctx.private else self.checkpointer, name="jarvis",
+            checkpointer=InMemorySaver() if ctx.private or ctx.screen_capture_id else self.checkpointer,
+            name="jarvis",
         )
 
     def _private_history(self, ctx) -> list[dict]:
@@ -654,7 +661,7 @@ class TaskManager:
             return
         if ctx.harness_run:
             route = route_request(
-                ctx.prompt, attachments=bool(ctx.attachment_ids),
+                ctx.prompt, attachments=bool(ctx.attachment_ids or ctx.screen_capture_id),
                 automation=bool(ctx.automation_run_id),
             )
             if any(group != "memory" for group in route.groups):
@@ -721,6 +728,15 @@ class TaskManager:
                     "recursion_limit": self.config.settings.max_agent_steps,
                     "callbacks": [callbacks],
                 }
+                screen_messages = []
+                if task_usage.get("screen_attached"):
+                    screen_source = self.screen_evidence(ctx)
+                    ctx.mark_sensitive_read()
+                    ctx.mark_untrusted()
+                    screen_messages = [
+                        AIMessage(content="", tool_calls=[{"id": "attached-window", "name": "screen_read", "args": {"capture_id": ctx.screen_capture_id, "length": 4000}}]),
+                        ToolMessage(content=json.dumps(screen_source, ensure_ascii=False), tool_call_id="attached-window", name="screen_read"),
+                    ]
                 if resume:
                     ctx.mark_sensitive_read()
                     ctx.mark_untrusted()
@@ -731,7 +747,7 @@ class TaskManager:
                         else None
                     )
                     if not snapshot.values.get("messages"):
-                        arguments = {"messages": [{"role": "user", "content": ctx.prompt}]}
+                        arguments = {"messages": [{"role": "user", "content": ctx.prompt}, *screen_messages]}
                 else:
                     history = []
                     if ctx.private:
@@ -760,6 +776,7 @@ class TaskManager:
                                 AIMessage(content="", tool_calls=[{"id": call_id, "name": "document_read", "args": {"document_id": document_id, "part": 1, "count": 1}}]),
                                 ToolMessage(content=json.dumps(source, ensure_ascii=False), tool_call_id=call_id, name="document_read"),
                             ])
+                    messages.extend(screen_messages)
                     await self.recall_personal_context(ctx, messages)
                     arguments = {"messages": messages}
                 pump = asyncio.create_task(callbacks.pump())
@@ -919,7 +936,7 @@ class TaskManager:
                                     "content": str(m.content)[:16000],
                                 }
                                 for m in values.get("messages", [])
-                                if getattr(m, "type", None) == "tool"
+                                if getattr(m, "type", None) == "tool" and getattr(m, "name", "") != "screen_read"
                             ][-20:],
                         }
                     if len(self.private_tasks) > 64:
@@ -994,5 +1011,12 @@ class TaskManager:
             )
         if row["private"] and key not in self.graphs:
             raise ValueError("The private checkpoint is unavailable after restart.")
+        if json.loads(row["usage"]).get("screen_attached"):
+            self.screen_evidence(self.contexts.get(key))
         await self.set_state(key, "queued")
         self.running[key] = asyncio.create_task(self.run(key, resume=True))
+
+    def screen_evidence(self, ctx):
+        if not ctx or not ctx.screen_capture_id:
+            raise ValueError("The window capture is no longer available. Attach a new capture.")
+        return self.runtime.screen.read(ctx.scope, ctx.screen_capture_id, ctx.attachment_session, length=4000)

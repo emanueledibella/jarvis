@@ -231,3 +231,26 @@ async def test_real_outbound_websocket_file_read_and_revoke(config, tmp_path):
         await asyncio.wait_for(server_task, 10)
         if worker:
             worker.journal.conn.close()
+
+
+async def test_native_window_operations_authorization(tmp_path):
+    config = executor_config(tmp_path)
+    config.update(native=["window.list", "window.action"], native_scope="personal")
+    worker = executor(config, tmp_path)
+    try:
+        request = job(config, "window.list")
+        with pytest.raises(PermissionError):
+            worker.authorize(request)  # wrong scope
+        request["scope"] = "personal"
+        assert worker.authorize(request) == (None, None)
+
+        action_req = job(config, "window.action", action="focus", app="Finder")
+        action_req["scope"] = "personal"
+        assert worker.authorize(action_req) == (None, None)
+
+        action_req["arguments"]["app"] = "Safari"
+        with pytest.raises(PermissionError):
+            worker.authorize(action_req)  # argument hash mismatch
+    finally:
+        worker.journal.conn.close()
+

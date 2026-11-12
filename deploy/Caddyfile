@@ -1,8 +1,56 @@
+{
+	admin off
+	default_sni {$JARVIS_PUBLIC_HOST}
+	log default {
+		format filter {
+			wrap json
+			fields {
+				request>uri delete
+				request>headers delete
+				resp_headers>Set-Cookie delete
+			}
+		}
+	}
+	servers {
+		max_header_size 16KB
+		timeouts {
+			read_header 5s
+			read_body 120s
+			idle 30s
+		}
+	}
+}
+
 {$JARVIS_PUBLIC_HOST} {
-    encode zstd gzip
-    header {
-        Strict-Transport-Security "max-age=31536000"
-        -Server
-    }
-    reverse_proxy core:8765
+	tls {
+		issuer acme {
+			dir {$JARVIS_ACME_DIRECTORY:https://acme-v02.api.letsencrypt.org/directory}
+			profile shortlived
+		}
+	}
+	@privateFiles path /.git /.git/* /.env /.env.* /deploy/* /src/* /pyproject.toml /uv.lock
+	respond @privateFiles 404
+	encode zstd gzip
+	@healthUpload path /api/apple-health/import
+	request_body @healthUpload {
+		max_size 65000000
+	}
+	@ordinaryRequests not path /api/apple-health/import
+	request_body @ordinaryRequests {
+		max_size 4100000
+	}
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "no-referrer"
+		-Server
+	}
+	reverse_proxy core:8765 {
+		transport http {
+			dial_timeout 5s
+			response_header_timeout 120s
+			max_conns_per_host 32
+		}
+	}
 }

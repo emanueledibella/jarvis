@@ -3,7 +3,7 @@ function trustedFrame(value) {
   try { const url = new URL(value); return url.protocol === "jarvis:" && url.hostname === "app" && !url.username && !url.password; } catch { return false; }
 }
 function safeExternal(value) {
-  try { const url = new URL(value); return url.protocol === "https:" && !url.username && !url.password; } catch { return false; }
+  try { const url = new URL(value); return ["https:", "shortcuts:", "whatsapp:"].includes(url.protocol) && !url.username && !url.password; } catch { return false; }
 }
 function validateCredentials(value) {
   if (!value || typeof value !== "object" || JSON.stringify(value).length > 8192) throw new Error("Invalid credentials.");

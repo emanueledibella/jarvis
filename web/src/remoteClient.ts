@@ -1,21 +1,54 @@
-import { Capacitor, registerPlugin } from "@capacitor/core";
+import { Capacitor, registerPlugin, type PluginListenerHandle } from "@capacitor/core";
+import { randomId } from "./randomId";
+import type { HealthMetric, HealthSnapshot } from "./appleHealthNative";
 
 type RecordValue = Record<string, any>;
 type Credentials = { server_url: string; device_id: string; refresh_token?: string; session_id: string; scopes?: string[] };
-export interface NativeBridge {
+export interface NativeLiveBridge {
+  voiceFinalizeRecognition(): Promise<void>;
+  voiceBeginLive(options: { frame: number }): Promise<{ started: boolean }>;
+  voiceReadLive(): Promise<{ audio: string }>;
+  voicePlayLive(options: { audio: string; id: number }): Promise<{ output: number }>;
+}
+export interface NativeLivePlayback {
+  voiceStartLivePlayback(): Promise<void>;
+  voicePlayLive: NativeLiveBridge["voicePlayLive"];
+}
+type VoiceStart = { language: string; phrase: string; microphone: string; bufferLive?: boolean };
+export interface DesktopExecutorStatus {
+  state: "stopped" | "starting" | "connected" | "reconnecting" | "receipt_pending" | "pairing_required" | "failed" | "configuration_required";
+  configured: boolean;
+  running: boolean;
+}
+export interface DesktopExecutorBridge {
+  platform: string;
+  selectDirectory(): Promise<string | null>;
+  configureExecutor(value: RecordValue): Promise<void>;
+  executorStatus(): Promise<DesktopExecutorStatus>;
+  setExecutorEnabled(enabled: boolean): Promise<void>;
+}
+export interface NativeBridge extends Partial<NativeLiveBridge & NativeLivePlayback & DesktopExecutorBridge> {
   platform: string;
   load(): Promise<Credentials | null>;
   save(value: Credentials): Promise<void>;
   clear(): Promise<void>;
-  selectDirectory?(): Promise<string | null>;
-  configureExecutor?(value: RecordValue): Promise<void>;
-  executorStatus?(): Promise<RecordValue>;
-  setExecutorEnabled?(enabled: boolean): Promise<void>;
   notify?(value: { sequence: number; created_at: string }): Promise<void>;
+  voiceStart?(options: VoiceStart): Promise<void>;
+  setVoiceEnabled?(options: { enabled: boolean; allowLocked: boolean }): Promise<void>;
+  voiceStop?(): Promise<void>;
+  voiceInputs?(): Promise<RecordValue>;
+  voiceSpeak?(options: { text: string; language: string; voice: string }): Promise<void>;
+  onVoice?(listener: (value: RecordValue) => void): () => void;
+  setLaunchAtLogin?(enabled: boolean): Promise<RecordValue>;
 }
 declare global { interface Window { jarvisCompanion?: NativeBridge } }
 
-interface NativePlugin {
+interface NativePlugin extends NativeLiveBridge, NativeLivePlayback {
+  addListener(event: "voice", listener: (value: RecordValue) => void): Promise<PluginListenerHandle>;
+  voiceStart(options: VoiceStart): Promise<void>;
+  voiceStop(): Promise<void>;
+  voiceSpeak(options: { text: string; language: string; voice: string }): Promise<void>;
+  voiceInputs(): Promise<RecordValue>;
   shared(): Promise<{ items: RecordValue[] }>;
   removeShared(options: { id: string }): Promise<void>;
   load(): Promise<{ value?: string }>;
@@ -23,6 +56,9 @@ interface NativePlugin {
   clear(): Promise<void>;
   startRecording(): Promise<void>;
   stopRecording(): Promise<{ content: string; mime: string; seconds: number }>;
+  healthStatus(): Promise<{ available: boolean }>;
+  healthRead(options: { metrics: HealthMetric[]; days: number }): Promise<HealthSnapshot>;
+  healthCancel(): Promise<void>;
 }
 export const nativePlugin = registerPlugin<NativePlugin>("JarvisNative");
 
@@ -45,6 +81,8 @@ export function validateServerURL(value: string, development = false): string {
   return url.origin;
 }
 
+export class RemoteSessionExpired extends Error {}
+
 export class RemoteClient {
   enabled = false;
   credentials: Credentials | null = null;
@@ -53,8 +91,10 @@ export class RemoteClient {
   vault = nativeVault();
   private refreshPromise: Promise<void> | null = null;
   private initialization: Promise<boolean> | null = null;
+  private enrollment: Promise<void> | null = null;
   private persistence: Promise<void> = Promise.resolve();
   private conversationSessions = new Map<string, string>();
+  conversationId: string | null = null;
   private get origin() { return this.credentials?.server_url || location.origin; }
   get authenticated() { return !!this.access && !!this.credentials; }
   get sessionId() { return this.credentials?.session_id || ""; }
@@ -75,26 +115,37 @@ export class RemoteClient {
 
   private async detect(): Promise<boolean> {
     if (window.__JARVIS_NATIVE__ && !this.vault) return false;
-    const saved = this.vault ? await this.vault.load() : null;
+    const saved = this.vault ? (this.credentials ?? await this.vault.load()) : null;
     if (saved) {
       this.enabled = true;
       this.credentials = { ...saved, server_url: validateServerURL(saved.server_url, import.meta.env.DEV) };
       await this.discover(this.origin);
-      await this.refresh();
+      // If the previous attempt received a rotated token but could not save
+      // it, retry the write rather than loading and replaying the old token.
+      if (this.authenticated && Date.now() < this.expires - 20_000) await this.persist();
+      else await this.refresh();
       return true;
     }
     if (this.vault) { this.enabled = true; return true; }
     try { await this.discover(location.origin); }
     catch { return false; }
     this.enabled = true;
-    this.credentials = { server_url: location.origin, device_id: "", session_id: sessionStorage.getItem("jarvis-remote-session") || crypto.randomUUID() };
+    this.credentials = { server_url: location.origin, device_id: "", session_id: sessionStorage.getItem("jarvis-remote-session") || randomId() };
     sessionStorage.setItem("jarvis-remote-session", this.sessionId);
     try { await this.refresh(); } catch { this.credentials = null; }
     return true;
   }
 
-  async enroll(address: string, code: string, name: string) {
+  enroll(address: string, code: string, name: string): Promise<void> {
+    if (this.enrollment) return this.enrollment;
+    this.enrollment = this.enrollDevice(address, code, name).finally(() => { this.enrollment = null; });
+    return this.enrollment;
+  }
+
+  private async enrollDevice(address: string, code: string, name: string) {
     const origin = validateServerURL(address, import.meta.env.DEV);
+    // Prepare the session before consuming the server's one-use code.
+    const sessionId = randomId();
     await this.discover(origin);
     const response = await fetch(origin + "/remote/v1/pair", {
       method: "POST", redirect: "error", credentials: this.vault ? "omit" : "same-origin",
@@ -103,7 +154,7 @@ export class RemoteClient {
     const result = await response.json();
     if (!response.ok) throw new Error(result.detail || "Pairing failed.");
     if (result.kind !== "companion") throw new Error("Use a companion pairing code, not an executor code.");
-    this.credentials = { server_url: origin, device_id: result.device_id, session_id: crypto.randomUUID(), scopes: result.scopes, ...(result.refresh_token ? { refresh_token: result.refresh_token } : {}) };
+    this.credentials = { server_url: origin, device_id: result.device_id, session_id: sessionId, scopes: result.scopes, ...(result.refresh_token ? { refresh_token: result.refresh_token } : {}) };
     this.access = result.access_token;
     this.expires = Date.now() + result.expires_in * 1000;
     this.enabled = true;
@@ -121,14 +172,33 @@ export class RemoteClient {
 
   async selectConversation(id?: string) {
     if (!this.credentials) return;
-    const session = id ? this.conversationSessions.get(id) || crypto.randomUUID() : crypto.randomUUID();
+    const session = id ? this.conversationSessions.get(id) || randomId() : randomId();
     if (id) this.conversationSessions.set(id, session);
     this.credentials.session_id = session;
+    this.conversationId = id || null;
     await this.persist();
+    window.dispatchEvent(new Event("jarvis-session-changed"));
   }
 
   bindConversation(id: string) {
+    this.conversationId = id;
     this.conversationSessions.set(id, this.sessionId);
+  }
+
+  async voiceSocket() {
+    if (Date.now() > this.expires - 20_000) await this.refresh();
+    const url = new URL(this.origin + "/remote/v1/voice/live");
+    url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+    const socket = new WebSocket(url);
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => { socket.close(); reject(new Error("Voice connection timed out.")); }, 8000);
+      socket.onopen = () => { clearTimeout(timer); resolve(); };
+      socket.onerror = () => { clearTimeout(timer); reject(new Error("Voice connection unavailable.")); };
+      socket.onclose = () => { clearTimeout(timer); reject(new Error("Voice connection closed.")); };
+    });
+    // Tokens stay out of URLs, logs, localStorage and native speech processes.
+    socket.send(JSON.stringify({ type: "authenticate", access_token: this.access, session_id: this.sessionId }));
+    return socket;
   }
 
   async refresh() {
@@ -143,11 +213,11 @@ export class RemoteClient {
         if ([401, 403].includes(response.status)) {
           this.access = "";
           window.dispatchEvent(new Event("jarvis-remote-session-expired"));
-          throw new Error("Session expired or revoked. Pair this device again.");
+          throw new RemoteSessionExpired("Session expired or revoked. Pair this device again.");
         }
         throw new Error("The core is temporarily unavailable. Retry the connection.");
       }
-      this.credentials = { server_url: this.origin, session_id: this.sessionId || crypto.randomUUID(), ...this.credentials, device_id: result.device_id, scopes: result.scopes, ...(result.refresh_token ? { refresh_token: result.refresh_token } : {}) };
+      this.credentials = { server_url: this.origin, session_id: this.sessionId || randomId(), ...this.credentials, device_id: result.device_id, scopes: result.scopes, ...(result.refresh_token ? { refresh_token: result.refresh_token } : {}) };
       this.access = result.access_token;
       this.expires = Date.now() + result.expires_in * 1000;
       await this.persist();

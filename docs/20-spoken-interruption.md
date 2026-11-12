@@ -1,5 +1,11 @@
 # Spoken interruption with echo protection
 
+Platform scope, November 3, 2026: this guide covers **local native macOS Live**.
+Windows/Linux portable mode remains text-only; the separate Electron/Capacitor
+companions have explicit STT/TTS rather than this echo/handoff pipeline.
+Test totals in this dated feature record are historical; current totals and
+real-device limits are in [chapter 33](33-current-state-and-verification.md).
+
 ## Using it
 
 The native Mac app offers **Settings → Voice → Microphone during playback → Automatic · interrupt by speaking**. Its environment value is `JARVIS_DESKTOP_VOICE_DUPLEX=echo_cancelled`, now the default for new configurations. Existing saved `gated` and `full` preferences remain valid. This feature applies to OpenAI Live desktop conversation; Windows/Linux remain text-only, and the Apple synthesis path retains manual interruption.
@@ -30,11 +36,13 @@ An explicit handoff carries a random, single-use handle to recent text context h
 
 Restored assistant text is marked incomplete and is explicitly described as context, not proof that it was heard. Startup history does not execute tools. Already accepted tasks keep their identity and may continue; stopping speech does not claim to undo an action. Dashboard approval rules remain in force. Raw microphone audio and private dialogue are never written by this handoff feature. Provider sessions still use `store=false` and the existing session duration, admission, and spending checks.
 
-Interruption opens another voice connection only when recognized user speech starts a substantive request. Closing the previous connection uses normal usage reconciliation; no extra text-model call, synthetic greeting, or cloud VAD request is introduced.
+In the latest workspace, confirmed local speech interruption starts the replacement
+Live connection immediately with the preserved onset; it no longer waits for a
+second Apple transcript. See [listening continuity](34-voice-listening-continuity.md). Closing the previous connection uses normal usage reconciliation; no extra text-model call, synthetic greeting, or cloud VAD request is introduced.
 
 ## Verification and remaining device check
 
-The current suite collects 138 Python tests and runs 84 native Swift scenarios. Added cases cover stale speech windows, protected fallback, single-trigger behavior, preserved audio onset, gated wire samples, bounded buffers, single-use context, privacy boundaries, timed RAM cleanup, and non-replay of accepted tasks. Frontend checks retain full English/Italian copy coverage.
+At the original feature gate, the suite collected 138 Python tests and ran 84 native Swift scenarios. Added cases cover stale speech windows, protected fallback, single-trigger behavior, preserved audio onset, gated wire samples, bounded buffers, single-use context, privacy boundaries, timed RAM cleanup, and non-replay of accepted tasks. Frontend checks retain full English/Italian copy coverage.
 
 An offline probe also exercised the actual Apple classifier with a bundled synthetic cue, without microphone capture or speaker playback. It identified speech and preserved absolute stream frame positions. That probe does not validate acoustic echo removal.
 

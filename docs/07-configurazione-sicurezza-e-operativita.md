@@ -1,215 +1,140 @@
 # Configuration, authorization, and operations
 
-## 1. Configuration as a product contract
+Updated November 3, 2026. This chapter describes implemented behavior. The complete
+setting tables are in [chapter 12](12-configurazione-env.md); the original proposed
+env names are superseded by those tables and `Settings` / `ServerOptions`.
 
-The following variables are a **proposed schema**, not already-implemented parameters or a ready-to-run configuration. Choose and verify model IDs, paths, and credentials during initial experiments. The actual implemented schema is in [chapter 12](12-configurazione-env.md).
+## Configuration sources
 
-Validate types, ranges, dependencies, and capabilities. Each value has provenance/version. Telephony-option errors disable that capability; errors compromising authentication/policy prevent the affected component from starting.
+Precedence is process environment → explicitly selected/source-default `.env` →
+private GUI settings → defaults. Environment-controlled values are locked in the
+UI. Restart the owning service after changing its environment; hiding a window
+does not restart it. `--env-file` / `JARVIS_ENV_FILE` select the main settings file.
 
-### Proposed precedence
+Local source installs default to the repository `.env`; portable builds use
+their private application data directory. Jarvis does not load the `.env` of a
+workspace merely because the agent edits that project.
 
-1. Package defaults.
-2. Nonsecret installation profile.
-3. Explicit installation `.env`, parsed without executing shell code.
-4. Process environment.
-5. Task overrides only for policy-permitted fields.
+The GUI returns secret-presence indicators, never saved key values. Blank password
+fields retain existing values. Local macOS can resolve Keychain references; copying
+such a reference to Linux does not export the key. Re-enter dedicated server
+credentials after migrating. Remote settings are encrypted using the core master
+key; database permissions and protected backups remain necessary.
 
-The GUI edits the profile and identifies env-imposed values. It cannot change the environment of an already-running process. Task overrides cannot expand privileges, disable audit, or permit forbidden egress.
+## Local and remote startup
 
-Do not implicitly inherit `.env` from the project the agent is editing: that file belongs to the project and may contain unrelated secrets/settings.
-
-## 2. Example env contract
-
-Empty values require setup. `JARVIS_WAKE_MODEL_PATH` must identify a model actually trained for the selected keyword; the text `Jarvis` cannot change acoustic behavior.
-
-```dotenv
-# Installation and availability
-JARVIS_ENV=personal
-JARVIS_TIMEZONE=Europe/Rome
-JARVIS_LANGUAGE=it-IT
-JARVIS_AUTOSTART=true
-JARVIS_KEEP_AWAKE=false
-JARVIS_API_HOST=127.0.0.1
-JARVIS_API_PORT=8765
-JARVIS_DATA_DIR=/absolute/private/path/jarvis
-
-# Simultaneously registered models
-JARVIS_PROFILE=hybrid
-JARVIS_CLOUD_PROVIDER=openai
-JARVIS_CLOUD_MODEL=
-JARVIS_CLOUD_BASE_URL=
-JARVIS_CLOUD_SECRET_REF=keychain:jarvis/cloud
-JARVIS_LOCAL_PROVIDER=ollama
-JARVIS_LOCAL_BASE_URL=http://127.0.0.1:11434
-JARVIS_LOCAL_MODEL=
-JARVIS_FAST_MODEL=local/default
-JARVIS_REASONING_MODEL=cloud/default
-JARVIS_CODING_MODEL=cloud/default
-JARVIS_ALLOW_CLOUD_FALLBACK=false
-JARVIS_MODEL_REQUEST_TIMEOUT_SECONDS=90
-JARVIS_MAX_CONTEXT_TOKENS=16000
-JARVIS_MAX_OUTPUT_TOKENS=4000
-
-# Desktop voice
-JARVIS_VOICE_ENABLED=true
-JARVIS_WAKE_ENABLED=true
-JARVIS_WAKE_PROVIDER=openwakeword
-JARVIS_WAKE_PHRASE=Jarvis
-JARVIS_WAKE_MODEL_PATH=/absolute/path/to/jarvis-keyword.onnx
-JARVIS_WAKE_THRESHOLD=0.5
-JARVIS_WAKE_COOLDOWN_SECONDS=2
-JARVIS_FOLLOWUP_SECONDS=8
-JARVIS_LISTEN_TIMEOUT_SECONDS=10
-JARVIS_END_OF_TURN_MS=650
-JARVIS_STT_PROVIDER=whisper_cpp
-JARVIS_STT_MODEL_PATH=/absolute/path/to/stt-model
-JARVIS_TTS_PROVIDER=system_macos
-JARVIS_TTS_VOICE=
-JARVIS_AUDIO_INPUT_DEVICE=system_default
-JARVIS_AUDIO_OUTPUT_DEVICE=system_default
-
-# Second Brain: choose an endpoint; loopback is only an example
-JARVIS_SECOND_BRAIN_URL=http://127.0.0.1:8000/mcp
-JARVIS_SECOND_BRAIN_AUTH=oauth
-JARVIS_SECOND_BRAIN_SECRET_REF=keychain:jarvis/second-brain
-JARVIS_MEMORY_CAPTURE=explicit_facts
-JARVIS_MEMORY_BACKGROUND=true
-JARVIS_MEMORY_RECALL_TOKEN_BUDGET=2000
-
-# Tools and work
-JARVIS_MCP_CONFIG_PATH=/absolute/private/path/mcp-servers.json
-JARVIS_WORKSPACE_ROOTS=/absolute/path/project-one,/absolute/path/project-two
-JARVIS_TOOL_TIMEOUT_SECONDS=30
-JARVIS_TASK_TIMEOUT_SECONDS=1800
-JARVIS_MAX_AGENT_STEPS=40
-JARVIS_MAX_PARALLEL_TASKS=2
-JARVIS_MAX_CODING_WORKERS=1
-
-# Integrations and notifications
-JARVIS_CALENDAR_PROVIDER=disabled
-JARVIS_WEATHER_PROVIDER=open_meteo
-JARVIS_WEATHER_LOCATION=
-JARVIS_WEATHER_REFRESH_MINUTES=20
-JARVIS_QUIET_HOURS=22:00-08:00
-JARVIS_DEFAULT_MISFIRE_POLICY=skip
-
-# Telephony: enable only after dedicated setup
-JARVIS_TELEPHONY_ENABLED=false
-JARVIS_TELEPHONY_PROVIDER=twilio
-JARVIS_TELEPHONY_PUBLIC_BASE_URL=
-JARVIS_TELEPHONY_SECRET_REF=keychain:jarvis/twilio
-JARVIS_TELEPHONY_ACCOUNT_ID=
-JARVIS_TELEPHONY_FROM_NUMBER=
-JARVIS_OWNER_PHONE_NUMBER=
-JARVIS_PHONE_MAX_CALL_SECONDS=600
-JARVIS_PHONE_MAX_ATTEMPTS=1
-JARVIS_PHONE_MAX_CONCURRENT_CALLS=1
-JARVIS_PHONE_DAILY_BUDGET_USD=2
-
-# Example thresholds, not a cost estimate or an approved budget
-JARVIS_MONTHLY_BUDGET_USD=50
-JARVIS_LOG_LEVEL=INFO
-JARVIS_RECORD_AUDIO=false
-JARVIS_TRANSCRIPT_RETENTION_DAYS=30
-JARVIS_OPERATION_LOG_RETENTION_DAYS=30
-JARVIS_REDUCED_MOTION=system
-```
-
-Development may accept provider env secrets such as `OPENAI_API_KEY` or an explicitly configured private file. Personal distribution should import secrets into Keychain and pass references, keeping them inaccessible to generic tools. Examples contain no actual keys.
-
-`local/default` and `cloud/default` are proposed Jarvis registry aliases, not valid provider model IDs.
-
-## 3. Local and cloud profiles
-
-| Profile | LLM | STT/TTS | Tool networking | Fallback |
-| --- | --- | --- | --- | --- |
-| `local_strict` | Local | Local | Egress denied except declared local dependencies | No cloud transition |
-| `local_connected` | Local | Local by default | Individually enabled remote web/calendar/MCP | Local only unless authorized override |
-| `cloud` | Selected cloud provider | Configurable | Permitted tools | Policy candidates only |
-| `hybrid` | Selected by role/task | Configurable | Permitted tools | Cannot violate task privacy/limits |
-
-Profiles are enforced capabilities, not UI colors. Strict local also prevents cloud STT/TTS, report uploads, remote tracing, and transfers to disallowed remote Second Brain servers.
-
-The router can promote work to cloud only when selected by the user or already authorized by task policy. An unresponsive local model alone does not authorize private-content transmission.
-
-## 4. Model contract
-
-Each model has provider, actual ID, endpoint, secret reference, limits, verified capabilities, and compatible parameters. Providers differ in support for `temperature`, reasoning effort, token limits, and tool formats.
-
-| Capability | Check before enabling |
-| --- | --- |
-| Tool calling | Valid arguments, multiple calls, errors, result reuse |
-| Streaming | Complete events, cancellation, correct ordering |
-| Italian | Personal command/conversation suite |
-| Context | Actual tools/documents, not only advertised limits |
-| Vision | Image format, privacy, cost; optional initially |
-| Native audio | Specific API/model/transport; not inferred from text support |
-| Structured output | Schema adherence or explicit refusal/error handling |
-
-Record test results in the model registry. Reject incompatible parameters or adapt them with documented behavior; do not silently ignore them.
-
-LM Studio documents local servers/token authentication; compatible endpoints remain distinct from native APIs. Sources: [server](https://lmstudio.ai/docs/developer/core/server), [authentication](https://lmstudio.ai/docs/python/getting-started/authentication).
-
-## 5. Action policy
-
-Enable autonomous work within authorized scope without repetitive confirmations. Preserve user context/authority and evaluate concrete tools.
-
-| Category | Examples | Proposed behavior |
+| Use | Entry point | Authority |
 | --- | --- | --- |
-| Permitted read | Weather, connected agenda, enabled-workspace files | Execute without confirming every step |
-| Authorized reversible write | Note, task, requested project patch | Proceed within the request and make results reviewable |
-| External effect | Email, attendee invitation, PR, call | Explicit task authority or relevant persistent rule |
-| Destructive/privileged | Bulk deletion, permission changes, production deployment | Separate verification, concrete proposal, appropriate authority |
-| Forbidden capability | Secret exfiltration, excluded folders | Block in execution regardless of prompt |
+| Native Mac | `open dist/Jarvis.app --args --show` | AppKit supervises the loopback core |
+| Portable/browser local | `jarvis desktop` or `jarvis serve` then `jarvis open` | Local process and owner bearer |
+| Remote | `jarvis server --bind ... --port ...`, normally Compose behind Caddy | Device-authenticated remote core |
+| Executor | Desktop companion setup or `jarvis-executor` | Separate identity, local grants and journal |
+| Backup | `jarvis-backup backup` / `restore` | Offline encrypted snapshot/restore |
 
-Approval binds identity, tool, arguments/diff, target, duration, and task. A changed proposal cannot reuse it. Scheduled work uses persistent capabilities bounded by conditions/destinations.
+`JARVIS_API_HOST` remains loopback-only for local mode. Remote mode uses the
+separate server command, `JARVIS_REMOTE_PUBLIC_URL` and device boundary.
+Do not publish the local owner bearer/native API. See the exact reproducible
+commands in [deploy](../deploy/README.md) and [companions](../companions/README.md).
 
-## 6. Technical boundaries
+`ServerOptions` reads `JARVIS_REMOTE_*` from the process environment; it does
+not automatically read the main `.env`. Compose translates its own `deploy/.env`
+variables into the container environment. Remote listener bind/port are CLI options,
+not `JARVIS_REMOTE_BIND` / `JARVIS_REMOTE_PORT` settings.
 
-- Listen on loopback/private socket with local-client authentication. Loopback does not authorize every web page.
-- Allowed Origin/Host, DNS-rebinding protection, and session secrets prevent indiscriminate browser access.
-- Coding tools receive a minimal environment. Main-process calendar/phone credentials are not automatically inherited.
-- Restrict filesystem, network, resources, and duration. Path normalization alone is not an OS sandbox.
-- Docker uses a VM on macOS and can support Linux tools, but is not a prerequisite for every command. Missing isolation never silently falls back to unrestricted host shell.
-- MCP stdio launches local code: allowlist/version commands and dependencies; external documents cannot trigger automatic package installation.
-- MCP HTTP uses dedicated authentication, safe refresh, and least privilege. No indiscriminate token passthrough.
+## Models and profiles
 
-These boundaries address documented MCP risks; authorization also depends on transport/negotiated protocol capabilities. Sources: [MCP Authorization](https://modelcontextprotocol.io/specification/latest/basic/authorization), [Security Best Practices](https://modelcontextprotocol.io/specification/latest/basic/security_best_practices).
+Local mode supports `local_strict`, `local_connected`, `cloud` and `hybrid`.
+Hybrid selects the configured provider at task start; there is no automatic
+mid-task cloud fallback. Strict local blocks remote memory, web, MCP, cloud audio
+and telephony, and requires network-disabled confinement for commands. Missing
+confinement fails closed on Windows/Linux.
 
-## 7. Prompt injection and trust
+Remote mode forces `cloud`, empty host workspaces, disabled host commands and
+disabled native wake/capture. It accepts HTTP MCP, with server-side stdio disabled.
+The executor is an explicit tool destination, not another core or inference fallback.
 
-Email, pages, documents, MCP results, and recalled notes can contain instructions. Respect provenance; do not let them alter policy, identity, recipients, or configuration.
+Models need actual tool-calling compatibility checks. Provider/endpoint changes
+do not forward an old key to a new destination. Remote administrator saves require
+the settings revision (`ETag` / `If-Match`); reload after a 409 conflict.
+Task snapshots cannot silently attach replacement credentials to an old endpoint.
 
-A defensive prompt alone is insufficient. Bounded network tools, isolation, permissions, and separated secrets limit model-error impact. A page asking to send a token must not have a tool capable of reading it.
+## Authorization
 
-Authorized repository instructions provide project context, but cannot override service limits or authorize third-party communications on the owner's behalf.
+The common gateway checks policy, scope, provenance, arguments and effect state
+at execution time. Owner requests and explicit grants define authority; mail,
+documents, recalled evidence, tool output and model prose cannot create it.
 
-## 8. Privacy and retention
+| Capability | Implemented control |
+| --- | --- |
+| Reads | Enabled capability and exact scope; bounded tools and network destinations |
+| Second Brain | Dedicated automatic reads/writes, source/capture checks and separate correction privileges |
+| Registered lights | Revocable per-light direct grant; otherwise exact proposal |
+| Persistent assistant records | Scope, privacy revision and record revision; private feature edits blocked |
+| External/critical effects | Exact action/argument approval where required, expiry and durable receipt |
+| Executor work | Core policy plus independently granted local workspace/command/native capabilities |
+| Unknown effects | Verify at the original system and reconcile; do not blindly repeat |
+| Emergency stop | Block new tasks/tools/audio and interrupt work where possible; completed effects remain |
 
-Proposed defaults to confirm: no persistent audio, 30-day intentional transcripts, 30-day minimized operational logs, rotation/disk limits. Adopted memories follow Second Brain lifecycle.
+Source evidence is not promoted into the owner's request. Event-triggered analysis
+is read-only even when source text asks for a command or message.
+Home Assistant entity exposure, Jira project/GitHub repository allowlists and
+mail sending OAuth scopes remain additional provider boundaries.
 
-Private mode also covers checkpoints, outbox, temporary artifacts, and tracing. Merely hiding GUI messages is insufficient. Indispensable events may retain disclosed minimal IDs/outcomes/times without content.
+## Device and network security
 
-FileVault and private Mac permissions are a baseline; more sensitive content/keys need appropriate cryptographic boundaries. Backups obey the same policy and require a restore test. Search exclusion does not delete backups.
+Remote pairing codes last ten minutes, access tokens five minutes and rotating
+refresh tokens thirty days. The first administrator pairs with a CLI-issued owner
+code. Device grants separate companion, administration and executor use.
+Revocation invalidates credentials/push and interrupts associated work.
+This device protocol is not OIDC; integration OAuth uses supported SDK PKCE flows.
 
-Screen capture, clipboard, and application reading remain optional task-specific capabilities. Continuous desktop surveillance is not a prerequisite for voice assistance.
+Local HMAC service verification and remote HTTPS/device authentication are
+distinct paths. Allowed Host/Origin, CSP, body/time/admission limits and per-device
+quotas protect the HTTP boundary. Remote `/api/native*`, local SSE and Live
+audio/control endpoints are unavailable. The executor opens WSS outward.
 
-## 9. Startup, shutdown, updates
+Coding processes do not inherit provider credentials. Workspace I/O checks paths,
+symlinks/reparse points, hard links and file revisions. Executor command prefixes
+and shell-chain rejection constrain allowed operations, but project code runs with
+the OS user's permissions. Trust installed stdio programs in local mode.
+Remote document parsing instead runs in a separate no-network container without
+core credentials/data. Do not mount the Docker socket or broad host directories.
 
-Startup validates configuration, opens databases, reconciles paused work, checks integrations with timeouts, publishes state, and starts authorized listeners. Local models may preload or load on demand with visible waiting state.
+## Privacy, notifications and recovery
 
-Shutdown blocks new tasks/calls, clears audio, closes media, records known effects, saves checkpoints, and releases devices/locks. Shutdown timeout never converts an uncertain effect to “cancelled”.
+Content scopes are `personal` / `work`; remote privacy/context is per session,
+not a global microphone switch across devices. Private messages, checkpoints,
+sources and results remain in bounded RAM. Minimal IDs/hashes/outcomes can persist
+for deduplication. Private mode cannot prevent an explicitly requested file/effect
+from persisting or change provider retention terms.
 
-Updates require one supervisor, signed package, pinned dependencies, verified migration, and previous-state compatibility. Avoid unnecessary identity changes that invalidate audio permissions.
+Audio is not recorded to disk. Ordinary transcripts default to 30-day retention;
+operational logs to 30 days. Persistent documents have their own 1–365 day lifetime;
+private documents expire after one hour and chosen windows after ten minutes.
+Intentional activities/drafts/rules have explicit deletion instead of dialogue TTL.
 
-Tauri autostart is one option; launching a window alone does not establish task/service recovery. Source: [Tauri Autostart](https://v2.tauri.app/plugin/autostart/).
+Push payloads and background desktop notices are generic. Push needs APNs/FCM
+credentials and real-device verification; desktop notices need a running app.
+Neither notification text nor opening a deep link approves an action.
 
-## 10. Useful observability
+One process owns each core data directory. Reconcile tasks/effects on restart.
+Disconnecting an executor stops its active work; receipt recovery does not replay
+uncertain commands. Explicit offline waiting expires within ten minutes.
 
-Correlate wake→turn→task→tool→audio; retain carrier/media IDs for calls. Measure verified success, first response, job delay, MCP failures, memory backlog, model loops, and estimated consumption.
+## Operations and release evidence
 
-Internal model reasoning traces are unnecessary for useful audit. Show relevant inputs, actions, results, times, sources, and errors, without promising complete explanations of LLM internal processes.
+Use local `jarvis status`, `doctor`, `tasks`, `mute`, `unmute`, `listen`
+and `config validate|show|set` for the local service. They are not a remote login
+client. Remote administration uses the paired UI and server CLI/Compose.
+There is no implemented `jarvis logs --redacted` or generic `jarvis stop` command.
 
-Proposed local commands, not yet implemented at this design stage: `jarvis status`, `jarvis doctor`, `jarvis mute`, `jarvis unmute`, `jarvis stop`, `jarvis tasks`, `jarvis logs --redacted`, `jarvis config validate`.
+Stop the authority before copying data or creating an age backup. Preserve the
+core master key with the encrypted snapshot, protect the age identity separately,
+and back up mounted push credentials and Second Brain separately.
+Restore into a new/empty destination; old devices/pairing are revoked, routines
+disabled and emergency stop enabled. Review effects before resuming.
 
-Distinguish process alive, dependency reachable, and capability working. HTTP 200 does not prove tool calling or searchable memory.
+Distribution signing/notarization and a signed updater are not delivered by the
+source-linked AppKit bundle or unsigned companion builds. Current verification,
+dated artifacts and outstanding device/account checks are in
+[chapter 33](33-current-state-and-verification.md) and the [security audit](17-security-audit.md).

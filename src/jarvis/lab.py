@@ -357,3 +357,4 @@ def install_lab_routes(app, runtime):
     async def delete(key: UUID, data: LabContext):
         check_context(runtime, data)
         return await runtime.lab.delete_file(source_identity(data.scope, data.private, data.session_id), key)
+

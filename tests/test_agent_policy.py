@@ -70,7 +70,8 @@ async def test_responses_stream_accepts_content_blocks_without_streaming_reasoni
     )
 
 
-async def test_actual_agent_executes_a_tool(runtime, monkeypatch):
+@pytest.mark.parametrize("personality_enabled", [False, True])
+async def test_actual_agent_executes_a_tool(runtime, monkeypatch, personality_enabled):
     from jarvis import agent
     from jarvis.language import language_instructions
     from jarvis.voice_style import SOURCE_POLICY
@@ -84,6 +85,9 @@ async def test_actual_agent_executes_a_tool(runtime, monkeypatch):
 
     monkeypatch.setattr(agent, "create_agent", capture_agent)
     monkeypatch.setattr(runtime.tasks, "model", model_factory())
+    runtime.config.update({
+        "response_personality": {"enabled": personality_enabled, "humor": 0, "irony": 65},
+    })
     task = await runtime.tasks.create("Che ore sono?")
     await runtime.tasks.running[task["id"]]
     row = await runtime.db.fetchone("SELECT * FROM tasks WHERE id=?", (task["id"],))
@@ -91,6 +95,9 @@ async def test_actual_agent_executes_a_tool(runtime, monkeypatch):
     assert "timezone" in row["result"]
     assert language_instructions("auto", "it-IT") in captured[0]
     assert SOURCE_POLICY in captured[0]
+    assert ("Humor 0/100" in captured[0]) is personality_enabled
+    assert ("Irony 65/100" in captured[0]) is personality_enabled
+    assert "chosen vocal identity" not in captured[0]
     assert await runtime.db.fetchone("SELECT * FROM events WHERE type='tool.completed'")
 
 

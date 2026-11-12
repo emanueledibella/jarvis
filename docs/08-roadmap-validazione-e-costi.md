@@ -1,5 +1,26 @@
 # Roadmap, validation, and costs
 
+Updated November 3, 2026. The original phases, targets and dated price examples
+below remain a planning/acceptance baseline. Current delivery now includes the
+expanded assistant and remote core/companions. Historical prices are not refreshed
+quotes, and synthetic test success is not full product/device acceptance.
+
+## Delivered milestones and remaining acceptance
+
+| Milestone | Implemented / locally verified | Still required for intended deployment |
+| --- | --- | --- |
+| Local core and native presence | AppKit/React, model profiles, memory/tools, persistence, wake/audio guards and portable preview | Actual model quality, acoustic/permission/login/sleep and assistive-technology checks |
+| Everyday assistant | Today, activities, mail/drafts, event rules, cited documents/OCR, windows, development and Home Assistant | Real consent, account permissions, physical effects and delivery timing |
+| Telephony | Managed local ingress, external ingress, carrier/media identity, Live/legacy audio and recovery | Authorized real calls, routing, latency, voicemail and billing |
+| Remote core | Device/session auth, settings, dispatch, isolated parser, TLS and encrypted restore | VM/domain, independent dependency reachability, real OAuth/model setup and sustained load |
+| Companions | Electron macOS/Windows and Capacitor iOS/Android source; macOS ARM64, Android debug and iOS simulator build evidence | Windows companion build execution, signing/notarization, physical audio/vault/share/push |
+
+Reproducible regression totals and dated package evidence are in
+[chapter 33](33-current-state-and-verification.md). Use [server operations](../deploy/README.md)
+for provisioning/restore and [the companion guide](../companions/README.md) for
+platform builds. Offline automatic failover, a signed updater, remote local-model
+inference, server coding sandboxes and high availability remain future work.
+
 ## 1. Delivery path
 
 The first demo and complete product are different milestones. Telephony, memory, local/cloud models, and voice presence remain in scope even when delivered in later phases.

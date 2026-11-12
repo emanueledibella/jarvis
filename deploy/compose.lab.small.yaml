@@ -1,0 +1,8 @@
+# Apply after compose.lab.yaml on a 1 GiB host. One sandbox at a time, on demand.
+services:
+  sandbox-broker:
+    environment:
+      JARVIS_SANDBOX_PROFILE: small
+    mem_limit: 192m
+    memswap_limit: 192m
+    cpus: 0.5

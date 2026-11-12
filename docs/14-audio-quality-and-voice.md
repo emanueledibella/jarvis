@@ -1,5 +1,11 @@
 # Playback quality, vocal identity, and spoken sources
 
+Scope update, November 3, 2026: native playback/echo and the Live vocal identity
+below belong to local AppKit and the separate phone Live adapter. Remote
+companions use reviewed STT/TTS with `phone_tts_model`/`phone_tts_voice`; a saved
+Live voice ID is not copied to that speech endpoint. See
+[current audio boundaries](33-current-state-and-verification.md#remote-contracts).
+
 October 25, 2026. This update addresses packet-boundary crackling, a more conversational Italian vocal style, and unnecessary source narration in everyday answers.
 
 ## Reproduced audio defect
@@ -47,4 +53,4 @@ The reasoning and voice models share `SOURCE_POLICY`:
 
 Tool results retain source metadata and remain inspectable in Tasks. Changing presentation does not remove verification or make the model invent facts. Private memory continues to preserve evidence and revisions.
 
-An actual private, text-only request, “Che tempo fa a Roma?”, completed through GPT-6.1 Sol and the weather tool in 7.14 seconds, without naming the provider or adding an unsolicited source. No spoken provider audio was generated for that check. The 72-case Python suite and 31 native scenarios passed; the latter run without microphone access or speaker playback. Device listening remains the acceptance check for the new vocal delivery.
+An actual private, text-only request, “Che tempo fa a Roma?”, completed through GPT-6.1 Sol and the weather tool in 7.14 seconds, without naming the provider or adding an unsolicited source. No spoken provider audio was generated for that check. The initial 72-case Python suite and 31 native scenarios passed; the latter run without microphone access or speaker playback. Device listening remains the acceptance check for the new vocal delivery.

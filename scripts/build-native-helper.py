@@ -14,6 +14,14 @@ else:
     subprocess.run(["swiftc", "-O", "-parse-as-library", "-target", architecture + "-apple-macos14.0",
         str(root / "native/RemoteNativeHelper.swift"), str(root / "native/CalendarBridge.swift"),
         str(root / "native/ScreenContext.swift"), str(root / "native/DocumentOCR.swift"),
+        str(root / "native/WindowBridge.swift"),
         "-Xlinker", "-sectcreate", "-Xlinker", "__TEXT", "-Xlinker", "__info_plist", "-Xlinker", str(root / "native/RemoteNativeHelper.Info.plist"),
         "-o", str(output / "JarvisNativeHelper")], check=True)
     subprocess.run(["codesign", "--force", "--sign", "-", str(output / "JarvisNativeHelper")], check=True)
+    subprocess.run(["swiftc", "-O", "-swift-version", "5", "-parse-as-library", "-target", architecture + "-apple-macos14.0",
+        str(root / "native/CompanionVoiceHelper.swift"), str(root / "native/CompanionSpeech.swift"),
+        str(root / "native/LiveAudio.swift"),
+        str(root / "native/AudioInput.swift"), str(root / "native/SelectedAudioInput.swift"),
+        "-Xlinker", "-sectcreate", "-Xlinker", "__TEXT", "-Xlinker", "__info_plist", "-Xlinker", str(root / "native/CompanionVoiceHelper.Info.plist"),
+        "-o", str(output / "JarvisCompanionVoice")], check=True)
+    subprocess.run(["codesign", "--force", "--sign", "-", str(output / "JarvisCompanionVoice")], check=True)

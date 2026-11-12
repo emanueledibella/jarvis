@@ -13,3 +13,15 @@
 .assistant-scope-bar label { display: flex; gap: 10px; align-items: center; }
 .sidebar nav { min-height: 70px; max-height: 48vh; overflow-y: auto; flex-shrink: 1; }
 @media (max-width: 700px) { .assistant-grid { grid-template-columns: 1fr; } .assistant-card { padding: 14px; } }
+
+.health-page .assistant-card > p { line-height: 1.5; margin: 0 0 12px; }
+.health-page .assistant-form .health-consent { display: flex; align-items: flex-start; gap: 10px; line-height: 1.5; }
+.health-page .health-consent input { flex: 0 0 auto; width: auto; margin-top: 4px; }
+.health-page .assistant-form .health-consent { flex-direction: row; }
+.health-categories { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 4px 16px; }
+.health-preview { max-height: 360px; overflow: auto; }
+
+.screen-attachment h3 { margin: 0 0 10px; }
+.screen-attachment p, .screen-attachment-hint { margin-block: 8px; line-height: 1.5; }
+.screen-attachment-preview { display: block; max-width: 100%; max-height: min(40vh, 380px); object-fit: contain; }
+.screen-attachment-text { max-height: 10rem; overflow: auto; white-space: pre-wrap; }

@@ -1,12 +1,20 @@
 # Vision, scenarios, and functional requirements
 
-Date: October 24, 2026. All behaviors are **requirements for the product to be built**, except evidence explicitly marked as already observed. The October 25 language update preserves Italian support and adds automatic response-language adaptation.
+Original catalog: October 24, 2026; scope updated November 3. The 132 IDs below
+are the baseline product requirements, not a list of passed tests. Implementation
+now includes the expanded assistant and remote core/companions described in
+section 18 and [the current coverage record](33-current-state-and-verification.md).
 
 ## 1. Objective and boundaries
 
 Jarvis is a personal assistant that accepts goals in the user's language, uses suitable sources and tools, completes authorized work, makes its results verifiable, and maintains continuity through Second Brain.
 
-The initial environment is **one Mac and one owner**, with one or more cloud and local models. Availability depends on the Mac and its user session. The window is an interaction surface; the service must operate independently of its visibility.
+The initial environment was **one Mac and one owner**, with cloud/local models.
+Local availability still depends on that computer/session. Scope now also includes
+one always-on remote core, macOS/Windows companions, iOS/Android companions and
+separately granted desktop executors. Server work can continue with the Mac off;
+its local capabilities cannot. The window is an interaction surface rather than
+the owner of the remote task lifecycle.
 
 “Answering a specific question” means choosing relevant tools and sources, requesting genuinely missing context, and explaining the answer's limits. It does not promise universal knowledge or successful execution in every external service.
 
@@ -246,6 +254,36 @@ Table criteria are functional checks. Performance thresholds and test samples ar
 
 ## 17. Beyond the first installation
 
-Multiple users, whole-home listening, native mobile apps, server high availability, core self-modification, autonomous purchases, and indiscriminate third-party calls are expansions. They are not dependencies of the first Mac installation. Carrier integration and support for one local and one cloud model remain part of the requested product.
+Multiple users, whole-home listening, server high availability, core
+self-modification, autonomous purchases and indiscriminate third-party calls remain
+outside delivery. Mobile companions and a single remote core have since entered
+the implemented scope. Local/cloud profiles remain part of local mode; remote
+mode uses an external model API. Carrier calls remain distinct from app audio.
 
 This catalog is a baseline to refine through use: no prototype is complete while P0 requirements remain uncovered within its declared scope.
+
+## 18. Expanded assistant and remote scope
+
+The following acceptance areas extend the original catalog without renumbering
+its stable 132 IDs. Their analysis, implementation gates and current evidence are
+in [chapter 27](27-assistant-expansion.md), [chapter 32](32-remote-implementation.md)
+and [chapter 33](33-current-state-and-verification.md).
+
+| Area | Added requirement | Acceptance boundary |
+| --- | --- | --- |
+| Today and planning | Priorities, briefings, meeting preparation, projects/nested activities and proposed work blocks | Fresh calendar coverage; revisions/scopes; proposals do not silently create events |
+| Mail | Scoped Gmail/Microsoft reads, reviewed drafts and optional exact sends | Dedicated consent, recipients/revision/hash, deduplication and uncertain-send reconciliation |
+| Automations | Calendar/directory/mail/Jira/GitHub/home changes with quiet baselines and cooldown | No unchanged-state noise; bounded polling; triggered analysis remains read-only |
+| Documents and screen | Chosen sources, cited parts/hashes, OCR/comparison and one-window context | Bounded extraction, session ownership, real expiry/deletion and no ambient monitoring |
+| Development and home | Jira/GitHub target allowlists and Home Assistant per-tool grants | Provider permissions, exact action proposals, stale/partial evidence and independent readback |
+| Remote authority | Phone access and accepted server work with desktop powered off | One scheduler/database, reachable model/memory/integrations; no automatic standalone failover |
+| Device identity | Pair/revoke companion/admin/executor credentials | One-use enrollment, token rotation/reuse rejection and OS vault storage |
+| Sessions and settings | Cross-device ordinary chat, per-session privacy/scope and administrator model/key setup | Private sources/results isolated; stale settings rejected; no model key in an app bundle |
+| Desktop execution | Outbound WSS, explicit workspace/command/native grants and exact job identity | Core and local checks; revision/deadline; disconnect/restart without unsafe effect replay |
+| App interaction | Responsive Electron/Capacitor UI, explicit voice review, generic push and native sharing | Real physical-device audio/share/push and signing remain acceptance work |
+| Server operations | Linux containers, isolated parser, HTTPS and encrypted backup/restore | Single core, no parser credentials/network, restore revokes old devices and blocks automatic effects |
+
+General mouse/keyboard automation, remote local-model inference, Linux Electron
+packaging and a signed updater are not implied by these requirements. The
+implemented code/build evidence does not replace personal-account or real-device
+acceptance, nor assert that a production VM or store release has been published.

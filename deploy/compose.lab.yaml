@@ -1,0 +1,30 @@
+# Build the worker images on this Docker host before starting this optional overlay.
+services:
+  core:
+    environment:
+      JARVIS_SANDBOX_BROKER_SOCKET: /run/jarvis-sandbox/broker.sock
+    volumes:
+      - sandbox-socket:/run/jarvis-sandbox
+    depends_on:
+      sandbox-broker: {condition: service_started}
+  sandbox-broker:
+    image: jarvis-sandbox-broker:local
+    build: {context: .., dockerfile: deploy/lab.Dockerfile, target: broker}
+    restart: unless-stopped
+    init: true
+    user: "10001:10001"
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 512m
+    cpus: 1
+    pids_limit: 64
+    group_add: ["${JARVIS_DOCKER_GID:-0}"]
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - sandbox-socket:/run/jarvis-sandbox
+    tmpfs: ["/tmp:rw,nosuid,nodev,size=32m"]
+    logging: {driver: json-file, options: {max-size: 5m, max-file: "2"}}
+volumes:
+  sandbox-socket:

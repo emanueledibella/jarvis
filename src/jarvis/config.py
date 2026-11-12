@@ -13,6 +13,7 @@ from zoneinfo import ZoneInfo
 from pydantic import Field, PrivateAttr, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
+from .personality import PersonalityProfile
 from .platforms import (
     SOURCE_ROOT,
     data_directory,
@@ -41,6 +42,7 @@ class Settings(BaseSettings):
     response_language: str = Field(
         default="auto", pattern=r"^(?:auto|[a-zA-Z]{2,3}(?:-[a-zA-Z0-9]{2,8})*)$"
     )
+    response_personality: PersonalityProfile = Field(default_factory=PersonalityProfile)
     profile: Profile = "local_connected"
     cloud_provider: Literal["openai", "anthropic", "openai_compatible"] = "openai"
     cloud_model: str = ""

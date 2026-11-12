@@ -1,5 +1,12 @@
 # GitHub research and framework comparison
 
+Historical research snapshot. The delivered stack now uses AppKit/WebKit locally,
+Electron for remote desktop, Capacitor for mobile and the shared FastAPI/Deep
+Agents core. Tauri, React Native, Pipecat and LiveKit remain evaluated candidates,
+not a description of current dependencies. See [architecture](03-architettura.md)
+and [current state](33-current-state-and-verification.md). Sources below retain
+their original research date; they were not refreshed by the documentation review.
+
 Research conducted on **October 24, 2026**. Primary sources included repositories, READMEs, GitHub metadata, selected source files, and official documentation. Competitors were not run. “Claimed” means a capability described by the project; code and tests alone do not establish reliability on our Mac.
 
 ## 1. Method and criteria

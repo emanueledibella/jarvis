@@ -2,6 +2,30 @@
 
 Research date: **October 24, 2026**, reference zone Europe/Rome. GitHub timestamps below are UTC. Project capabilities were assessed from documentation, not complete competitor installations.
 
+Documentation review: **November 3, 2026**, source `6ff2d65`. The research tables
+retain their historical dates and candidate status. The current source-backed
+decisions are listed below; [chapter 33](33-current-state-and-verification.md)
+separates rerun tests, prior build evidence and remaining deployment acceptance.
+Subsequent voice-continuity changes are present in the workspace and documented
+in [chapter 34](34-voice-listening-continuity.md); they are not part of that commit.
+
+## Implemented decisions after the initial research
+
+| Decision | Source evidence / consequence |
+| --- | --- |
+| Shared Python/FastAPI/LangGraph/Deep Agents engine | `pyproject.toml`, `agent.py`, `runtime.py`; used in local and remote modes |
+| AppKit/WebKit local host | `native/App.swift`; Tauri was superseded; native wake/audio remain local |
+| One remote authority | `remote.py`, `remote_store.py`, `deploy/compose.yaml`; one SQLite/scheduler, external model APIs |
+| Electron desktop and Capacitor mobile | `companions/package.json`, `capacitor.config.json`; React Native was a candidate, not the chosen implementation |
+| Personal-device pairing | One-use codes, access/rotating refresh, distinct roles; OIDC was proposed but is not implemented |
+| Outbound desktop executor | `executor.py`, `remote_jobs.py`; local grants and receipts, no incoming desktop port or direct phone link |
+| Expanded assistant | `daily.py`, `organizer.py`, `mail.py`, `automations.py`, `documents.py`, `screen.py`, `development.py`, `home_assistant.py` |
+| Isolated parsing and encrypted restore | `document_service.py`, `backup.py`, `deploy/`; parser has no core volume/network; restore revokes devices and blocks replay |
+
+The November commit incorporates the October 28–30 feature work. Date-specific
+development gates are retained in chapters 25–27 and 32; [the changelog](../CHANGELOG.md)
+maps that work without claiming separate published releases or new user approvals.
+
 ## 1. Interpreting evidence
 
 - **Confirmed request:** owner statement in this conversation.

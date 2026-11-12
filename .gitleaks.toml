@@ -7,7 +7,7 @@ description = "Email addresses must use reserved fixtures or public noreply iden
 regex = '''(?i)[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}'''
 [[rules.allowlists]]
 regexTarget = "match"
-regexes = ['''(?i)@(?:example\.(?:com|net|org|invalid|test)|[a-z0-9.-]+\.example|users\.noreply\.github\.com)$''']
+regexes = ['''(?i)@(?:example\.(?:com|net|org|invalid|test)|[a-z0-9.-]+\.example|users\.noreply\.github\.com|openssh\.com)$''']
 
 [[rules]]
 id = "personal-home-path"

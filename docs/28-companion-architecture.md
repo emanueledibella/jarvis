@@ -1,136 +1,127 @@
-# Jarvis companion: product and security architecture
+# Jarvis companions: product and security architecture
 
-Historical proposal: the later discussion chose the remote core first, with both
-iOS and Android. See [the implemented architecture and verification](32-remote-implementation.md)
-and the [companion build guide](../companions/README.md) for the current state.
+Updated November 3, 2026. The delivered architecture is **one remote core,
+desktop/mobile companions and a separate desktop executor**. The original
+Mac-first and React Native proposal is superseded. See
+[implementation/security evidence](32-remote-implementation.md),
+[current coverage](33-current-state-and-verification.md) and
+[build/pairing instructions](../companions/README.md).
 
-## What smartphone access means
+## Roles and platforms
 
-A companion app is a second user interface to the same Jarvis authority: chat,
-push-to-talk, Today, activities, job progress, source sharing and action approvals.
-The phone records an explicit voice request or shares a chosen document; the
-configured Jarvis service runs tools and returns results. The phone does not need
-to run the main language model. Its app remains useful outside the home network
-when a secure network path and an awake authority are available.
+| Role | Delivered implementation | Owns |
+| --- | --- | --- |
+| Core | Python/FastAPI/LangGraph/Deep Agents on the server | Conversations, tasks, policy, effects, schedules, budgets, connections and model keys |
+| Desktop companion | Electron on macOS/Windows, shared React UI | Interface, OS-vault device credential, explicit recording, tray/notices and executor lifecycle |
+| Mobile companion | Capacitor on iOS/Android, shared responsive React UI | Explicit recording/playback, device credential, push registration and native source sharing |
+| Desktop executor | Separate paired Python process with outbound WSS | Local workspace/native grants, execution and effect journal |
+| Model | Configured external provider API | Inference on the permitted context supplied by the core |
 
-This is separate from Twilio phone calls. The existing carrier feature can reach
-the owner at a phone number; a companion offers a rich interface and authenticated
-device identity, without placing a carrier call for each interaction.
+The phone talks to the server, not directly to the Mac. It does not need model
+weights or a second harness/scheduler. The local AppKit application is still
+available as a separate standalone mode; it is not the Electron companion or an
+automatic offline replica. Linux has a portable local service/dashboard, not a
+packaged Electron companion.
 
-## Recommended first delivery
+## Everyday interaction
 
-Use the current Mac as the authority and build a companion with:
+Pair an administrator app/browser using the one-use code issued by the server
+CLI. Additional device codes are issued from the paired administrator.
+Ordinary conversations can continue across devices in the same scope.
+Each client session has its own Personal/Work context, privacy revision and
+executor choice; private sources/tasks require their originating session.
 
-1. Device pairing and revocation.
-2. Text chat, explicit voice capture and spoken replies.
-3. Today, activities/projects and job status.
-4. Generic push notifications with authenticated detail retrieval.
-5. Review of exact pending actions, with fresh arguments and expiry.
-6. A share extension/share target for an explicitly chosen page, image or document.
-7. Visible online/offline state and source freshness.
+The shared assistant exposes chat, Today/briefings, activities/projects, mail,
+automations, documents, memory, Jira/GitHub, Home Assistant, routines and pending
+decisions. Availability follows the core's configured providers and grants.
+Administrator settings update the server's model, key, declared rates and budget,
+using optimistic revisions; a stale save requires reload. The key is not read
+back into the app.
 
-For iPhone and Android, React Native is a natural candidate because the dashboard
-and API work already use React/TypeScript. API models, validation expectations and
-domain logic can be shared; most desktop DOM/CSS views cannot simply be copied
-into native mobile screens. For an iPhone-only product, SwiftUI is an alternative
-worth choosing deliberately. Signing, Apple/Google developer accounts, release
-distribution and push credentials depend on that platform decision.
+Voice is explicit record → server STT → transcript review/edit → send text, with
+optional server TTS. It records at most 60 seconds and does not provide ambient
+wake or continuous native Live conversation. STT/TTS uses the core's
+`phone_stt_model`, `phone_tts_model` and `phone_tts_voice`.
+Local Mac Live/custom voice IDs and Twilio calls are different audio contracts.
 
-The first version should use explicit voice capture, with platform shortcuts as
-an optional entry point. Continuous background microphone behavior requires
-separate platform, permission, battery and store-policy validation.
+Sharing a selected document, image, URL or text stages it in the app's private
+inbox for up to fifteen minutes, at most five items of 3 MB each. The owner
+reviews and explicitly imports/attaches it. Source text is evidence, not action
+authority. Persistent server extraction and private temporary uploads retain
+their own separate retention rules.
 
-## Connectivity and availability
+## Identity, storage and approvals
 
-### Option A: companion connected to an awake Mac
+Implemented device authentication uses ten-minute one-use pairing codes,
+five-minute access tokens and thirty-day rotating refresh tokens. Refresh reuse
+invalidates the family. Companion, administrator and executor grants are distinct.
+This is the personal-device protocol; the earlier proposed OIDC login was not
+implemented. Integration OAuth remains a separate supported PKCE/consent flow.
 
-The smallest first delivery keeps the existing service and local files on the
-Mac. A private VPN can provide network reachability to a dedicated companion
-gateway. The gateway exposes only mobile-facing operations and calls the local
-Jarvis API internally. The current local bearer token never goes to the phone.
+Refresh credentials use iOS Keychain, Android Keystore-backed AES-GCM or desktop
+safeStorage; access tokens stay in RAM. Same-origin browsers use an HttpOnly
+refresh cookie and coordinate rotation across tabs with Web Locks.
+Each device can be revoked; losing a phone does not require shipping a new
+provider key in every application.
 
-The Mac must remain awake, logged in and connected. A sleeping/offline Mac cannot
-run AI jobs, receive new requests or send fresh push notifications. The app shows
-that state honestly. Previously downloaded data can be shown as stale cached
-data; an offline phone must not silently approve an expired action.
+Review fetches the authoritative current proposal, arguments/hash, task and expiry.
+A push, deep link or model confirmation cannot approve it. Server scope/session
+checks remain authoritative. Local biometrics are not implemented as a mandatory
+Jarvis approval step. Remote private content remains in bounded core RAM, with
+minimal metadata retained for deduplication; provider processing terms still apply.
 
-### Option B: companion connected to an always-on authority
+## Working on a computer
 
-An always-on mini PC, suitable NAS/container host or server owns scheduling,
-canonical state, mailbox/project connections and the mobile gateway. The Mac
-becomes an optional paired satellite for its microphone, chosen windows,
-Bluetooth devices and authorized local workspaces.
+Pair an executor with its own code and explicitly select a local folder/scope.
+Read, write and command grants are distinct. Commands require permitted prefixes
+and local acknowledgment that project code runs with OS-user permissions.
+Core approval cannot expand the local grant. Existing-file writes compare a
+previously read SHA-256.
 
-This provides availability while the laptop is off. Mac-only actions remain
-unavailable until that Mac reconnects. Home Assistant operations can remain
-available if the server can reach the owner's Home Assistant instance.
+The executor opens WSS to the core and publishes capability/workspace IDs without
+absolute paths. Jobs bind exact operation/hash, task/session, destination and
+deadline. Duplicate delivery cannot run the same journaled ID twice. A lost result
+can retransmit its receipt; an uncertain effect is not automatically retried.
+Offline waiting is explicit and expires within ten minutes; private work requires
+an online executor.
 
-There must be one canonical scheduler and database authority. Running independent
-Mac/server copies of the same routines risks duplicate effects. Do not share a
-live SQLite WAL database over a network filesystem. Move the authority through a
-verified migration/backup procedure and give satellites separate authenticated
-capabilities. The existing loopback-only native bridge cannot be exposed directly.
+macOS adds separately granted EventKit and chosen-window operations through the
+native helper. Each window capture still needs local system-picker selection.
+Hue Bluetooth, native wake/echo processing and general mouse/keyboard automation
+are not executor operations. Windows supplies workspace/commands; cloud calendar
+and home capabilities run through the core.
 
-## Gateway and device security
+## Availability and notifications
 
-The current API intentionally binds to loopback and trusts a local owner token.
-Mobile support needs a separate surface, not a setting that publishes the entire
-dashboard, shell tools, native endpoints or telephony proxy.
+| Condition | Behavior |
+| --- | --- |
+| Desktop asleep/offline | Core jobs and reachable integrations continue; that desktop's capabilities are unavailable |
+| Mobile app closes after acceptance | Server task continues; result can be inspected later |
+| Core unreachable | Connection/retry state; no second local core, silent offline approval or delayed mutation replay |
+| Scope/privacy changes | Affected session context/sources are separated; another device's microphone is not toggled |
+| Device revoked | Future credentials/push and associated pending work are invalidated/interrupted |
+| Unknown local effect | Inspect/reconcile the original outcome before starting replacement work |
 
-Use a supported OAuth/OIDC authorization flow with PKCE for a public native
-client, short-lived access tokens and rotating refresh tokens. Pairing should
-have an explicit owner ceremony, a short-lived one-use code/QR, device identity,
-proof of possession where supported, and a revocable device record. Secrets live
-in iOS Keychain/Android Keystore-backed storage. A VPN improves reachability and
-exposure, but does not replace app authentication.
+APNs/FCM outbox payloads contain generic updates, with detail fetched after
+authentication. Signing, push project credentials and OS notification permission
+are setup requirements. Delivery/visibility is not guaranteed by a provider's
+acceptance. Desktop generic notices need a running companion and permitted OS
+notifications; closing its window keeps the tray, quitting does not.
 
-Device grants distinguish chat/read access, source uploads, approvals and any
-workspace capability. Each operation names its exact scope and conversation
-privacy version. Mobile conversation privacy is per session/device; it must not
-silently toggle a different user's or the Mac microphone's current context.
+Second Brain must be hosted/reachable independently of the Mac for memory while
+it is off. Home Assistant needs a route available from the server. The telephony
+proxy is a separate carrier ingress, not a way to publish the local bearer API.
 
-Approvals fetch authoritative current arguments, target, hash, expiry and task
-identity. A notification, deep link or a model's text is never itself approval.
-Local biometric confirmation can protect the review UI, but the server still
-validates token/device authority, freshness and the exact proposal. Revocation
-invalidates future access and queued decisions.
+## Verification and original alternatives
 
-## Notifications and offline behavior
+Code and development build evidence cover macOS ARM64, Android debug and iOS
+simulator, with server/container and protocol/browser checks. Windows companion
+CI is configured, but an executed Windows companion build is not established by
+the local macOS evidence. Physical audio, share sheet, Keychain/TCC, push,
+distribution signing and production hosting remain acceptance work.
 
-Use APNs for iOS and FCM for Android, either directly or through an explicitly
-chosen delivery service. Push credentials and developer accounts are setup
-dependencies. Push payloads carry a generic event identity, not private message
-bodies, email recipients, source text or secrets. Details are fetched after
-authentication; privacy/lock-screen preferences control what appears.
-
-Cached data should be bounded and protected by the device. Queued new requests
-have stable request IDs, scope, expiry and clear state. Mutations and approvals
-need current server validation; they are not blindly replayed after hours offline.
-The existing effect ledger remains the authority for duplicate/unknown outcomes.
-
-## Required acceptance checks before release
-
-- Pair, revoke, lose and replace a phone; reject stolen/replayed/expired codes.
-- Refresh rotation, concurrent requests, clock skew and authorization expiry.
-- Scope/private separation across Mac and multiple phones.
-- Mac sleep/network loss/server recovery without duplicate work.
-- Push redaction, denied permission, device changes and stale deep links.
-- Exact approvals after proposal edits/expiry and uncertain remote effects.
-- Shared file size/type boundaries, local cache deletion and account sign-out.
-- Real iOS/Android audio, background and notification behavior on signed builds.
-- Gateway TLS, rate limits, request/result bounds, audit and backup restoration.
-
-## Suggested sequence
-
-First build the paired companion against an awake Mac, after choosing iPhone-only
-or iPhone/Android and the private-connectivity approach. Keep availability limits
-visible. Then move the canonical service to an always-on host if independent
-availability is needed. This keeps the first mobile delivery bounded while
-preserving a coherent path to a continuously available personal assistant.
-
-## Primary implementation references
-
-- [React Native platform-specific and shared code](https://reactnative.dev/docs/platform-specific-code).
-- [OAuth for native apps, browser authorization and PKCE](https://www.rfc-editor.org/info/rfc8252/).
-- [Apple remote notifications](https://developer.apple.com/documentation/usernotifications/registering-your-app-with-apns).
-- [Firebase Cloud Messaging](https://firebase.google.com/docs/cloud-messaging).
+The original proposal compared an awake Mac authority with an always-on server,
+React Native/SwiftUI client options and OIDC-style login. Subsequent delivery
+selected the server first, Capacitor mobile, Electron desktop and personal-device
+pairing. A single SQLite/scheduler authority was retained. These decisions explain
+the evolution; the earlier candidate stack is not an additional supported mode.

@@ -14,6 +14,7 @@
   --amber: #ecc16f;
   --red: #f395a3;
   --violet: #b5a3e4;
+  --wake-blue: #83b4ff;
   --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 :root[data-theme="light"] {
@@ -31,6 +32,22 @@
   --amber: #896018;
   --red: #ae4357;
   --violet: #71579d;
+  --wake-blue: #295da8;
+}
+[data-voice-tone="idle"] {
+  --voice-color: var(--quiet);
+}
+[data-voice-tone="wake"] {
+  --voice-color: var(--wake-blue);
+}
+[data-voice-tone="listening"] {
+  --voice-color: var(--green);
+}
+[data-voice-tone="speaking"] {
+  --voice-color: var(--violet);
+}
+[data-voice-tone="working"] {
+  --voice-color: var(--amber);
 }
 .app-shell {
   grid-template-columns: 208px minmax(0, 1fr);
@@ -143,12 +160,8 @@
   letter-spacing: 0.1em;
   color: var(--accent);
 }
-.sidebar-voice > span:last-child {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-  color: var(--muted);
-  font-size: 9px;
+.sidebar-voice-icon {
+  color: var(--voice-color);
 }
 .signal-bars {
   display: flex;
@@ -168,7 +181,8 @@
   transition: height 0.12s ease-out;
 }
 .sidebar-voice .signal-bars {
-  margin: 9px 0 5px;
+  color: var(--voice-color);
+  margin-top: 7px;
 }
 .brain-state {
   background: transparent;
@@ -307,8 +321,7 @@
   line-height: 1.3;
   font-weight: 400;
 }
-.command-heading h1 > span,
-.core-copy h2 > span {
+.command-heading h1 > span {
   color: var(--accent);
 }
 .service-pill {
@@ -401,14 +414,14 @@
 }
 .core-panel {
   grid-column: span 2;
-  min-height: 300px;
-  padding-bottom: 0;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
 }
 .core-panel:after {
   content: "";
   position: absolute;
-  inset: 45px 0 30px 24%;
+  inset: 42px 0 0;
   pointer-events: none;
   background: radial-gradient(
     circle,
@@ -422,67 +435,64 @@
   position: relative;
   z-index: 1;
 }
+.core-panel .hud-heading {
+  flex-wrap: wrap;
+}
+.core-settings {
+  gap: 4px;
+  color: var(--muted);
+}
 .core-body {
   display: grid;
-  grid-template-columns: minmax(180px, 0.9fr) minmax(240px, 1.1fr);
+  flex: 1;
+  grid-template-columns: minmax(0, 210px) minmax(0, 240px);
+  justify-content: center;
   align-items: center;
-  min-height: 228px;
-  padding: 3px 3px 0 8px;
-  gap: 10px;
+  gap: clamp(20px, 4vw, 56px);
+  padding: 12px 0 4px;
 }
-.core-kicker {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-  font: 8px var(--mono);
-  letter-spacing: 0.06em;
-  color: var(--muted);
+.core-panel .orb {
+  width: min(210px, 100%);
+  margin: 0;
 }
-.core-kicker .tiny-dot {
-  width: 4px;
-  height: 4px;
+.core-actions {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
 }
-.core-copy h2 {
-  margin-top: 15px;
-  font-size: clamp(23px, 2.3vw, 33px);
-  font-weight: 400;
-  letter-spacing: -0.035em;
-  line-height: 1.25;
-}
-.core-copy > p {
-  color: var(--muted);
-  font-size: 11px;
-  line-height: 1.7;
-  margin-top: 11px;
+.core-actions > .btn {
+  justify-content: flex-start;
+  min-height: 44px;
+  padding: 8px 12px;
+  font-size: 12px;
+  text-align: left;
+  white-space: normal;
 }
 .talk-button {
-  margin-top: 21px;
-  gap: 8px;
-  padding: 10px 12px;
-  font-size: 11px;
   box-shadow: 0 0 22px color-mix(in srgb, var(--accent) 12%, transparent);
 }
-.talk-button > span {
+.talk-button > kbd {
   border-left: 1px solid color-mix(in srgb, var(--bg) 25%, transparent);
+  margin-left: auto;
   padding-left: 8px;
-  font-size: 9px;
-  opacity: 0.75;
+  color: inherit;
+  font: 10px var(--mono);
 }
-.core-chat {
+.core-note {
   display: flex;
-  width: fit-content;
-  font-size: 10px;
-  margin-top: 7px;
+  align-items: center;
+  gap: 6px;
+  margin-top: 3px;
   color: var(--muted);
+  font-size: 10px;
+  line-height: 1.4;
 }
-.core-visual {
-  min-width: 0;
-  padding: 5px 0 7px;
+.core-actions svg {
+  flex-shrink: 0;
 }
 .orb-block {
   display: flex;
-  flex-direction: column;
-  align-items: center;
+  justify-content: center;
   min-width: 0;
 }
 .orb {
@@ -490,14 +500,14 @@
   width: min(205px, 100%);
   aspect-ratio: 1;
   isolation: isolate;
-  color: var(--accent);
+  color: var(--voice-color);
 }
 .orb-haze {
   position: absolute;
   inset: -12%;
   background: radial-gradient(
     circle,
-    color-mix(in srgb, var(--accent) 15%, transparent),
+    color-mix(in srgb, currentColor 19%, transparent),
     transparent 66%
   );
   border-radius: 50%;
@@ -533,9 +543,8 @@
 }
 .ring-a {
   inset: 8%;
-  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
-  border-top-color: var(--accent);
-  border-bottom-color: var(--accent);
+  border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+  border-block-color: color-mix(in srgb, currentColor 55%, transparent);
   transform: rotate(-28deg);
   animation: reactor-orbit 55s linear infinite;
 }
@@ -557,14 +566,12 @@
 }
 .ring-b {
   inset: 20%;
-  border: 3px solid color-mix(in srgb, var(--accent) 8%, transparent);
-  border-left-color: var(--accent);
-  border-right-color: color-mix(in srgb, var(--accent) 70%, transparent);
+  border: 2px solid color-mix(in srgb, currentColor 23%, transparent);
   animation: reactor-orbit 38s linear infinite reverse;
 }
 .ring-c {
   inset: 25%;
-  border: 1px dashed color-mix(in srgb, var(--accent) 33%, transparent);
+  border: 1px dashed color-mix(in srgb, currentColor 33%, transparent);
   transform: rotate(18deg);
 }
 .orb-core {
@@ -575,30 +582,21 @@
   justify-content: center;
   flex-direction: column;
   border-radius: 50%;
-  border: 1px solid color-mix(in srgb, var(--accent) 24%, transparent);
+  border: 1px solid color-mix(in srgb, currentColor 24%, transparent);
   background: radial-gradient(
     circle,
-    color-mix(in srgb, var(--accent) 12%, var(--panel)),
+    color-mix(in srgb, currentColor 12%, var(--panel)),
     var(--bg)
   );
   box-shadow:
-    0 0 35px color-mix(in srgb, var(--accent) 8%, transparent),
-    inset 0 0 25px color-mix(in srgb, var(--accent) 6%, transparent);
+    0 0 35px color-mix(in srgb, currentColor 8%, transparent),
+    inset 0 0 25px color-mix(in srgb, currentColor 6%, transparent);
   transform: scale(var(--pulse, 1));
   transition: transform 0.12s ease-out;
 }
-.orb-core > .reactor-name {
-  font-size: 17px;
-  letter-spacing: 0.17em;
-  margin-left: 0.17em;
-  font-weight: 500;
-  text-shadow: 0 0 15px color-mix(in srgb, var(--accent) 45%, transparent);
-}
-.orb-core > small {
-  font: 6px var(--mono);
-  letter-spacing: 0.12em;
-  color: var(--muted);
-  margin-top: 7px;
+.orb-icon {
+  flex-shrink: 0;
+  filter: drop-shadow(0 0 8px color-mix(in srgb, currentColor 42%, transparent));
 }
 .spectrum {
   display: flex;
@@ -631,78 +629,41 @@
   bottom: 8%;
   transform: rotate(225deg);
 }
-.orb-state {
-  text-align: center;
-  margin-top: -4px;
+.orb-status {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
-.orb-state > .eyebrow {
-  color: var(--accent);
-  font-size: 8px;
-  letter-spacing: 0.15em;
+.orb[data-voice-tone="wake"] .ring-b {
+  border-block-color: currentColor;
 }
-.orb-state h2 {
-  font-size: 13px;
-  font-weight: 400;
-  margin-top: 5px;
-  letter-spacing: -0.01em;
+.orb[data-voice-tone="listening"] .ring-b {
+  border-color: currentColor;
+  box-shadow: 0 0 22px color-mix(in srgb, currentColor 24%, transparent);
+  animation: none;
 }
-.orb-state p {
-  display: none;
+.orb[data-voice-tone="speaking"] .ring-b {
+  border-width: 3px;
+  border-inline-color: currentColor;
+  animation-duration: 16s;
 }
-.orb-speaking .orb-ticks {
+.orb[data-voice-tone="speaking"] .orb-ticks {
   opacity: calc(0.55 + var(--level, 0) * 0.45);
 }
-.orb-listening .ring-b,
-.orb-speaking .ring-b {
-  box-shadow: 0 0 24px color-mix(in srgb, var(--accent) 9%, transparent);
-}
-.orb-muted,
-.orb-locked,
-.orb-permission_required,
-.orb-unavailable {
-  color: var(--quiet);
-}
-.orb-muted .orb-ring,
-.orb-locked .orb-ring,
-.orb-unavailable .orb-ring {
-  animation-play-state: paused;
-}
-.orb-processing .ring-b,
-.orb-connecting .ring-b {
+.orb[data-voice-tone="working"] .ring-b {
+  border-top-color: currentColor;
   animation-duration: 8s;
+}
+.orb[data-voice-tone="idle"] .orb-ring {
+  animation-play-state: paused;
 }
 @keyframes reactor-orbit {
   to {
     transform: rotate(360deg);
   }
-}
-.core-footnote {
-  min-height: 33px;
-  border-top: 1px solid var(--line);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  color: var(--quiet);
-  font-size: 9px;
-}
-.core-footnote > span:first-child {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.core-footnote > .signal-bars {
-  width: 85px;
-  height: 22px;
-  flex-shrink: 0;
-}
-.core-footnote > button {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  color: var(--muted);
-  font-size: 9px;
-  padding: 6px 0;
 }
 .day-panel {
   padding: 17px 18px 14px;
@@ -1153,14 +1114,8 @@
   .command-grid {
     gap: 18px;
   }
-  .core-body {
-    min-height: 240px;
-  }
   .orb {
     width: 235px;
-  }
-  .core-copy h2 {
-    font-size: 35px;
   }
   .hud-panel {
     padding-left: 22px;
@@ -1215,22 +1170,8 @@
   .command-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .core-panel {
-    grid-column: span 2;
-  }
-  .core-body {
-    grid-template-columns: 1fr 1fr;
-    min-height: 240px;
-    padding-left: 15px;
-  }
-  .core-copy h2 {
-    font-size: 32px;
-  }
   .day-panel {
     grid-row: span 1;
-  }
-  .core-panel .orb {
-    width: 225px;
   }
   .topbar {
     padding: 0 22px;
@@ -1273,24 +1214,6 @@
   .command-center {
     padding: 20px;
   }
-  .core-body {
-    padding-left: 3px;
-    min-height: 240px;
-    gap: 0;
-    grid-template-columns: minmax(175px, 1fr) minmax(210px, 1fr);
-  }
-  .core-copy h2 {
-    font-size: 27px;
-  }
-  .core-panel .orb {
-    width: 225px;
-  }
-  .talk-button > span {
-    display: none;
-  }
-  .core-footnote > .signal-bars {
-    display: none;
-  }
   .topbar {
     grid-template-columns: 1fr auto;
   }
@@ -1308,9 +1231,6 @@
   }
   .hud-panel {
     padding: 15px;
-  }
-  .core-panel {
-    padding-bottom: 0;
   }
   .command-shortcuts > .eyebrow {
     flex-basis: 100%;
@@ -1402,59 +1322,14 @@
     grid-column: auto;
   }
   .core-body {
-    grid-template-columns: minmax(0, 1fr);
-    padding: 0;
-    gap: 0;
-  }
-  .core-visual {
-    grid-row: 1;
-    padding: 10px 0 0;
+    grid-template-columns: minmax(0, 280px);
+    gap: 12px;
   }
   .core-panel .orb {
-    width: 250px;
+    width: min(160px, 100%);
   }
-  .core-copy {
-    text-align: center;
-    padding: 20px 0;
-  }
-  .core-kicker {
+  .talk-button > kbd {
     display: none;
-  }
-  .core-copy h2 {
-    font-size: 25px;
-    margin-top: 0;
-  }
-  .core-copy h2 > br {
-    display: none;
-  }
-  .core-copy h2 > br:after {
-    content: " ";
-  }
-  .core-copy > p {
-    font-size: 11px;
-    margin-top: 8px;
-  }
-  .desktop-break {
-    display: none;
-  }
-  .talk-button {
-    margin-top: 15px;
-  }
-  .talk-button > span {
-    display: inline;
-  }
-  .core-chat {
-    display: flex;
-    margin-left: auto;
-    margin-right: auto;
-    justify-content: center;
-  }
-  .core-footnote {
-    font-size: 8px;
-    gap: 8px;
-  }
-  .core-footnote > button {
-    font-size: 8px;
   }
   .missions-panel,
   .context-panel,

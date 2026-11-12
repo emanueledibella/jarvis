@@ -16,12 +16,90 @@
 .remote-shared > div { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; margin: .5rem 0; }
 .remote-shared span { overflow-wrap: anywhere; flex: 1; min-width: 150px; }
 .remote-mobile-nav { display:none; }
+.remote-notice { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:8px 16px; background:var(--panel); border-bottom:1px solid var(--line); font-size:13px; }
+.remote-shell .settings-tabs { max-width:100%; }
+.remote-shell .settings-tabs button { flex-shrink:0; min-height:44px; }
+.remote-panel label:has(input[type=checkbox]) { display:flex; align-items:flex-start; gap:10px; }
+.remote-panel { overflow-wrap:anywhere; min-width:0; }
+
+.remote-panel .executor-panel {
+  display: grid;
+  gap: 16px;
+  max-width: 720px;
+  margin: 0 0 24px;
+}
+.executor-heading,
+.executor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+.executor-heading { justify-content: space-between; }
+.executor-panel h3,
+.executor-panel p,
+.remote-panel .executor-panel label,
+.remote-panel .executor-panel .btn { margin: 0; }
+.executor-status,
+.executor-help { color: var(--muted); line-height: 1.5; }
+.executor-help { display: block; }
+.executor-status[data-state="connected"] { color: var(--green); }
+.executor-error { color: var(--red); }
+.executor-form,
+.executor-fields {
+  display: grid;
+  gap: 12px;
+}
+.executor-step {
+  min-inline-size: 0;
+  margin: 0;
+  padding: 12px 16px 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.executor-step legend {
+  padding-inline: 6px;
+  font-weight: 600;
+}
+.executor-folder-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 12px 16px;
+}
+.executor-folder-row label { min-width: 10rem; }
+.executor-panel input[type=checkbox] { flex-shrink: 0; }
+.executor-options summary {
+  width: fit-content;
+  color: var(--accent);
+  cursor: pointer;
+}
+.executor-options[open] > .executor-fields,
+.remote-panel .executor-options[open] > .executor-code-field { margin-top: 12px; }
+.executor-code-field { max-width: 26rem; }
+
+@media(max-width:760px) {
+  .remote-shell .settings-tabs { overflow-x:auto; flex-wrap:nowrap; }
+  .remote-shell .settings-grid { grid-template-columns:minmax(0,1fr); }
+  .remote-shell .settings-card { min-width:0; padding:18px; }
+  .remote-shell .section-title { flex-wrap:wrap; gap:14px; }
+  .remote-shell .settings-page .button-row { flex-wrap:wrap; }
+  .remote-shell .settings-page input,.remote-shell .settings-page select,.remote-shell .settings-page textarea { font-size:16px; max-width:100%; }
+}
 .remote-mobile-sections { display:grid; grid-template-columns:1fr 1fr; gap:12px; max-height:70dvh; overflow:auto; }
 @media(max-width:760px) {
   .remote-shell>.app-shell { display:flex; flex-direction:column; overflow:hidden; }
   .remote-shell .sidebar { display:none; }
   .remote-shell .workspace { flex:1; min-height:0; }
-  .remote-mobile-nav { display:flex; flex-shrink:0; justify-content:space-around; padding:6px 4px calc(6px + env(safe-area-inset-bottom)); border-top:1px solid var(--line); background:var(--panel,#091824); }
-  .remote-mobile-nav button { display:flex; flex:1; flex-direction:column; align-items:center; gap:5px; border:0; background:transparent; color:var(--muted,#91abb8); font:inherit; font-size:11px; cursor:pointer; min-height:44px; }
+  .remote-shell .remote-mobile-nav { display:flex; flex-direction:row; align-items:center; flex-shrink:0; width:100%; gap:0; margin:0; justify-content:space-around; padding:6px 4px calc(6px + env(safe-area-inset-bottom)); border-top:1px solid var(--line); background:var(--panel,#091824); }
+  .remote-shell .remote-mobile-nav button { display:flex; flex:1; min-width:0; width:auto; flex-direction:column; align-items:center; justify-content:center; gap:5px; padding:4px 2px; border:0; background:transparent; color:var(--muted,#91abb8); font:inherit; font-size:11px; cursor:pointer; min-height:44px; }
+  .remote-shell .remote-mobile-nav button.active:before { display:none; }
   .remote-mobile-nav button.active { color:var(--accent,#36d7e5); }
+  .remote-shell .toast {
+    bottom: calc(74px + env(safe-area-inset-bottom));
+    right: max(12px, env(safe-area-inset-right));
+    left: max(12px, env(safe-area-inset-left));
+    max-width: none;
+    transform: none;
+  }
 }

@@ -215,6 +215,61 @@ async def test_agent_recovers_weather_before_final_answer_in_ongoing_conversatio
     assert not await runtime.db.fetchall("SELECT * FROM approvals")
 
 
+@pytest.mark.parametrize("private", [False, True])
+async def test_public_research_uses_only_current_terms_and_search_result_urls(
+    runtime, public_sources, private,
+):
+    ctx = TaskContext("public-research", "Cerca online le previsioni di Torino", "cloud", "personal",
+                      private=private, sensitive_context=True)
+    ctx.mark_untrusted(routine=True)
+    marker = active_task.set(ctx)
+    try:
+        tools = {tool.name: tool for tool in build_tools(runtime)}
+        response = await tools["web_search"].ainvoke({"query": "previous private reference"})
+        assert "current user request" in response and not public_sources[0]
+        result = json.loads(await tools["web_search"].ainvoke({"query": "previsioni Torino"}))
+        url = result["results"][0]["url"]
+        response = await tools["read_web_page"].ainvoke({"url": url + "?data=previous-reference"})
+        assert "supplied by the user or returned by search" in response and not public_sources[1]
+        page = json.loads(await tools["read_web_page"].ainvoke({"url": url}))
+        assert page["text"] and public_sources[1] == [url]
+        assert not await runtime.db.fetchall("SELECT * FROM approvals")
+    finally:
+        active_task.reset(marker)
+
+
+async def test_a_reviewed_private_search_does_not_approve_its_result_urls(runtime, monkeypatch):
+    url = "https://example.com/forecast?data=private-reference"
+    proposals = []
+
+    async def search(*args):
+        return {"results": [{"url": url}]}
+
+    async def approval(ctx, name, arguments):
+        proposals.append(name)
+        return name == "web_search"
+
+    async def forbidden(*args):
+        raise AssertionError("Approving a search does not authorize exporting data to its results")
+
+    monkeypatch.setattr(runtime.productivity, "search", search)
+    monkeypatch.setattr(runtime.productivity, "fetch", forbidden)
+    monkeypatch.setattr(runtime.gateway, "approval", approval)
+    ctx = TaskContext("private-search", "Read my document", "cloud", "personal")
+    ctx.mark_sensitive_read()
+    ctx.mark_untrusted()
+    marker = active_task.set(ctx)
+    try:
+        tools = {tool.name: tool for tool in build_tools(runtime)}
+        result = json.loads(await tools["web_search"].ainvoke({"query": "private-reference"}))
+        assert result["results"][0]["url"] == url
+        page = json.loads(await tools["read_web_page"].ainvoke({"url": url}))
+        assert page["state"] == "rejected"
+        assert proposals == ["web_search", "read_web_page"]
+    finally:
+        active_task.reset(marker)
+
+
 @pytest.mark.parametrize("risk", ["read", "write"])
 async def test_mcp_read_failures_are_recoverable_but_uncertain_mutations_are_not_retried(runtime, monkeypatch, risk):
     calls = []

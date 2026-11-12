@@ -189,7 +189,7 @@ class TelephonyTunnel:
             "telephony.updated", {"state": self.state, "error": self.error}
         )
 
-    async def stop(self):
+    async def stop(self) -> None:
         async with self.lock:
             if self.job and not self.job.done():
                 self.state, self.url = "stopping", ""
@@ -198,7 +198,6 @@ class TelephonyTunnel:
             self.job = None
             self.state, self.url, self.error = "stopped", "", ""
             self.inbound_configured = False
-            return self.status()
 
     async def _spawn(self, name: str, arguments: list[str]):
         environment = process_environment()

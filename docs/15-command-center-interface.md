@@ -1,5 +1,12 @@
 # Command-center interface
 
+Scope update, November 3, 2026: this dated record describes the original command
+center. Shared React views now also include the expanded assistant, while remote
+bootstrap adds pairing, session/device control, explicit audio and administrator
+settings. Electron/Capacitor use responsive navigation and safe areas; they do
+not inherit local wake capture. See [current surfaces](06-interfaccia-e-dashboard.md#12-delivered-assistant-and-companion-surfaces)
+and [verification](33-current-state-and-verification.md).
+
 October 25, 2026. The owner's reference image informs the midnight-blue palette, cyan highlights, fine panel frames, and circular visual language. The composition, illustration, navigation, and implementation are original. The supplied image is not embedded or copied into application assets.
 
 ## Layout and data

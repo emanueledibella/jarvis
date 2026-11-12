@@ -1,5 +1,15 @@
 # Second Brain, personal memory, and integrations
 
+Updated November 3, 2026. The initial source inspection below is historical.
+Automatic retrieval and authorized dedicated writes are implemented as described
+in [chapter 22](22-default-memory-retrieval.md). The owning local/remote core holds
+the dedicated connection; companions never borrow Codex credentials.
+
+In remote mode Second Brain must be reachable without the Mac, with public-core
+OAuth callbacks and encrypted server-side credentials. Moving Jarvis does not
+move Second Brain, its data or inference dependencies. Private evidence is bound
+to its client session and remains in RAM. See [server setup](../deploy/README.md).
+
 ## 1. Evidence from the existing Second Brain
 
 MCP tools `recall` and `memory_status` were actually called on October 24, 2026. The service responded; at that moment Neo4j, Ollama, and the recovery worker were available, with no pending extraction or `needs_review` jobs. This was a point-in-time check, not a future availability guarantee.
@@ -11,7 +21,9 @@ We also read the local Second Brain repository. These paths are relative to that
 - Indexing outcome: `src/second_brain/engine.py`, line 572.
 - Remote personal access and OAuth: `docs/remote-personal.md`.
 
-The local copy has uncommitted changes. These references describe inspected content, without claiming the connected server runs that exact working tree. Verify the actual server contract in the adapter.
+The inspected local copy had uncommitted changes. These references describe that
+research snapshot, without claiming the connected server runs the same tree or
+that its current state was rechecked during this documentation review.
 
 ### Existing components
 
@@ -173,7 +185,12 @@ Changing Jarvis's conversation model does not change Second Brain extraction/emb
 
 ## 9. Calendar and productivity
 
-The calendar provider remains open. Normalize `list_calendars`, `list_events`, `get_free_busy`, and later `create_event`, `update_event`, `cancel_event` internally.
+Implemented calendar providers are Apple EventKit, Google, Microsoft and read-only
+ICS. Choose one in Productivity settings. The shared tools read/analyze events and
+perform permitted mutations through the gateway; ICS remains read-only. See
+[calendar analysis](25-calendar-assistant.md). Apple operations in remote mode
+require a selected granted macOS executor. A VM cannot read the Mac's EventKit
+database by copying Jarvis configuration.
 
 | Provider | Possible path | Qualification needed |
 | --- | --- | --- |
@@ -187,7 +204,10 @@ Creating attendee events may send invitations; disclose that effect before execu
 
 ## 10. Weather
 
-Initial proposal: Open-Meteo, manually configured city, 15–30 minute cache. Show temperature, conditions, precipitation, source, update time. Mark stale data; network loss does not authorize invention.
+Implemented: Open-Meteo with a manually configured city/coordinates, default
+20-minute refresh and date-aware forecasts covering today plus 15 days. Results
+retain source/freshness and incomplete values. Bounded public web recovery handles
+missing facts without inventing a forecast; see [operations](11-implementazione-e-verifica.md#weather-forecasts).
 
 The free API is for noncommercial use under its terms/attribution; evaluate a suitable commercial plan when needed. Source: [Open-Meteo Terms](https://open-meteo.com/en/terms).
 
@@ -197,16 +217,27 @@ Do not infer IP/precise location automatically when an owner-selected city suffi
 
 Search and page reading are separate tools. Retain query, URL, retrieval date, relevant passages. Label snippet-only answers; in-depth research opens relevant sources.
 
-Candidates include documented Brave/Tavily APIs; selection and budget remain to evaluate. For GitHub prefer API/repository content while considering branch, release, license, and date. Stars do not proxy technical quality.
+Implemented search providers are keyless DuckDuckGo, Brave and Tavily. Configure
+the chosen provider/key explicitly. Search and bounded page reading remain distinct.
+For GitHub prefer API/repository content while considering branch, release, license
+and date. Stars do not proxy technical quality.
 
 Bound fetch size, content types, timeouts, URLs, redirects, and internal destinations. Web tools cannot read `localhost` or infrastructure metadata. Analyze/cite documents as data without granting prompt-injection authority.
 
 Code questions select the relevant repository/revision. External specialist topics favor official documentation, standards, and primary sources. Private manuals require defined folder, index, and scope before ingestion.
 
-## 12. Later integrations
+## 12. Implemented assistant integrations
 
-Email, messaging, GitHub, Jira, documents, and Home Assistant may use MCP when suitable. Otherwise use a local API adapter; every function need not be a separate server.
+Gmail/Microsoft mail, Jira Rovo, GitHub, cited documents/OCR and Home Assistant MCP
+are implemented alongside Today, activities and event automations. Dedicated
+adapters preserve account/target/tool grants and exact effect handling; generic
+MCP cannot bypass the managed Jira/Home Assistant boundary. Arbitrary messaging
+providers are not implied. See [setup](29-assistant-setup.md) and the
+[feature gates](27-assistant-expansion.md).
 
-Any Atlassian Rovo installation configures site, project, and JQL limits. Owner-specific corporate references are excluded publicly. No issues were created or searched during analysis.
+The Jira adapter configures an exact site and project allowlist; its defaults are
+`https://teamsystem.atlassian.net/`, project `BVTL`, and ten results per search.
+These are configuration defaults, not proof of consent or organization access.
+Real credentials, provider data and private account outcomes stay outside Git.
 
 Before enabling, declare account, capabilities, shared data, permissions, and expiry behavior. A missing integration must not disable the whole assistant.

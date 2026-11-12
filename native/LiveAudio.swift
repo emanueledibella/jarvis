@@ -17,8 +17,18 @@ final class LiveAudioBuffer: @unchecked Sendable {
   private var overflow = false
   private var gated = false
   private var capturedFrames: Int64 = 0
-  private let preRollBytes = 72000  // 1.5 seconds, including wake-detection latency.
+  private let preRollBytes: Int
   private let maximumBytes = 480000  // Bounded startup/network buffer: 10 seconds.
+
+  init(preRollBytes: Int = 72000) {
+    self.preRollBytes = preRollBytes
+  }
+
+  struct Overflow: LocalizedError {
+    var errorDescription: String? {
+      "The audio connection is too slow. Reopen the conversation."
+    }
+  }
 
   @discardableResult
   func append(_ buffer: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
@@ -120,17 +130,23 @@ final class LiveAudioBuffer: @unchecked Sendable {
     return Float(min(1, sqrt(squares / Double(pcm.frameLength)) * 8))
   }
 
-  func begin(afterFrame: Int64? = nil, deferred: Bool = false, seed: Data? = nil) {
+  @discardableResult
+  func begin(afterFrame: Int64? = nil, deferred: Bool = false, seed: Data? = nil,
+             requireWholeRange: Bool = false) -> Bool {
     lock.lock()
     defer { lock.unlock() }
-    guard !active else { return }
+    guard !active else { return false }
     let start = capturedFrames - Int64(preRoll.count / 2)
+    if requireWholeRange, let frame = afterFrame, !(start..<capturedFrames).contains(frame) {
+      return false
+    }
     let discard = afterFrame.map { Int(min(Int64(preRoll.count), max(0, $0 - start) * 2)) } ?? 0
     pending = seed ?? Data(preRoll.dropFirst(discard))
     overflow = pending.count > maximumBytes || pending.count % 2 != 0
     if overflow { pending.removeAll() }
     active = true
     preparing = deferred
+    return true
   }
 
   func startStreaming() {
@@ -139,14 +155,11 @@ final class LiveAudioBuffer: @unchecked Sendable {
     preparing = false
   }
 
-  func drain() throws -> Data {
+  func drain(maxBytes: Int = 4800) throws -> Data {
     lock.lock()
     defer { lock.unlock() }
-    if overflow {
-      throw ServiceClient.ClientError.server(
-        "The audio connection is too slow. Reopen the conversation.")
-    }
-    let size = min(4800, pending.count)
+    if overflow { throw Overflow() }
+    let size = min(maxBytes, pending.count)
     let result = Data(pending.prefix(size))
     pending.removeFirst(size)
     return result

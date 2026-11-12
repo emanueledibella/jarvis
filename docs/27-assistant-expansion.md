@@ -1,8 +1,11 @@
 # Assistant expansion: requirements, implementation and verification
 
-This work extends the existing local assistant. Existing uncommitted calendar,
-voice and telephony work is preserved. The initial baseline on October 30, 2026
-was 468 passing Python tests and two platform/optional-tool skips.
+This record documents the October 30 expansion of the local assistant, preserving
+the calendar/voice/telephony work present at that stage. Its initial baseline was
+468 passing Python tests and two platform/optional-tool skips. The November 3
+commit `6ff2d65` also delivers the remote core and companions. Current status and
+rerun totals are in [chapter 33](33-current-state-and-verification.md); the
+feature-specific gate counts below remain historical evidence.
 
 ## Delivery order
 
@@ -19,9 +22,9 @@ sent merely to test the implementation.
 6. On-demand screen context and contextual assistance.
 7. Jira and GitHub work assistance and configuration.
 8. Home Assistant MCP connection, tool permissions and device workflows.
-9. Companion app architecture and smartphone access proposal. The owner asked to
-   understand this option before choosing the app/platform/hosting architecture;
-   remote exposure and mobile distribution are not enabled implicitly.
+9. Companion architecture analysis, subsequently implemented as remote core,
+   Electron desktop and Capacitor iOS/Android; see chapters 28 and 32.
+   Real hosting, signing and account/device rollout remain separate setup work.
 
 The ordering preserves the requested feature-by-feature workflow; dependencies
 added later enrich earlier views without replacing existing behavior.
@@ -261,8 +264,9 @@ directory guard.
 Gate: 23 automation/agent/scheduler cases and a further 30 automation/mail/
 organizer cases passed; lint, TypeScript and 10 frontend regressions passed.
 Mail polling observes the newest bounded page; high-volume mail is not claimed
-to have lossless provider push delivery. Remote push reception is deferred to the
-companion/server architecture; the existing phone tunnel is not reused.
+to have lossless provider push delivery. Remote push delivery is now implemented through the
+companion/server outbox, separately from these provider polling sources. The
+existing phone tunnel is not reused as the companion API.
 
 ## 5. Documents, images and attachments — analysis
 
@@ -517,14 +521,17 @@ integration/automation cases; lint, TypeScript and all 10 frontend regressions
 passed. Personal server consent, canonical URLs, account roles and real physical
 state changes still require the owner's installed Home Assistant.
 
-## 9. Companion app — architecture proposal
+## 9. Companion app — delivered after the architecture analysis
 
-See [the companion proposal](28-companion-architecture.md). The companion is a
-native mobile client and a separate authenticated remote gateway. Keeping the
-Mac awake and providing a separate always-on authority are distinct deployment
-choices. The owner asked to understand this choice before selecting platforms
-and hosting, so this work does not publish the local API or create a mobile app
-with assumed signing accounts, notification credentials or server infrastructure.
+The [companion architecture](28-companion-architecture.md) now describes the
+implemented remote-first choice: one server authority, Electron macOS/Windows,
+Capacitor iOS/Android and a separately paired outbound-WSS desktop executor.
+Private/session scope, administrator model/key setup, explicit voice, push,
+native sharing, isolated parsing and encrypted restore are implemented.
+The local bearer/native endpoints remain unavailable remotely. The delivered
+source does not assume real signing accounts, push credentials, a purchased VM or
+published store apps. See [implementation and build evidence](32-remote-implementation.md)
+and [current verification](33-current-state-and-verification.md).
 
 ## Final integration review
 

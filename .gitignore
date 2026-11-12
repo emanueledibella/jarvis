@@ -47,3 +47,6 @@ deploy/secrets/*
 *.jks
 *.keystore
 *.mobileprovision
+
+# Owner-imported health summaries
+apple-health.json

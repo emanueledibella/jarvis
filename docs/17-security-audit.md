@@ -1,7 +1,7 @@
 # Security and publication audit
 
-Audit started October 25, 2026; remediation and verification continued on October
-26. This public record deliberately omits original identifiers, private paths,
+Audit started October 25, 2026; the dated entries extend through November 3.
+The current mode/verification map is in [chapter 33](33-current-state-and-verification.md). This public record deliberately omits original identifiers, private paths,
 host inventories, credentials, account state and diagnostic payloads.
 
 ## Scope and methods
@@ -189,6 +189,16 @@ the normal tool permission and approval gateway.
 
 ## November 3: publication check for the remote core and companions
 
+The source scope now includes the device-authenticated server boundary, distinct
+companion/admin/executor grants, rotating refresh/reuse rejection, private
+session/object filtering, revision-bound settings and initiating-device OAuth.
+The local owner token/native bridge is not published. Executor WSS uses local
+grants/hashes/deadlines and receipt reconciliation; prefix checks are not a code
+sandbox. Remote parsing is isolated from the core volume/credentials/network.
+Encrypted age restore revokes historical device credentials/pairing, disables
+routine execution and sets emergency stop. See [the security policy](../SECURITY.md#remote-core-and-companion-boundary)
+and [remote implementation](32-remote-implementation.md).
+
 The publication check covers the complete source tree, new companion assets,
 deployment examples, and named branch/tag/origin history. Gitleaks 8.30.1 runs
 with full redaction. Independent home-path checks and read-only exact comparisons
@@ -208,3 +218,10 @@ Verification passed 617 Python tests with two platform-specific skips, 14 web
 tests, two desktop companion tests, and 181 native scenarios. Python lint and the
 TypeScript/Vite production build also passed. These checks do not replace signed
 device testing or establish the absence of every possible vulnerability.
+
+The documentation review independently reran the existing Python, web, desktop
+bridge and native suites; see [current results](33-current-state-and-verification.md#verification-on-november-3).
+It did not repeat live dependency advisories, history rewrite or provider/account
+checks. The earlier build audit recorded 16 moderate companion build-toolchain
+findings, separately from its runtime dependency result; chapter 32 preserves
+that limitation rather than claiming an entirely clean toolchain audit.

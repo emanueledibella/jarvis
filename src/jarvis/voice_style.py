@@ -1,5 +1,6 @@
 from .calendar_assistant import CALENDAR_VOICE_POLICY
 from .language import language_instructions
+from .personality import personality_instructions
 
 ITALIAN_COMPANION = (
     "An adult male voice with a warm, medium-low register and a smooth, lightly resonant "
@@ -34,6 +35,7 @@ def voice_instructions(settings) -> str:
         + CALENDAR_VOICE_POLICY
         + "\nVocal qualities: "
         + settings.desktop_voice_style
+        + personality_instructions(settings.response_personality, spoken=True)
     )
 
 

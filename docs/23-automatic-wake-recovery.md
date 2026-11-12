@@ -1,14 +1,25 @@
 # Automatic wake recognition recovery
 
+Platform scope, November 3, 2026: this watchdog belongs to the **local AppKit
+service/native bridge**. Remote mode disables native wake/capture and does not
+restart a companion's microphone. Electron/Capacitor explicit recording has its
+own UI/permission lifecycle. See [current modes](33-current-state-and-verification.md).
+
 The native recognizer already retries ended or stalled Speech tasks. Some failures need
 the audio capture graph to be rebuilt as well. A local service watchdog now escalates
 those failures automatically, using a dedicated native operation rather than an AI task.
+The [latest workspace update](34-voice-listening-continuity.md) additionally requires
+fresh sustained audible input after a soft retry before escalating a stalled
+recognizer. It retains the separate ended-task/stopped-capture/transient-error paths.
 
 ## Detection and recovery
 
 The service observes fresh native counters and state once per second. After a native
 liveness retry, 12 seconds without further recognition progress can trigger a complete
-capture restart. An idle/ended recognition task must remain unhealthy for 45 seconds;
+capture restart. In the latest workspace, an otherwise quiet replacement recognizer
+does not qualify: at least 0.25 seconds of audible input after that retry must have
+been observed, with fresh evidence within five seconds, or the exhausted transient
+service-error path must apply. An idle/ended recognition task must remain unhealthy for 45 seconds;
 stopped audio-buffer progress has a 60-second grace period. Fresh audio in a quiet,
 lazily starting recognizer is healthy and does not trigger recovery.
 

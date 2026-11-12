@@ -18,3 +18,5 @@
 **/GoogleService-Info.plist
 web/tests
 web/*.tsbuildinfo
+
+**/apple-health.json

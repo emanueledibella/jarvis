@@ -35,6 +35,7 @@ export default function Today({ scope, privateMode, privacyRevision, notify, onA
     }).catch((e) => { if (!controller.signal.aborted) setError(e.message); });
     return () => controller.abort();
   }, [scope, refresh, privacyRevision]);
+  const calendarNeedsAuthorization = data?.calendar.state === "reauthorization_required";
 
   async function save() {
     if (!prefs) return;
@@ -71,13 +72,15 @@ export default function Today({ scope, privateMode, privacyRevision, notify, onA
           <h2>{tr("Outstanding activities")}</h2>
           {(data.organizer?.activities || []).filter((item: Json) => item.state !== "completed").slice(0, 10).map((item: Json) => <article key={item.id}><strong>{item.title}</strong>{item.due_at && <p>{formatDate(item.due_at)} {item.overdue && tr("Overdue")}</p>}</article>)}
           <h2>{tr("Calendar")}</h2>
-          <p>{tr("Source status")}: {tr(data.calendar.state || "available")}</p>
+          <p>{tr("Source status")}: {tr(calendarNeedsAuthorization ? "Calendar authorization required" : data.calendar.state || "available")}</p>
           {(data.calendar.analysis?.state === "partial" || data.calendar.partial || data.calendar.truncated) && <p role="status">{tr("Calendar coverage is incomplete. Availability cannot be guaranteed.")}</p>}
           {!!data.calendar.analysis?.conflicts?.length && <p role="status">{tr("Overlapping commitments need attention.")}</p>}
           {(data.calendar.events || []).map((event: Json, i: number) => <article key={i}>
             <strong>{event.title}</strong><p>{event.all_day ? tr("All day") : formatDate(event.start)}{event.end && " — " + formatDate(event.end)}</p>
           </article>)}
-          {!data.calendar.events?.length && <p>{tr("No events returned by this source.")}</p>}
+          {calendarNeedsAuthorization
+            ? <p role="status">{tr(data.calendar.message)}</p>
+            : !data.calendar.events?.length && <p>{tr("No events returned by this source.")}</p>}
         </section>
         <section className="assistant-card">
           <h2>{tr("Weather")}</h2>

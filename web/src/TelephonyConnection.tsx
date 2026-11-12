@@ -23,6 +23,7 @@ export function TelephonyTunnelPanel({
   const active = ["starting", "running", "stopping"].includes(status.state);
   const starting = status.state === "starting" || action === "start";
   const stopping = status.state === "stopping" || action === "stop";
+  const remote = status.hosting === "remote";
   const labels: Record<string, string> = {
     loading: "Checking telephony…",
     stopped: "Telephony off",
@@ -39,13 +40,17 @@ export function TelephonyTunnelPanel({
         </Badge>
         <p>
           {tr(
-            "Jarvis starts and stops the secure connection for you. Quitting Jarvis also closes the connection.",
+            remote
+              ? "The remote core connects to Twilio and manages calls. Closing this app keeps telephony active."
+              : "Jarvis starts and stops the secure connection for you. Quitting Jarvis also closes the connection.",
           )}
         </p>
         {status.state === "starting" && (
           <p>
             {tr(
-              "Creating and checking the connection. This may take up to three minutes.",
+              remote
+                ? "Checking the core's public HTTPS connection and the incoming call configuration."
+                : "Creating and checking the connection. This may take up to three minutes.",
             )}
           </p>
         )}
@@ -64,7 +69,13 @@ export function TelephonyTunnelPanel({
           {tr(status.error)}
         </p>
       )}
-      {status.dependencies &&
+      {Array.isArray(status.requirements) && status.requirements.length > 0 && (
+        <div className="info-box" role="status">
+          <strong>{tr("Complete these telephony settings before activation:")}</strong>
+          <ul>{status.requirements.map((label: string) => <li key={label}>{label}</li>)}</ul>
+        </div>
+      )}
+      {!remote && status.dependencies &&
         (!status.dependencies.caddy || !status.dependencies.cloudflared) && (
           <p className="hint" role="alert">
             {tr(
@@ -118,7 +129,7 @@ export default function TelephonyConnection({
   locked,
 }: {
   prepare: () => Promise<void>;
-  onChanged: (enabled: boolean) => void;
+  onChanged: (enabled: boolean) => void | Promise<void>;
   notify: (text: string, error?: boolean) => void;
   locked: boolean;
 }) {
@@ -161,7 +172,7 @@ export default function TelephonyConnection({
       if (selected === "start") await prepare();
       const result = await post("/telephony/" + selected);
       setStatus(result);
-      onChanged(selected === "start");
+      await onChanged(selected === "start");
       notify(
         selected === "start" ? "Telephony is starting." : "Telephony is off.",
       );

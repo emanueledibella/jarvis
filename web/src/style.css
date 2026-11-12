@@ -123,6 +123,10 @@ select {
 textarea {
   resize: vertical;
 }
+/* iPhone WebKit scales focused text fields to a legible 16px. */
+:root[data-platform="ios"] :is(textarea, input:not([type="checkbox"], [type="file"], [type="radio"], [type="range"])) {
+  font-size: 16px;
+}
 button {
   border: 0;
   background: none;
@@ -654,6 +658,37 @@ nav > button b {
 .composer:focus-within {
   border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
 }
+.chat-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  list-style: none;
+  padding: 0;
+  margin: 0 0 10px;
+  max-height: 100px;
+  overflow: auto;
+}
+.chat-attachments li {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  max-width: 100%;
+  padding-left: 9px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.chat-attachments li > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-attachments .icon-btn {
+  flex: 0 0 auto;
+  padding: 5px;
+}
 .composer > textarea {
   padding: 0;
   background: none;
@@ -973,6 +1008,16 @@ nav > button b {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 20px;
 }
+@media (width > 980px) {
+  .voice-settings-grid {
+    grid-template-rows: auto 1fr;
+    align-items: start;
+  }
+  .voice-settings-grid > .voice-shared-settings {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
+}
 .settings-card {
   border: 1px solid var(--line);
   border-radius: 10px;
@@ -1043,6 +1088,19 @@ nav > button b {
 .field small {
   font-size: 10px;
   line-height: 1.7;
+}
+.personality-value {
+  margin-inline-start: auto;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.personality-slider input[type="range"] {
+  min-height: 28px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  accent-color: var(--accent);
 }
 .form-grid {
   display: grid;
@@ -1804,9 +1862,6 @@ td code {
   }
   .orb {
     width: 250px;
-  }
-  .orb-state h2 {
-    font-size: 20px;
   }
   .quick-requests > button {
     font-size: 10px;

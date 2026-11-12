@@ -251,6 +251,7 @@ class RemoteService:
             "locked": caps.get("locked", True),
             "voice_state": "unavailable",
             "executor_id": key,
+            "screen_capture_granted": "screen.capture" in caps.get("native", []),
             "calendar_state": "authorized"
             if "calendar.list" in caps.get("native", [])
             else "unavailable",
@@ -265,7 +266,7 @@ class RemoteService:
             raise ValueError(
                 "Select one connected desktop executor with the required local grants."
             )
-        context = active_task.get()
+        context = active_task.get(None)
         expected = dict(client.session)
         if context and (
             context.scope != expected["scope"] or context.private != expected["private"]
@@ -289,7 +290,7 @@ class RemoteService:
                 operation,
                 arguments,
                 scope=client.session["scope"],
-                ctx=active_task.get(),
+                ctx=context,
                 ttl=timeout,
             )
         )

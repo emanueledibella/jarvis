@@ -1,5 +1,10 @@
 # OpenAI voice conversation
 
+Scope update, November 3, 2026: this guide covers the **local native Mac Live
+path**. Remote companions use explicit STT/review/TTS with their own configured
+models/rates, as documented in [chapter 33](33-current-state-and-verification.md).
+Carrier Live audio is a third transport, described in chapter 14.
+
 Desktop voice has two selectable paths. Apple keeps recognition/synthesis on the Mac. OpenAI Live uses `gpt-live-1` for audio dialogue and delegates reasoning/tools to Deep Agents. Text-model selection is independent and configured separately from voice. No personal model selection, account state, or provider credentials are published.
 
 ## Activation and audio
@@ -16,9 +21,15 @@ Keep the MacBook lid open for the built-in microphone. Closed-lid use requires e
 
 ## Independent interface and conversation languages
 
-The interface can be English or Italian, independently of conversation language. Source comments and documentation are English. `response_language=auto` applies one shared language policy to Deep Agents and OpenAI Live. Complete Italian requests produce Italian replies; complete English requests switch to English. Fillers, accents, names, and English tool results do not change the conversation language. Before a substantive request, use the configured recognition locale as fallback.
+The interface can be English or Italian, independently of conversation language.
+Interface selection does not translate source files or documentation.
+`response_language=auto` applies one shared language policy to Deep Agents and
+OpenAI Live. Complete Italian requests produce Italian replies; complete English
+requests switch to English. Fillers, accents, names and English tool results do
+not change the conversation language. Before a substantive request, use the
+configured recognition locale as fallback.
 
-Apple wake recognition still uses `language`, initially `it-IT`; it does not continuously auto-switch transcription locales. After activation OpenAI receives audio and can identify the spoken language independently. With the Apple synthesis path, local `NLLanguageRecognizer` chooses the response voice; an explicit voice ID takes precedence. Phone STT no longer pins transcription to Italian; fixed phone authentication/service prompts are English.
+Apple wake recognition still uses `language`, initially `it-IT`; it does not continuously auto-switch transcription locales. After activation OpenAI receives audio and can identify the spoken language independently. With the Apple synthesis path, local `NLLanguageRecognizer` chooses the response voice; an explicit voice ID takes precedence. Phone STT does not pin transcription to Italian; carrier PIN prompts now follow the Italian/English response/recognition-language policy.
 
 Set a preferred response tag, such as `it-IT` or `en-GB`, in Voice settings or `JARVIS_RESPONSE_LANGUAGE`; explicit requests can still switch language. Prompt design follows [OpenAI Live prompting](https://developers.openai.com/api/docs/guides/live-prompting) and the [multilingual voice policy guidance](https://developers.openai.com/api/docs/guides/voice-prompting).
 
@@ -28,11 +39,32 @@ GPT-Live uses `client` delegation. Associate bounded transcript fragments with d
 
 Return results to voice only after the backend records outcomes. Local tools, Second Brain, and actions still use the gateway. Authorized Second Brain reads and dedicated memory writes run without per-operation confirmation; connection privileges and privacy/source checks still apply. Other mutations that require approval retain their dashboard proposals; a spoken “yes” does not approve them. Closing dialogue stops audio; accepted work may continue and remains visible in Tasks.
 
+When a spoken turn starts a weather, web or calendar lookup, Jarvis can give one
+brief update while the lookup runs. Other slow turns get a short update after
+about a second and a half. The update follows the end of the user's request;
+fast replies can go straight to the answer. Live sends the update through the
+[provider's spoken commentary event](https://developers.openai.com/api/docs/guides/live-delegation#send-the-right-kind-of-update)
+and delivers the verified result separately. The companion can read both
+phrases with the selected voice even when it submitted a local transcript.
+
+Public web lookups run directly. When prior chat makes the context sensitive,
+automatic searches use terms from the current request, and page reads use exact
+URLs supplied by the user or returned by search. Protected data egress and
+actions that change external state still follow their existing approval rules.
+
 `local_strict` rejects cloud sessions. Profile/scope/privacy-revision changes block subsequent transmission. Private mode keeps task contents in RAM without persistent dialogue messages/checkpoints. Live sessions use `store=false`; this does not replace provider data-processing terms.
 
 Architecture/delegation follow the [OpenAI Live guide](https://developers.openai.com/api/docs/guides/live) and [delegation contract](https://developers.openai.com/api/docs/guides/live-delegation). Transport follows the [official WebSocket guide](https://developers.openai.com/api/docs/guides/voice-websockets).
 
 ## Spending and availability limits
+
+The latest workspace [listening-continuity update](34-voice-listening-continuity.md)
+tracks audible input/queued playback as well as transcript progress, waits for
+the configured quiet period before delegating a complete request and preserves
+local dictation across Apple task renewals. Quiet keepalive PCM alone is not
+activity. `listen_timeout_seconds` is the wait for speech, not a maximum command
+length; the session duration cap below remains independent. Closure reasons are
+reported to the native client. These checks do not establish physical acoustics.
 
 Configurable sessions default to a maximum 120 seconds and close after 30 seconds without conversational activity when no task is pending. Waiting for the wake phrase opens no OpenAI connection.
 

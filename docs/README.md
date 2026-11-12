@@ -1,84 +1,100 @@
-# Jarvis — analysis and implementation
+# Jarvis documentation
 
-Analysis started **October 24, 2026**, with subsequent voice, language, interface, portable build, and security updates. Version **0.1.0** includes the native Mac app and a portable Windows/Linux service/dashboard preview. Start with the [project README](../README.md) and [operations guide](11-implementazione-e-verifica.md). Chapters 01–09 preserve the initial dossier; 10–25 describe implemented choices and verification.
+Updated November 4, 2026. The repository contains a local assistant and an
+implemented remote core with desktop/mobile companions. Begin with
+[Current state and verification](33-current-state-and-verification.md) and
+[the changelog](../CHANGELOG.md) for delivered functionality, platform boundaries,
+test results and remaining release work.
 
-## Confirmed decisions
+## Start here
 
-- **Initial Mac-only installation**, extended to portable Windows/Linux builds at the owner's request. No external server required for the core; native wake/desktop voice still requires the Mac app.
-- **Both cloud and local models**, configurable and selectable for work.
-- Voice activation by saying **“Jarvis”**, without opening a window each time.
-- Local/MCP tools, web research, programming, everyday tasks, existing Second Brain memory.
-- Real-time two-way phone dialogue as a complete-product capability.
-- Futuristic HUD-inspired interface, central audio-reactive orb, quick weather/calendar information.
-- Analysis followed by implementation at the owner's request. Future work remains explicitly identified in coverage.
-- English/Italian interface selection with **Italian conversation retained** and automatic response-language adaptation.
-
-**Local availability:** The Mac app works with its window closed while logged in. Portable Windows/Linux keeps running while its service console remains open. Shutdown, sleep, or missing connectivity limit timely work/calls. Apply explicit recovery rules on wake. A server is a later evolution.
-
-## Recommendation and implementation
-
-The service uses **Python + LangGraph + Deep Agents**, a common policy/tool gateway, Second Brain MCP memory, persistent scheduling, and separate voice handling. **AppKit/WebKit + React** replaced the initial Tauri candidate and assigns macOS permissions directly to the bundle. Apple on-device Speech handles wake detection; OpenAI Live optionally handles post-activation conversation; Twilio has its own adapter. Rationale: [implementation design](10-progetto-esecutivo.md).
-
-This selection follows documented comparisons/product constraints. Pipecat and LiveKit remain evaluated alternatives, not mandatory dependencies. Actual implementation experiments are recorded separately. Sources: [Deep Agents](https://docs.langchain.com/oss/python/deepagents/overview), [Pipecat](https://github.com/pipecat-ai/pipecat), [LiveKit Agents](https://github.com/livekit/agents).
-
-## Reading the dossier
-
-| Document | Contents |
+| Goal | Guide |
 | --- | --- |
-| [01 — Vision and requirements](01-visione-e-requisiti.md) | Scenarios, identified functional requirements, priorities, acceptance |
-| [02 — GitHub/framework research](02-ricerca-github-e-framework.md) | Projects, reusable ideas, limitations, licenses |
-| [03 — Architecture](03-architettura.md) | Mac processes, flows, agents, persistence, contracts, technical decisions |
-| [04 — Voice, presence, telephony](04-voce-presenza-e-telefonia.md) | Wake phrase, interruption, audio, calls, availability, failures |
-| [05 — Memory and integrations](05-memoria-e-integrazioni.md) | Existing Second Brain, adoption, calendar, tools, search |
-| [06 — Interface and dashboard](06-interfaccia-e-dashboard.md) | Screens, orb, widgets, accessibility, onboarding, application icon |
-| [07 — Configuration/security/operations](07-configurazione-sicurezza-e-operativita.md) | Proposed env contract, local/cloud profiles, authorization, lifecycle |
-| [08 — Roadmap/validation/costs](08-roadmap-validazione-e-costi.md) | Phases, experiments, targets, dependencies, cost model |
-| [09 — Sources and decisions](09-fonti-e-decisioni.md) | Primary sources, inspected revisions, local evidence, open decisions |
-| [10 — Implementation design](10-progetto-esecutivo.md) | Implemented choices, components, invariants |
-| [11 — Implementation and verification](11-implementazione-e-verifica.md) | Operations, real/automated tests, coverage, remaining checks |
-| [12 — Environment configuration](12-configurazione-env.md) | All 93 implemented settings |
-| [13 — OpenAI voice](13-voce-openai.md) | GPT-Live, multilingual policy, delegation, RAM audio, privacy, budget |
-| [14 — Audio quality and vocal style](14-audio-quality-and-voice.md) | Continuous playback, Italian companion profile, custom voice IDs, selective spoken citations |
-| [15 — Command-center interface](15-command-center-interface.md) | Original HUD composition, live states, responsive layout, shared theme, asset delivery, verification |
-| [17 — Security audit](17-security-audit.md) | Publication privacy, corrected security boundaries, regression evidence and residual trust limits |
-| [18 — Interface language](18-interface-language.md) | English/Italian UI, persistence, native menus, independent voice language |
-| [19 — Wake response timing](19-wake-response-timing.md) | Local listening cues, cancellation during requests, expired greetings, bounded audio, verification limits |
-| [20 — Spoken interruption](20-spoken-interruption.md) | Shared echo cancellation, local speech detection, protected fallback, fresh playback generation and RAM-only conversation handoff |
-| [21 — Lighting integrations](21-lighting-integrations.md) | Configurable models and connections, native Hue Bluetooth, MCP field mapping, scoped grants and state verification |
-| [22 — Default memory retrieval](22-default-memory-retrieval.md) | Automatic Second Brain reads, personal-question prefetch, shared text/voice policy, scope and privacy boundaries |
-| [23 — Automatic wake recovery](23-automatic-wake-recovery.md) | Local watchdog, guarded native audio restarts, backoff, mute/lock/activity protections and publication checks |
-| [24 — Microphone selection](24-microphone-selection.md) | Per-app input choice, persistent local UIDs, device changes, reconnect behavior and private metadata |
-| [25 — Calendar specialist](25-calendar-assistant.md) | Shared calendar prompt, verified overlaps and imminent events, explicit urgency, time zones and coverage limits |
-| [26 — Managed telephony](26-managed-telephony.md) | Activate/Deactivate controls, supervised Caddy/Cloudflare, generated URLs, incoming webhook updates and process cleanup |
-| [27 — Assistant expansion](27-assistant-expansion.md) | Requirements, security analysis, sequential implementation and verification of the eight assistant feature groups |
-| [28 — Smartphone companion](28-companion-architecture.md) | Proposed mobile experience, pairing, remote gateway, notifications, awake Mac versus always-on authority |
-| [29 — Assistant setup](29-assistant-setup.md) | Today, activities, mail OAuth, automations, documents, chosen windows, Jira/GitHub and Home Assistant configuration and acceptance |
-| [30 — Cloud deployment feasibility](30-cloud-deployment-feasibility.md) | Small VM sizing, measured Linux memory, API and infrastructure costs, remote access work and Mac/Second Brain boundaries |
-| [31 — Remote core and device agents](31-remote-core-and-device-agents.md) | Original architecture analysis for the always-on core, companion apps and outbound executor |
-| [32 — Remote implementation and verification](32-remote-implementation.md) | Consolidated decisions, requirements, implementation, security boundaries, builds, tests and remaining release checks |
-| [16 — Cross-platform builds](16-cross-platform-builds.md) | Windows/Linux portable packages, OS boundaries, universal dependencies, native CI, build and verification procedures |
+| Install the local Mac app or Windows/Linux portable service | [Repository README](../README.md) |
+| Deploy one always-on remote core | [Server operations](../deploy/README.md) |
+| Build/pair macOS, Windows, iOS or Android companions and desktop executors | [Companion guide](../companions/README.md) |
+| Configure companion wake/Live voice and Twilio with the native settings UI | [Companion parity and checks](35-companion-native-parity.md) |
+| Configure Today, activities, mail, automations, documents, Jira/GitHub and Home Assistant | [Assistant setup](29-assistant-setup.md) |
+| Set up the interactive browser, Python sandbox and Apple Health/HealthKit sharing | [Browser, Python and Health](37-browser-python-apple-health.md) |
+| Find actual environment settings/defaults | [Configuration reference](12-configurazione-env.md) |
+| Understand local/remote boundaries and data ownership | [Architecture](03-architettura.md), [remote implementation](32-remote-implementation.md) |
+| Inspect delivered coverage and reproducible checks | [Current state](33-current-state-and-verification.md), [implementation/operations](11-implementazione-e-verifica.md) |
+| Review authorization, credentials, privacy and publication | [Security policy](../SECURITY.md), [operations](07-configurazione-sicurezza-e-operativita.md), [dated audit](17-security-audit.md) |
 
-The catalog has **132 functional requirements**: 96 P0, 34 P1, two P2. Priorities describe product completeness; the roadmap distinguishes first demo from later delivery. Existing numbered filenames are stable to preserve links.
+Local AppKit/WebKit and the Mac companion support wake/audio in an awake user
+session; mobile companions listen while open, with separate local consent.
+Remote mode has one server authority, Electron macOS/Windows companions,
+Capacitor iOS/Android companions and a separate outbound-WSS executor.
+Server-side work can continue with the desktop off; its local files and Apple
+capabilities cannot. Second Brain and Home Assistant need independently available
+service/network paths.
 
-## Five conclusions
+## Complete document catalog
 
-1. **Continuous presence belongs to the macOS service.** A browser page alone does not fulfill it.
-2. **Reasoning and voice have different timing.** Dialogue must remain usable while long work continues with separate state/cancellation.
-3. **Personal memory needs clear authority.** Second Brain stores facts; agent checkpoints store execution state.
-4. **Changing models does not ensure compatibility.** Test tools, Italian, context, audio, and supported parameters on the actual model.
-5. **Calls need a carrier.** Voice models do not assign a number or keep a sleeping Mac available.
+| Document | Contents and status |
+| --- | --- |
+| [01 — Vision and requirements](01-visione-e-requisiti.md) | Original 132-requirement baseline and subsequent assistant/remote scope additions; requirements are not all passed acceptance tests |
+| [02 — GitHub/framework research](02-ricerca-github-e-framework.md) | Dated October 24 research; candidate frameworks are distinct from the delivered stack |
+| [03 — Architecture](03-architettura.md) | Current local/remote topology, identities, tasks, device dispatch, data and availability |
+| [04 — Voice, presence, telephony](04-voce-presenza-e-telefonia.md) | Initial voice/call design, with current native/companion/phone boundaries |
+| [05 — Memory and integrations](05-memoria-e-integrazioni.md) | Second Brain authority, retrieval/adoption, implemented integration map and server reachability |
+| [06 — Interface and dashboard](06-interfaccia-e-dashboard.md) | Design principles, command center, expanded assistant pages and responsive remote surfaces |
+| [07 — Configuration/security/operations](07-configurazione-sicurezza-e-operativita.md) | Current configuration precedence, profiles, local/remote authority, privacy and recovery |
+| [08 — Roadmap/validation/costs](08-roadmap-validazione-e-costi.md) | Original phases/targets, delivered milestones and remaining real-device/account acceptance; dated cost examples |
+| [09 — Sources and decisions](09-fonti-e-decisioni.md) | Historical primary sources plus implemented decisions and source revision |
+| [10 — Implementation design](10-progetto-esecutivo.md) | Current components, repository layout, contracts and invariants |
+| [11 — Implementation and verification](11-implementazione-e-verifica.md) | Shared/local runtime operations, coverage and current remote extension |
+| [12 — Environment configuration](12-configurazione-env.md) | All 99 shared settings, 12 remote server options, Compose/worker configuration and ownership |
+| [13 — OpenAI voice](13-voce-openai.md) | Local Mac Live activation, delegation, language, RAM audio, budget; distinct from companion STT/TTS |
+| [14 — Audio quality and vocal style](14-audio-quality-and-voice.md) | Native playback, vocal style, custom voice IDs, phone Live voice and source presentation |
+| [15 — Command-center interface](15-command-center-interface.md) | HUD composition, real state, shared theme and dated UI checks |
+| [16 — Cross-platform builds](16-cross-platform-builds.md) | Local Windows/Linux portable baseline, OS boundaries and build checks; separate from companion packages |
+| [17 — Security audit](17-security-audit.md) | Dated findings/remediation, publication controls and remote trust boundaries |
+| [18 — Interface language](18-interface-language.md) | English/Italian UI and local/remote preference ownership, independent of speech language |
+| [19 — Wake response timing](19-wake-response-timing.md) | Local Mac listening cues, manual Live startup, bounded audio and timing checks |
+| [20 — Spoken interruption](20-spoken-interruption.md) | Local Mac echo cancellation, speech detection and bounded RAM handoff |
+| [21 — Lighting integrations](21-lighting-integrations.md) | Local Hue Bluetooth and MCP mappings/grants; remote home-control boundary |
+| [22 — Default memory retrieval](22-default-memory-retrieval.md) | Automatic scoped Second Brain reads/writes, privacy and remote sessions |
+| [23 — Automatic wake recovery](23-automatic-wake-recovery.md) | Local AppKit watchdog, guarded restarts, backoff and counter-only diagnostics |
+| [24 — Microphone selection](24-microphone-selection.md) | Local Mac input choice/reconnect and private metadata; separate from companion microphones |
+| [25 — Calendar specialist](25-calendar-assistant.md) | Shared deterministic calendar analysis, voice policy and Apple executor availability |
+| [26 — Managed telephony](26-managed-telephony.md) | Local Caddy/Cloudflare lifecycle, reminder/Live preparation and remote external-ingress limits |
+| [27 — Assistant expansion](27-assistant-expansion.md) | Eight feature groups, dated implementation gates and subsequent remote delivery |
+| [28 — Companion architecture](28-companion-architecture.md) | Current client/identity overview and superseded Mac-first/React Native proposal |
+| [29 — Assistant setup](29-assistant-setup.md) | Local/remote setup, OAuth callbacks, documents/screen/workspace limits and acceptance |
+| [30 — Cloud feasibility](30-cloud-deployment-feasibility.md) | Dated VM benchmark/prices and current Compose sizing/deployment guidance |
+| [31 — Core and device-agent analysis](31-remote-core-and-device-agents.md) | Historical alternatives and requirements; delivered choices explicitly mapped to chapter 32 |
+| [32 — Remote implementation](32-remote-implementation.md) | Remote decisions, security, device jobs, packaging evidence and remaining release checks |
+| [33 — Current state and verification](33-current-state-and-verification.md) | Consolidated modes, capabilities, API contracts, rerun regression totals and outstanding work |
+| [34 — Voice listening continuity](34-voice-listening-continuity.md) | Latest workspace: retained dictation across recognition renewal, audio-aware Live inactivity/delegation and guarded wake recovery |
+| [35 — Companion/native parity](35-companion-native-parity.md) | Shared settings and Twilio, local wake recognition, companion Live, device boundaries and current checks |
+| [36 — OpenJarvis comparison](36-confronto-openjarvis.md) | Static comparison before implementing the selected extensions |
+| [37 — Browser, Python and Apple Health](37-browser-python-apple-health.md) | Worker setup, permissions, Health imports, platform limits and verification |
+| [38 — Harness review](38-harness-review.md) | Eight upstream harnesses, tool discovery, context limits, caching, loop guards and explicit coding mode |
+| [39 — Window automation and WhatsApp shortcuts](39-automazione-finestre-e-scorciatoie-whatsapp.md) | Desktop window management, WhatsApp deep links, and zero-touch background sending via Apple Shortcuts |
 
-## Initial research evidence
+The baseline catalog has 132 unique functional requirements: 96 P0, 34 P1 and two
+P2. It predates the expanded assistant and remote delivery. Their acceptance
+criteria are documented in chapters 01, 27, 32 and 33; this count is not a count of
+tests or a claim that every original P0 has passed real-device acceptance.
+Existing numbered filenames are retained to preserve links.
 
-- Empty initial Jarvis project.
-- Web research and direct GitHub metadata/README/documentation/source inspection.
-- Read-only Second Brain `recall`/`memory_status`.
-- Local Second Brain MCP/OAuth contract inspection, distinguishing uncommitted local evidence from published sources.
+## Reading evidence correctly
 
-Later implementation ran models, tests, and the Mac bundle as described in chapter 11. No competitors were installed, numbers purchased, paid calls placed, or existing Second Brain data altered.
+Research chapters retain dated source snapshots; they do not establish current
+competitor capabilities, prices or account eligibility. Early proposals are
+identified where later implementation chose a different stack or delivery order.
+The November 3 committed baseline is `6ff2d65`; subsequent voice-listening work
+is present in the workspace and described in chapter 34. Documentation updates
+do not turn either state into a signed production release.
 
-## Remaining decisions and verification
+Synthetic regressions verify contracts, scopes, effect handling and framework
+execution. Dated native/container/browser/package checks have their own limits.
+Personal OAuth consent, paid model quality, physical audio/device behavior,
+carrier billing and push delivery require separate intended-account/device checks.
+The earlier portable preview does not include all later source changes.
 
-Hardware/runtime/architecture were established in chapter 10. Personal calendar, phone account/rates, escalation rules, and remaining permissions need configuration. Connect Second Brain and model providers using dedicated local credentials. Personal account state and credential checks are deliberately omitted from this public dossier.
-
-Remaining tests include real OpenAI multilingual audio, acoustic interruption/echo, authorized calendar behavior, test-source memory writes, and telephony on a real line. Their absence is not counted as a passing test.
+Keep account-specific outcomes and local diagnostic artifacts private. Deployment
+requires real server/domain/credentials; iOS physical installs and push need
+appropriate developer/project setup. One server owns scheduling; local and remote
+cores never synchronize a live database or automatically fail over.

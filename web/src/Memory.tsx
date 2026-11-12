@@ -491,24 +491,7 @@ export function Integrations({ notify, openSettings }: Props) {
                 : tr("Streamable HTTP")}{" "}
               · {item.auth}
             </small>
-            <button
-              className="btn"
-              onClick={() =>
-                post("/integrations/" + item.name + "/connect")
-                  .then(() => {
-                    notify("Connection started.");
-                    load();
-                  })
-                  .catch((e) => notify(e.message, true))
-              }
-            >
-              {item.status?.state === "connecting" ? (
-                <LoaderCircle size={14} className="spin" />
-              ) : (
-                <RefreshCw size={14} />
-              )}
-              {tr("Connect / verify")}
-            </button>
+            <IntegrationConnect name={item.name} label={tr("Connect / verify")} notify={notify} onConnected={load} />
             {item.status?.error && (
               <small className="error-text">
                 {tr(item.status.error)}
@@ -607,3 +590,4 @@ export function Integrations({ notify, openSettings }: Props) {
     </div>
   );
 }
+import IntegrationConnect from "./IntegrationConnect";

@@ -6,6 +6,12 @@
 autorizzato; una VM acquistata, la pubblicazione negli store e credenziali di
 servizi reali restano operazioni distinte.
 
+Revisione documentale del 3 novembre sulla sorgente `6ff2d65`: la
+[matrice corrente](33-current-state-and-verification.md) raccoglie modalità,
+contratti e regressione rieseguita. Le evidenze di packaging/container/browser
+qui sotto sono quelle della consegna di sviluppo precedente alla revisione dei
+manuali; non sono state ripetute né trasformate in una release firmata.
+
 ## Decisioni confermate
 
 L'obiettivo è parlare con Jarvis da iPhone o Android anche a Mac spento, e poter
@@ -220,6 +226,9 @@ Le verifiche includono l'agente effettivo con modello sintetico, socket reale,
 parser in subprocess e container, backup age reale e browser con pairing,
 conversazione, approvazione, ripresa e impostazioni di una chiave sintetica.
 I conteggi e i pacchetti sono raccolti anche in `dist/companions/verification.json`.
+Quel manifest identifica uno snapshot di lavoro con base `b5e88a1` e modifiche
+locali, oltre agli hash degli artefatti; non è un manifest di release firmato per
+`6ff2d65`. Le build e gli audit mantengono la loro data e il proprio perimetro.
 La regressione Python conta **617 test superati e 2 saltati**, quella web
 **14 test superati**, il bridge desktop **2 test superati** e il codice nativo
 **181 scenari superati**. Android `assembleDebug` e `lintDebug`, iOS simulatore

@@ -1,6 +1,18 @@
 # Voice, continuous presence, and telephony
 
-This chapter is the initial design dossier. [Chapter 13](13-voce-openai.md) describes the implemented OpenAI Live path and multilingual behavior.
+This chapter preserves the initial voice/call design. Updated November 3, 2026:
+local AppKit wake/audio, companion STT/TTS and carrier calls are separate paths.
+[Chapter 13](13-voce-openai.md) covers local Live,
+[chapter 14](14-audio-quality-and-voice.md) phone Live, and
+[chapter 26](26-managed-telephony.md) managed/external ingress.
+The state table below applies to the **local core**. An implemented remote core
+can continue server-side tasks/calls with the Mac off when its dependencies and
+external telephony ingress are configured. Desktop native operations still need
+that Mac online; the stock remote image does not supervise Caddy/Cloudflare children.
+
+Companions use explicit 0.1–60 second recording, transcript review, text submission
+and optional TTS. They do not provide continuous background wake or local Mac Live
+echo/interruption behavior. See [current platform coverage](33-current-state-and-verification.md).
 
 ## 1. What “always active” means initially
 

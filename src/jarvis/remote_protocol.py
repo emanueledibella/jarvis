@@ -3,7 +3,17 @@
 import hashlib
 import json
 
-NATIVE_OPERATIONS = frozenset({"calendar.list", "calendar.create", "calendar.update", "calendar.delete", "screen.capture"})
+NATIVE_OPERATIONS = frozenset(
+    {
+        "calendar.list",
+        "calendar.create",
+        "calendar.update",
+        "calendar.delete",
+        "screen.capture",
+        "window.list",
+        "window.action",
+    }
+)
 OPERATIONS = NATIVE_OPERATIONS | frozenset(
     {
         "workspace_list",
