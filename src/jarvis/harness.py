@@ -65,7 +65,7 @@ GROUPS = {
     "home": ("light_", "lights_", "home_assistant_"),
     "organizer": ("organizer_", "activity_", "activities_", "project_", "today_overview"),
     "mail": ("mail_",),
-    "documents": ("document_", "documents_", "screen_"),
+    "documents": ("document_", "documents_", "screen_", "device_window_", "device_windows_"),
     "work": ("jira_", "github_", "development_"),
     "workspace": ("workspace_", "device_"),
     "web": ("web_search", "read_web_page", "browser_"),
@@ -73,7 +73,7 @@ GROUPS = {
     "health": ("apple_health_summary",),
     "automation": ("schedule_", "schedules_", "tasks_list", "task_cancel", "automation_event"),
     "integrations": ("list_mcp_tools", "call_mcp_tool"),
-    "phone": ("call_owner",),
+    "phone": ("call_owner", "whatsapp_"),
 }
 
 PLAYBOOKS = {
@@ -111,6 +111,9 @@ PLAYBOOKS = {
     ),
     "automation": (
         "Confirm routines only after the scheduler records them. Event analysis is read-only. Distinguish proposed work from executed effects."
+    ),
+    "phone": (
+        "Use call_owner to place a phone call. Use whatsapp_send_message to prepare or send a WhatsApp message or generate an Apple Shortcuts direct execution link."
     ),
 }
 
@@ -153,7 +156,7 @@ HINTS = {
     "health": r"apple (?:health|salute)|battito|workout|sonno|heart rate",
     "automation": r"automat|routine|schedule|ogni (?:giorno|luned|settiman)|every (?:day|week)|task",
     "integrations": r"\bmcp\b|integrazion|connectors",
-    "phone": r"telefon|chiamami|call me",
+    "phone": r"telefon|chiamami|call me|whatsapp|messagg",
 }
 
 WORKSPACE_EFFECTS = {"workspace_write", "workspace_edit", "workspace_mkdir", "workspace_command", "device_write", "device_command"}
@@ -201,7 +204,7 @@ def route_request(prompt: str, *, attachments=False, automation=False) -> Route:
             workspace = True
     if coding or workspace:
         groups.add("workspace")
-    private_domains = {"calendar", "documents", "health", "mail", "memory"}
+    private_domains = {"calendar", "documents", "health", "mail", "memory", "phone"}
     research_requested = bool(RESEARCH.search(value))
     research = research_requested and not (coding or attachments or private_domains & groups)
     if research:
