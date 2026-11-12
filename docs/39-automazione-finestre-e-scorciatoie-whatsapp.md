@@ -84,8 +84,16 @@ Quando l'utente richiede l'invio di un messaggio WhatsApp (es. *"Manda un messag
      https://wa.me/<NUMERO>?text=<MESSAGGIO>
      ```
      Utilizzabile da qualsiasi browser web.
-3. **Dispatch Diretto su Desktop:**
-   Se la richiesta include un `device_id` di un esecutore desktop connesso su cui è presente WhatsApp Desktop, Jarvis invia il job nativo `window.action` con `open_url` direttamente al computer dell'utente.
+3. **Dispatch Automatico Diretto su Esecutore Desktop (Zero Clic):**
+   - Il tool ricerca automaticamente gli esecutori Mac connessi nello scope dell'utente (`runtime.remote.jobs.devices`).
+   - Se un esecutore macOS con capacità `window.action` è connesso (ad es. il Mac dell'utente con `Jarvis Companion`), Jarvis inoltra direttamente il comando di esecuzione della scorciatoia Apple:
+     ```json
+     {"action": "open_url", "url": shortcut_link}
+     ```
+   - L'esecutore locale sul Mac riceve il comando ed esegue `NSWorkspace.shared.open(...)` per lanciare la scorciatoia `JarvisWhatsApp`.
+   - Se l'opzione "Mostra durante l'esecuzione" della scorciatoia è disattivata, **il messaggio WhatsApp viene inviato immediatamente in background in modo 100% automatico, senza alcun pop-up o clic manuale**.
+   - Jarvis conferma all'utente che il messaggio è stato inviato con successo, senza mostrare link di azione.
+   - Solo se nessun esecutore desktop è attivo o connesso (ad es. uso standalone da iPhone con Mac spento), Jarvis genera i link pronti con un tocco come fallback.
 
 ---
 
